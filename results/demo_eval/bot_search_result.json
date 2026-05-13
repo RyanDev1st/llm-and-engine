@@ -1,0 +1,4 @@
+{
+  "fallback": "weak community-style random/capture bot baseline, seeded locally because GitHub search returned no usable 400-800 ELO bot candidate",
+  "github_search": "No usable community 400-800 ELO bot candidate found via gh search in this environment."
+}

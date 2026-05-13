@@ -1,0 +1,48 @@
+{
+  "example_count": 12,
+  "model_type": "basic-template-narrator-sft-v1",
+  "templates": {
+    "best_move": [
+      [
+        "{\"best_move\": \"f1b5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -104, \"status\": \"ok\"}",
+        1
+      ],
+      [
+        "{\"best_move\": \"f3e5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -28, \"status\": \"ok\"}",
+        1
+      ],
+      [
+        "{\"best_move\": \"e7e5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -116, \"status\": \"ok\"}",
+        1
+      ]
+    ],
+    "eval": [
+      [
+        "Current engine bucket: white better (116 cp from White perspective).",
+        1
+      ],
+      [
+        "Current engine bucket: white better (108 cp from White perspective).",
+        1
+      ],
+      [
+        "Current engine bucket: black better (-80 cp from White perspective).",
+        1
+      ]
+    ],
+    "review_move": [
+      [
+        "Engine-backed review: a2a3 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from white better to black better.",
+        2
+      ],
+      [
+        "Engine-backed review: a2a3 is good. Best known alternative: f1b5. Evidence bucket moved from white better to black better.",
+        1
+      ],
+      [
+        "Engine-backed review: a7a6 is good. Best known alternative: e7e5. Evidence bucket moved from black better to white better.",
+        1
+      ]
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "cases": 4,
+  "router_accuracy": 1.0,
+  "router_correct": 4,
+  "rows": [
+    {
+      "expected_tool": "eval",
+      "narration": "Current engine bucket: white better (80 cp from White perspective).",
+      "predicted_tool": "eval",
+      "prompt": "Can you evaluate this position for me?",
+      "router_ok": true,
+      "scores": {
+        "best_move": -25.783135960981244,
+        "eval": -21.688118135434994,
+        "review_move": -25.783135960981244
+      },
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "best_move",
+      "narration": "{\"best_move\": \"h2h4\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -80, \"status\": \"ok\"}",
+      "predicted_tool": "best_move",
+      "prompt": "What move should I consider here?",
+      "router_ok": true,
+      "scores": {
+        "best_move": -14.209585874194577,
+        "eval": -21.505796578641043,
+        "review_move": -20.647337523930982
+      },
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: e2e4 is good. Best known alternative: h2h4. Evidence bucket moved from white better to black better.",
+      "predicted_tool": "review_move",
+      "prompt": "Was my move e2e4 good?",
+      "router_ok": true,
+      "scores": {
+        "best_move": -17.120976999314816,
+        "eval": -18.10459919697889,
+        "review_move": -12.292663262012516
+      },
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1f3 is good. Best known alternative: h2h4. Evidence bucket moved from white better to black better.",
+      "predicted_tool": "review_move",
+      "prompt": "Is g1f3 a good move in this position?",
+      "router_ok": true,
+      "scores": {
+        "best_move": -27.700058573163307,
+        "eval": -26.69875342953125,
+        "review_move": -26.090620660729204
+      },
+      "tool_status": "ok"
+    }
+  ],
+  "tool_ok": 4,
+  "tool_success_rate": 1.0
+}

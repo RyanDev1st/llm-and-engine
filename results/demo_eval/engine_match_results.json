@@ -1,0 +1,171 @@
+{
+  "demo_losses": 8,
+  "demo_score_rate": 0.575,
+  "demo_wins": 11,
+  "drawish": 1,
+  "games": 20,
+  "max_plies": 80,
+  "opponent": "weak community-style random/capture bot baseline, seeded locally because GitHub search returned no usable 400-800 ELO bot candidate",
+  "rows": [
+    {
+      "demo_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 530,
+      "game": 1,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "balanced",
+      "final_score_cp_white": 0,
+      "game": 2,
+      "outcome": "drawish",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 1550,
+      "game": 3,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 1220,
+      "game": 4,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -900,
+      "game": 5,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -520,
+      "game": 6,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 720,
+      "game": 7,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -520,
+      "game": 8,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "white better",
+      "final_score_cp_white": 100,
+      "game": 9,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -420,
+      "game": 10,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -300,
+      "game": 11,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 300,
+      "game": 12,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "black better",
+      "final_score_cp_white": -100,
+      "game": 13,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 600,
+      "game": 14,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -600,
+      "game": 15,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -2870,
+      "game": 16,
+      "outcome": "demo_win",
+      "plies": 42
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 300,
+      "game": 17,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 1130,
+      "game": 18,
+      "outcome": "demo_loss",
+      "plies": 80
+    },
+    {
+      "demo_color": "w",
+      "final_bucket": "white better",
+      "final_score_cp_white": 100,
+      "game": 19,
+      "outcome": "demo_win",
+      "plies": 80
+    },
+    {
+      "demo_color": "b",
+      "final_bucket": "black better",
+      "final_score_cp_white": -100,
+      "game": 20,
+      "outcome": "demo_win",
+      "plies": 80
+    }
+  ]
+}

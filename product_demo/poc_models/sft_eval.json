@@ -1,0 +1,57 @@
+{
+  "narrator": {
+    "exact_accuracy": 0.0,
+    "exact_matches": 0,
+    "examples": 3,
+    "grounded": 3,
+    "grounded_rate": 1.0,
+    "rows": [
+      {
+        "exact_ok": false,
+        "expected": "Current engine bucket: white better (80 cp from White perspective).",
+        "grounded_ok": true,
+        "predicted": "Current engine bucket: white better (116 cp from White perspective).",
+        "tool_name": "eval"
+      },
+      {
+        "exact_ok": false,
+        "expected": "Engine-backed review: a2a3 is good. Best known alternative: h2h4. Evidence bucket moved from white better to black better.",
+        "grounded_ok": true,
+        "predicted": "Engine-backed review: a2a3 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from white better to black better.",
+        "tool_name": "review_move"
+      },
+      {
+        "exact_ok": false,
+        "expected": "{\"best_move\": \"h2h4\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -80, \"status\": \"ok\"}",
+        "grounded_ok": true,
+        "predicted": "{\"best_move\": \"f1b5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -104, \"status\": \"ok\"}",
+        "tool_name": "best_move"
+      }
+    ]
+  },
+  "router": {
+    "accuracy": 1.0,
+    "correct": 3,
+    "examples": 3,
+    "rows": [
+      {
+        "expected": "eval",
+        "ok": true,
+        "predicted": "eval",
+        "text": "Evaluate the current position."
+      },
+      {
+        "expected": "review_move",
+        "ok": true,
+        "predicted": "review_move",
+        "text": "Was my move a2a3 good?"
+      },
+      {
+        "expected": "best_move",
+        "ok": true,
+        "predicted": "best_move",
+        "text": "What move should I consider?"
+      }
+    ]
+  }
+}
