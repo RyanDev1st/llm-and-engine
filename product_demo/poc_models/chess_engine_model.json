@@ -1,5 +1,5 @@
 {
-  "epochs": 5,
+  "epochs": 10,
   "eval": {
     "legal_prediction_rate": 1.0,
     "positions": 1,
@@ -31,55 +31,55 @@
     "engine_losses": 3,
     "engine_wins": 3,
     "games": 6,
-    "max_plies": 30,
-    "opponent": "static-eval baseline using python-chess legal move generation",
+    "max_plies": 40,
+    "opponent": "same-heuristic static-eval baseline using python-chess legal move generation",
     "rows": [
       {
         "engine_color": "white",
-        "final_eval_cp_white": -174.2,
+        "final_eval_cp_white": -1540.0,
         "game": 1,
         "outcome": "engine_loss",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       },
       {
         "engine_color": "black",
-        "final_eval_cp_white": -766.6,
+        "final_eval_cp_white": -1369.0,
         "game": 2,
         "outcome": "engine_win",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       },
       {
         "engine_color": "white",
-        "final_eval_cp_white": -174.2,
+        "final_eval_cp_white": -1540.0,
         "game": 3,
         "outcome": "engine_loss",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       },
       {
         "engine_color": "black",
-        "final_eval_cp_white": -766.6,
+        "final_eval_cp_white": -1369.0,
         "game": 4,
         "outcome": "engine_win",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       },
       {
         "engine_color": "white",
-        "final_eval_cp_white": -174.2,
+        "final_eval_cp_white": -1540.0,
         "game": 5,
         "outcome": "engine_loss",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       },
       {
         "engine_color": "black",
-        "final_eval_cp_white": -766.6,
+        "final_eval_cp_white": -1369.0,
         "game": 6,
         "outcome": "engine_win",
-        "plies": 30,
+        "plies": 40,
         "termination": "max_plies"
       }
     ],
@@ -158,6 +158,91 @@
     {
       "accuracy": 1.0,
       "epoch": 5,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 6,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 7,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 8,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 9,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 10,
       "examples": 4,
       "mistakes": 0,
       "weights": {

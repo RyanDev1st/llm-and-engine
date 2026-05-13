@@ -9,7 +9,7 @@ from collections import defaultdict
 
 import chess
 
-from prepare_kaggle_sft import read_fens
+from prepare_kaggle_sft import read_fens, validate_rows
 
 FEATURES = [
     "bias",
@@ -59,17 +59,11 @@ def piece_square(board: chess.Board) -> float:
 
 
 def legal_mobility(board: chess.Board) -> float:
-    turn = board.turn
-    white_moves = len(list(board.legal_moves)) if turn == chess.WHITE else None
-    board.turn = not turn
-    black_moves = len(list(board.legal_moves))
-    board.turn = turn
-    if white_moves is None:
-        black_moves = len(list(board.legal_moves))
-        board.turn = chess.WHITE
-        white_moves = len(list(board.legal_moves))
-        board.turn = turn
-    return float(white_moves - black_moves)
+    white_probe = board.copy(stack=False)
+    white_probe.turn = chess.WHITE
+    black_probe = board.copy(stack=False)
+    black_probe.turn = chess.BLACK
+    return float(len(list(white_probe.legal_moves)) - len(list(black_probe.legal_moves)))
 
 
 def center_control(board: chess.Board) -> float:
@@ -226,7 +220,7 @@ def match_suite(weights: dict[str, float], games: int, max_plies: int) -> dict:
     for row in rows:
         counts[row["outcome"]] += 1
     return {
-        "opponent": "static-eval baseline using python-chess legal move generation",
+        "opponent": "same-heuristic static-eval baseline using python-chess legal move generation",
         "games": games,
         "max_plies": max_plies,
         "engine_wins": counts["engine_win"],
@@ -264,7 +258,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1729)
     args = parser.parse_args()
 
-    fens = [row.fen for row in read_fens(args.input, None)]
+    loaded = read_fens(args.input, None)
+    valid_rows, rejection_reasons = validate_rows(loaded.rows)
+    if not valid_rows:
+        raise ValueError(f"No valid FEN rows found in {args.input}; rejected={dict(sorted(rejection_reasons.items()))}")
+    fens = [row.fen for row in valid_rows]
     train_fens, eval_fens = split_fens(fens, args.eval_fraction)
     weights, progress = train_from_positions(train_fens, args.epochs, args.learning_rate, args.seed)
     train_eval = evaluate_positions(train_fens, weights)

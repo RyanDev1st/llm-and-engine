@@ -1,7 +1,8 @@
 # CLAUDE.md — LLM tool-calling research workspace
 
 This file gives Claude Code (and other agents) **project context**, **constraints**, and **where to work**. Keep it factual and current.
-We're on Research-only now. No coding until the next sprint. 
+
+We're on the execution phase. Must present to the user a working proof of concept product with no fake or toy data/simulation. 
 ---
 
 ## Project overview
@@ -73,8 +74,10 @@ Full question list: `RESEARCH_BRIEF.md`.
 
  Always say AYE after you have confirmed the tasks
 @RTK.md
-!! DO NOTE USE MORE THAN **THREE** subagents !!
-!! Use only the codex/gpt subagents !!
+!! NO MORE THAN **THREE** concurrent subagents !!
+!! Use only the codex subagents !!
+!! Optimize by using subagents to do concurrent work on different threads to optimize speed (e.g. one on training, one on evaluation, one on literature review) !!
+
 ---
 
 ## Maintenance
@@ -82,4 +85,5 @@ Full question list: `RESEARCH_BRIEF.md`.
 When the sprint ends, update `SYNTHESIS.md` and optionally add a one-line “closed” note with date in `RESEARCH_BRIEF.md`.
 
 # Git Commits
-Auto commit, push and audit the .gitignore file to ensure no secrets or large irrelevant files are included. Use clear commit messages for any changes to the research documentation or findings. 
+
+For every turn, even if the output is not ideal, automatically commit, push, and open a PR. Audit `.gitignore` to ensure no secrets or large, irrelevant files are included. Use clear commit messages for any changes to the research documentation or findings.

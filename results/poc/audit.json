@@ -1,9 +1,10 @@
 {
   "findings": [
-    "Implemented local training loop: generated SFT JSONL, trained CUDA router, trained narrator, trained chess evaluator, wrote measured metrics.",
-    "No high-end model imported; models are torch linear router, template narration, and linear move evaluator.",
-    "FEN remains internal; SFT visible prompts/narrations do not expose raw FEN.",
-    "Chess legality now uses python-chess, including castling, en passant, terminal rules, and legal move generation.",
-    "Kaggle CLI and Stockfish executable are not installed; current metrics use the available sample FEN CSV and static-eval baseline, not calibrated ELO."
+    "Generated FEN-blind SFT JSONL from 5 accepted positions with 0 leaked records dropped.",
+    "Trained router path uses linear on cpu; Qwen/Gemma status is not_run_linear_baseline.",
+    "Router eval reports tool_accuracy=0.857, end_to_end_accuracy=0.857, macro_f1=0.867, and review_move argument accuracy=0.6666666666666666.",
+    "Narrator eval reports grounded_rate=1.000 and factual_accuracy=0.333.",
+    "Chess evaluator uses python-chess legal move generation and same-heuristic baseline metrics, not calibrated ELO.",
+    "Production-valid data is False; readiness.production_ready=False with blockers=['llm_trainer_not_used', 'local_transformers_sft_not_completed', 'router_eval_minimum_support_not_met', 'router_end_to_end_accuracy_below_0.95', 'real_kaggle_manifest_not_production_valid', 'stockfish_not_available_for_calibration']."
   ]
 }

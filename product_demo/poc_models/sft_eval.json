@@ -3,314 +3,302 @@
     "exact_accuracy": 0.3333333333333333,
     "exact_matches": 1,
     "examples": 3,
+    "factual_accuracy": 0.3333333333333333,
+    "factual_matches": 1,
     "grounded": 3,
     "grounded_rate": 1.0,
     "rows": [
       {
         "exact_ok": true,
         "expected": "Current engine bucket: balanced (0 cp from White perspective).",
+        "factual_ok": true,
         "grounded_ok": true,
         "predicted": "Current engine bucket: balanced (0 cp from White perspective).",
+        "required_tokens": [
+          "balanced"
+        ],
         "tool_name": "eval"
       },
       {
         "exact_ok": false,
         "expected": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+        "factual_ok": false,
         "grounded_ok": true,
         "predicted": "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
+        "required_tokens": [
+          "g1h3",
+          "good"
+        ],
         "tool_name": "review_move"
       },
       {
         "exact_ok": false,
         "expected": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+        "factual_ok": false,
         "grounded_ok": true,
         "predicted": "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
+        "required_tokens": [
+          "e2e4"
+        ],
         "tool_name": "best_move"
       }
     ]
   },
+  "readiness": {
+    "blockers": [
+      "llm_trainer_not_used",
+      "router_eval_minimum_support_not_met",
+      "real_kaggle_manifest_not_production_valid",
+      "stockfish_not_available_for_calibration"
+    ],
+    "production_ready": false
+  },
   "router": {
     "accuracy": 1.0,
-    "correct": 3,
-    "examples": 3,
+    "argument_accuracy": 1.0,
+    "argument_examples": 3,
+    "confusion_matrix": {
+      "best_move": {
+        "best_move": 2,
+        "eval": 0,
+        "review_move": 0
+      },
+      "eval": {
+        "best_move": 0,
+        "eval": 2,
+        "review_move": 0
+      },
+      "review_move": {
+        "best_move": 0,
+        "eval": 0,
+        "review_move": 3
+      }
+    },
+    "correct": 7,
+    "end_to_end_accuracy": 1.0,
+    "end_to_end_correct": 7,
+    "examples": 7,
+    "failure_slices": {},
+    "macro_f1": 1.0,
+    "minimum_support": {
+      "passed": false,
+      "per_tool": {
+        "best_move": 2,
+        "eval": 2,
+        "review_move": 3
+      },
+      "required_per_tool": 10
+    },
+    "outcome_slices": {
+      "ok": 7
+    },
+    "per_tool": {
+      "best_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "eval": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "review_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 3
+      }
+    },
     "rows": [
       {
+        "argument_ok": null,
+        "arguments": {},
         "expected": "eval",
-        "ok": true,
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
         "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": null,
+        "router_ok": true,
         "text": "Evaluate the current position."
       },
       {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "eval",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "How is this board looking?"
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "best_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "What move should I consider?"
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "best_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Find a practical candidate move here."
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
         "expected": "review_move",
-        "ok": true,
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
         "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
         "text": "Was my move g1h3 good?"
       },
       {
-        "expected": "best_move",
-        "ok": true,
-        "predicted": "best_move",
-        "text": "What move should I consider?"
-      }
-    ]
-  },
-  "training": {
-    "cuda_available": true,
-    "cuda_device_name": "NVIDIA GeForce RTX 4060 Laptop GPU",
-    "device": "cuda",
-    "epochs": 50,
-    "learning_rate": 0.05,
-    "router_progress": [
-      {
-        "accuracy": 0.3333333432674408,
-        "epoch": 1,
-        "loss": 1.1436158418655396
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Please review g1h3 in this position."
       },
       {
-        "accuracy": 0.3333333432674408,
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Is g1h3 legal and useful?"
+      }
+    ],
+    "where_it_succeeds": {
+      "best_move": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "eval": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "review_move": {
+        "accuracy": 1.0,
+        "examples": 3
+      }
+    }
+  },
+  "training": {
+    "batch_size": 4,
+    "batching_enabled": false,
+    "cuda_available": true,
+    "cuda_device_name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "device": "cpu",
+    "download_attempted": false,
+    "epochs": 5,
+    "grad_accum_steps": 1,
+    "learning_rate": 0.05,
+    "local_only": false,
+    "local_transformers_sft_completed": false,
+    "max_length": 256,
+    "max_new_tokens": 96,
+    "model_path": null,
+    "qwen_gemma_status": "not_run_linear_baseline",
+    "readiness_limits": [],
+    "readiness_scope": null,
+    "router_progress": [
+      {
+        "accuracy": 0.1428571492433548,
+        "epoch": 1,
+        "loss": 1.2304341793060303
+      },
+      {
+        "accuracy": 0.5357142686843872,
         "epoch": 2,
-        "loss": 0.8708810806274414
+        "loss": 0.93086838722229
       },
       {
         "accuracy": 1.0,
         "epoch": 3,
-        "loss": 0.6469938158988953
+        "loss": 0.6873190999031067
       },
       {
         "accuracy": 1.0,
         "epoch": 4,
-        "loss": 0.46923843026161194
+        "loss": 0.49853381514549255
       },
       {
         "accuracy": 1.0,
         "epoch": 5,
-        "loss": 0.3346242606639862
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 6,
-        "loss": 0.23705685138702393
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 7,
-        "loss": 0.16851557791233063
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 8,
-        "loss": 0.12111852318048477
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 9,
-        "loss": 0.08843126147985458
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 10,
-        "loss": 0.0657498687505722
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 11,
-        "loss": 0.049830708652734756
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 12,
-        "loss": 0.038497019559144974
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 13,
-        "loss": 0.03030126728117466
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 14,
-        "loss": 0.024279532954096794
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 15,
-        "loss": 0.019785000011324883
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 16,
-        "loss": 0.016379160806536674
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 17,
-        "loss": 0.013760878704488277
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 18,
-        "loss": 0.011720468290150166
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 19,
-        "loss": 0.01011000107973814
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 20,
-        "loss": 0.008823738433420658
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 21,
-        "loss": 0.0077850609086453915
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 22,
-        "loss": 0.006937652360647917
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 23,
-        "loss": 0.006239732261747122
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 24,
-        "loss": 0.005659966263920069
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 25,
-        "loss": 0.0051742722280323505
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 26,
-        "loss": 0.0047645363956689835
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 27,
-        "loss": 0.004416364710777998
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 28,
-        "loss": 0.004118722397834063
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 29,
-        "loss": 0.003862700192257762
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 30,
-        "loss": 0.0036413127090781927
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 31,
-        "loss": 0.0034489298705011606
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 32,
-        "loss": 0.0032808866817504168
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 33,
-        "loss": 0.0031336499378085136
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 34,
-        "loss": 0.0030039504636079073
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 35,
-        "loss": 0.002889378694817424
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 36,
-        "loss": 0.0027877800166606903
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 37,
-        "loss": 0.002697405405342579
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 38,
-        "loss": 0.0026167912874370813
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 39,
-        "loss": 0.002544662682339549
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 40,
-        "loss": 0.0024799101520329714
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 41,
-        "loss": 0.002421644749119878
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 42,
-        "loss": 0.002369232475757599
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 43,
-        "loss": 0.0023217033594846725
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 44,
-        "loss": 0.002278710948303342
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 45,
-        "loss": 0.0022396815475076437
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 46,
-        "loss": 0.0022041492629796267
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 47,
-        "loss": 0.0021717774216085672
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 48,
-        "loss": 0.002142140408977866
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 49,
-        "loss": 0.002114990958943963
-      },
-      {
-        "accuracy": 1.0,
-        "epoch": 50,
-        "loss": 0.002090130466967821
+        "loss": 0.35807567834854126
       }
-    ]
+    ],
+    "stockfish": {
+      "available": false,
+      "blocker": "stockfish_not_found",
+      "path": null,
+      "uci_ready": false
+    },
+    "target_length_summary": null,
+    "trainer": "linear",
+    "trainer_blockers": []
   }
 }
