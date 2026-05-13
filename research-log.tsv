@@ -1,0 +1,6 @@
+timestamp_utc	agent_id	file_or_topic	summary_one_line
+2026-05-13T00:00:00Z	INIT	workspace	Workspace scaffold created; no research content yet.
+2026-05-13T00:00:00Z	chatgpt-main	findings/search_first_pipeline_audit.md	Search-first audit corrected pipeline toward executable environment, deterministic local tools, trajectory replay, and policy-grounded evaluation.
+2026-05-13T00:10:00Z	chatgpt-main	findings/adversarial_pipeline_audit.md	Adversarial audit found reproducibility, move-resolution, evaluator, grounding-taxonomy, and long-horizon state-drift gaps in corrected pipeline.
+2026-05-13T00:20:00Z	chatgpt-main	findings/ralph_loop_1_results.md	First Ralph loop tightened design spec and synthesis with concrete adversarial corrections and next-loop attack surface.
+2026-05-13T00:30:00Z	chatgpt-main	findings/ralph_loop_2_results.md	Second Ralph loop converted remaining abstractions into schema skeleton, scenario matrix, baseline protocol, and release pass-fail requirements.

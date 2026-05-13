@@ -1,0 +1,9 @@
+{
+  "input_path": "product_demo/sample_kaggle_fens.csv",
+  "accepted_positions": 5,
+  "rejected_positions": 0,
+  "train_records": 24,
+  "eval_records": 6,
+  "fen_policy": "FEN read internally only; SFT user/model-visible content stays FEN-blind.",
+  "oracle": "demo-material-mobility-v1"
+}

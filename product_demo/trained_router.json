@@ -1,0 +1,48 @@
+{
+  "class_counts": {
+    "best_move": 4,
+    "eval": 4,
+    "review_move": 4
+  },
+  "example_count": 12,
+  "model_type": "multinomial-naive-bayes-router-v1",
+  "token_counts": {
+    "best_move": {
+      "consider": 4,
+      "i": 4,
+      "move": 4,
+      "should": 4,
+      "what": 4
+    },
+    "eval": {
+      "current": 4,
+      "evaluate": 4,
+      "position": 4,
+      "the": 4
+    },
+    "review_move": {
+      "a2a3": 3,
+      "a7a6": 1,
+      "good": 4,
+      "move": 4,
+      "my": 4,
+      "was": 4
+    }
+  },
+  "vocabulary": [
+    "a2a3",
+    "a7a6",
+    "consider",
+    "current",
+    "evaluate",
+    "good",
+    "i",
+    "move",
+    "my",
+    "position",
+    "should",
+    "the",
+    "was",
+    "what"
+  ]
+}
