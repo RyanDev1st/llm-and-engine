@@ -1,30 +1,30 @@
 {
   "narrator": {
-    "exact_accuracy": 0.0,
-    "exact_matches": 0,
+    "exact_accuracy": 0.3333333333333333,
+    "exact_matches": 1,
     "examples": 3,
     "grounded": 3,
     "grounded_rate": 1.0,
     "rows": [
       {
-        "exact_ok": false,
-        "expected": "Current engine bucket: white better (80 cp from White perspective).",
+        "exact_ok": true,
+        "expected": "Current engine bucket: balanced (0 cp from White perspective).",
         "grounded_ok": true,
-        "predicted": "Current engine bucket: white better (116 cp from White perspective).",
+        "predicted": "Current engine bucket: balanced (0 cp from White perspective).",
         "tool_name": "eval"
       },
       {
         "exact_ok": false,
-        "expected": "Engine-backed review: a2a3 is good. Best known alternative: h2h4. Evidence bucket moved from white better to black better.",
+        "expected": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
         "grounded_ok": true,
-        "predicted": "Engine-backed review: a2a3 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from white better to black better.",
+        "predicted": "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
         "tool_name": "review_move"
       },
       {
         "exact_ok": false,
-        "expected": "{\"best_move\": \"h2h4\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -80, \"status\": \"ok\"}",
+        "expected": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
         "grounded_ok": true,
-        "predicted": "{\"best_move\": \"f1b5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -104, \"status\": \"ok\"}",
+        "predicted": "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
         "tool_name": "best_move"
       }
     ]
@@ -44,13 +44,272 @@
         "expected": "review_move",
         "ok": true,
         "predicted": "review_move",
-        "text": "Was my move a2a3 good?"
+        "text": "Was my move g1h3 good?"
       },
       {
         "expected": "best_move",
         "ok": true,
         "predicted": "best_move",
         "text": "What move should I consider?"
+      }
+    ]
+  },
+  "training": {
+    "cuda_available": true,
+    "cuda_device_name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "device": "cuda",
+    "epochs": 50,
+    "learning_rate": 0.05,
+    "router_progress": [
+      {
+        "accuracy": 0.3333333432674408,
+        "epoch": 1,
+        "loss": 1.1436158418655396
+      },
+      {
+        "accuracy": 0.3333333432674408,
+        "epoch": 2,
+        "loss": 0.8708810806274414
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 3,
+        "loss": 0.6469938158988953
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 4,
+        "loss": 0.46923843026161194
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 5,
+        "loss": 0.3346242606639862
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 6,
+        "loss": 0.23705685138702393
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 7,
+        "loss": 0.16851557791233063
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 8,
+        "loss": 0.12111852318048477
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 9,
+        "loss": 0.08843126147985458
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 10,
+        "loss": 0.0657498687505722
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 11,
+        "loss": 0.049830708652734756
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 12,
+        "loss": 0.038497019559144974
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 13,
+        "loss": 0.03030126728117466
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 14,
+        "loss": 0.024279532954096794
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 15,
+        "loss": 0.019785000011324883
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 16,
+        "loss": 0.016379160806536674
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 17,
+        "loss": 0.013760878704488277
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 18,
+        "loss": 0.011720468290150166
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 19,
+        "loss": 0.01011000107973814
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 20,
+        "loss": 0.008823738433420658
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 21,
+        "loss": 0.0077850609086453915
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 22,
+        "loss": 0.006937652360647917
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 23,
+        "loss": 0.006239732261747122
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 24,
+        "loss": 0.005659966263920069
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 25,
+        "loss": 0.0051742722280323505
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 26,
+        "loss": 0.0047645363956689835
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 27,
+        "loss": 0.004416364710777998
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 28,
+        "loss": 0.004118722397834063
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 29,
+        "loss": 0.003862700192257762
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 30,
+        "loss": 0.0036413127090781927
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 31,
+        "loss": 0.0034489298705011606
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 32,
+        "loss": 0.0032808866817504168
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 33,
+        "loss": 0.0031336499378085136
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 34,
+        "loss": 0.0030039504636079073
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 35,
+        "loss": 0.002889378694817424
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 36,
+        "loss": 0.0027877800166606903
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 37,
+        "loss": 0.002697405405342579
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 38,
+        "loss": 0.0026167912874370813
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 39,
+        "loss": 0.002544662682339549
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 40,
+        "loss": 0.0024799101520329714
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 41,
+        "loss": 0.002421644749119878
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 42,
+        "loss": 0.002369232475757599
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 43,
+        "loss": 0.0023217033594846725
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 44,
+        "loss": 0.002278710948303342
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 45,
+        "loss": 0.0022396815475076437
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 46,
+        "loss": 0.0022041492629796267
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 47,
+        "loss": 0.0021717774216085672
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 48,
+        "loss": 0.002142140408977866
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 49,
+        "loss": 0.002114990958943963
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 50,
+        "loss": 0.002090130466967821
       }
     ]
   }

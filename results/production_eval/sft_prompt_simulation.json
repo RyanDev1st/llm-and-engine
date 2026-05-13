@@ -1,0 +1,72 @@
+{
+  "cases": 7,
+  "router_accuracy": 1.0,
+  "router_correct": 7,
+  "rows": [
+    {
+      "expected_tool": "eval",
+      "narration": "Current engine bucket: balanced (0 cp from White perspective).",
+      "predicted_tool": "eval",
+      "prompt": "Can you evaluate this position for me?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "best_move",
+      "narration": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+      "predicted_tool": "best_move",
+      "prompt": "What move should I consider here?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: e2e4 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "predicted_tool": "review_move",
+      "prompt": "Was my move e2e4 good?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1f3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "predicted_tool": "review_move",
+      "prompt": "Is g1f3 a good move in this position?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "eval",
+      "narration": "Current engine bucket: balanced (0 cp from White perspective).",
+      "predicted_tool": "eval",
+      "prompt": "Evaluate the current position.",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "predicted_tool": "review_move",
+      "prompt": "Was my move g1h3 good?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    },
+    {
+      "expected_tool": "best_move",
+      "narration": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+      "predicted_tool": "best_move",
+      "prompt": "What move should I consider?",
+      "router_ok": true,
+      "scores": {},
+      "tool_status": "ok"
+    }
+  ],
+  "tool_ok": 7,
+  "tool_success_rate": 1.0
+}

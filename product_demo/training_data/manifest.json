@@ -5,5 +5,5 @@
   "train_records": 24,
   "eval_records": 6,
   "fen_policy": "FEN read internally only; SFT user/model-visible content stays FEN-blind.",
-  "oracle": "demo-material-mobility-v1"
+  "oracle": "python-chess-static-eval-v1"
 }

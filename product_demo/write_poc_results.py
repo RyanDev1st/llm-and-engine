@@ -14,8 +14,11 @@ def load_json(path: str) -> dict:
 def write_summary(path: str, sft: dict, engine: dict, audit: dict) -> None:
     router = sft["router"]
     narrator = sft["narrator"]
+    training = sft.get("training", {})
     match = engine["match"]
     progress = engine["progress"]
+    initial_accuracy = progress[0]["accuracy"] if progress else 0.0
+    final_accuracy = progress[-1]["accuracy"] if progress else 0.0
     lines = [
         "# Proof of Concept Results",
         "",
@@ -24,12 +27,15 @@ def write_summary(path: str, sft: dict, engine: dict, audit: dict) -> None:
         "## Scope",
         "",
         "- Basic local models only; no high-end model import.",
-        "- SFT trained as router classifier plus narrator template model from generated FEN-blind JSONL.",
-        "- Chess engine trained as custom linear evaluator from FEN positions against demo oracle labels.",
+        "- SFT trained as CUDA/CPU linear router plus narrator template model from generated FEN-blind JSONL.",
+        "- Chess engine trained as custom linear evaluator from FEN positions using python-chess legal move generation.",
         "- Progress-based artifacts saved as JSON under this folder.",
         "",
         "## SFT Training Results",
         "",
+        f"- Device: {training.get('device', 'unknown')}",
+        f"- CUDA available: {training.get('cuda_available', False)}",
+        f"- CUDA device: {training.get('cuda_device_name')}",
         f"- Router eval examples: {router['examples']}",
         f"- Router accuracy: {router['accuracy']:.3f} ({router['correct']}/{router['examples']})",
         f"- Narrator eval examples: {narrator['examples']}",
@@ -38,14 +44,19 @@ def write_summary(path: str, sft: dict, engine: dict, audit: dict) -> None:
         "",
         "## Chess Engine Training Results",
         "",
+        f"- Legality backend: {engine.get('legality_backend', 'unknown')}",
         f"- Training positions: {engine['training_positions']}",
+        f"- Eval positions: {engine.get('eval_positions', 0)}",
         f"- Epochs: {len(progress)}",
-        f"- Initial training accuracy: {progress[0]['accuracy']:.3f}",
-        f"- Final training accuracy: {progress[-1]['accuracy']:.3f}",
+        f"- Initial training accuracy: {initial_accuracy:.3f}",
+        f"- Final training accuracy: {final_accuracy:.3f}",
+        f"- Held-out eval accuracy: {engine.get('eval', {}).get('top1_accuracy', 0.0):.3f}",
+        f"- Held-out legal prediction rate: {engine.get('eval', {}).get('legal_prediction_rate', 0.0):.3f}",
         f"- Learned weights: `{json.dumps(engine['weights'], sort_keys=True)}`",
         "",
         "## Engine Match Results",
         "",
+        f"- Opponent: {match.get('opponent')}",
         f"- Games: {match['games']}",
         f"- Engine wins: {match['engine_wins']}",
         f"- Engine losses: {match['engine_losses']}",
@@ -60,7 +71,7 @@ def write_summary(path: str, sft: dict, engine: dict, audit: dict) -> None:
         "",
         "## Conclusion",
         "",
-        "This is a real proof of concept: it trains local SFT components and a custom chess evaluator, then reports progress and match metrics. It is not yet a production chess coach or calibrated ELO engine; next step is replacing toy oracle labels with python-chess/Stockfish or a larger validated FEN corpus while keeping model size basic.",
+        "Current product path uses python-chess legality and measured CUDA/router/chess metrics. It is still not calibrated ELO because Stockfish/UCI and full Kaggle data are not installed in this environment.",
     ])
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -77,11 +88,11 @@ def main() -> None:
     engine = load_json(os.path.join(args.models_dir, "chess_engine_model.json"))
     audit = {
         "findings": [
-            "Implemented full local training loop, not static demo: generated SFT JSONL, trained router, trained narrator, trained chess evaluator, wrote metrics.",
-            "No high-end model imported; models are Naive Bayes, template narration, and linear move evaluator.",
+            "Implemented local training loop: generated SFT JSONL, trained CUDA router, trained narrator, trained chess evaluator, wrote measured metrics.",
+            "No high-end model imported; models are torch linear router, template narration, and linear move evaluator.",
             "FEN remains internal; SFT visible prompts/narrations do not expose raw FEN.",
-            "Chess proficiency metric is limited by toy oracle and small sample data; score rate is useful progress metric, not official ELO.",
-            "Community bot requirement partially satisfied through local weak baseline; real community 400-800 ELO bot still needs available package/repo or installed UCI engine.",
+            "Chess legality now uses python-chess, including castling, en passant, terminal rules, and legal move generation.",
+            "Kaggle CLI and Stockfish executable are not installed; current metrics use the available sample FEN CSV and static-eval baseline, not calibrated ELO.",
         ]
     }
     write_summary(os.path.join(args.out_dir, "summary.md"), sft, engine, audit)

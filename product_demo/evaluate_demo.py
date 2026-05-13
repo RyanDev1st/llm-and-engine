@@ -7,8 +7,9 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from chess_tool_demo import Board, Move, best_move, evaluate, run_tool_turn
-from train_router import load_router_examples, predict
+from chess_tool_demo import Board, Move, run_tool_turn
+from train_chess_engine import board_from_fen, predict_move, static_eval
+from train_sft_poc import load_router_examples, predict_router
 
 HUMAN_PROMPT_CASES = [
     {"prompt": "Can you evaluate this position for me?", "expected_tool": "eval", "arguments": {}},
@@ -21,10 +22,10 @@ HUMAN_PROMPT_CASES = [
 @dataclass(frozen=True)
 class MatchResult:
     game: int
-    demo_color: str
+    engine_color: str
     plies: int
     outcome: str
-    final_score_cp_white: int
+    final_score_cp_white: float
     final_bucket: str
 
 
@@ -55,7 +56,8 @@ def simulate_prompt_cases(model: dict, eval_path: str | None) -> dict:
     correct = 0
     tool_ok = 0
     for case in cases:
-        predicted, scores = predict(model, case["prompt"])
+        predicted = predict_router(model, case["prompt"])
+        scores = {}
         router_ok = predicted == case["expected_tool"]
         board = Board.from_fen()
         turn = run_tool_turn(board, predicted, case["arguments"])
@@ -83,60 +85,67 @@ def simulate_prompt_cases(model: dict, eval_path: str | None) -> dict:
     }
 
 
-def weak_bot_move(board: Board, rng: random.Random) -> Move | None:
-    legal = board.legal_moves()
+def baseline_move(board, rng: random.Random):
+    legal = list(board.legal_moves)
     if not legal:
         return None
-    captures = [move for move in legal if board.piece_at(move.target)]
+    captures = [move for move in legal if board.is_capture(move)]
     if captures and rng.random() < 0.7:
         return rng.choice(captures)
     return rng.choice(legal)
 
 
-def demo_engine_move(board: Board) -> Move | None:
-    choice = best_move(board.clone())
-    if choice["status"] != "ok":
-        return None
-    return Move.parse(choice["best_move"])
+def engine_move(board, engine_model: dict):
+    return predict_move(board, engine_model["weights"])
 
 
-def winner_from_score(score: int, demo_color: str) -> str:
+def score_bucket(score: float) -> str:
+    if score > 120:
+        return "white_better"
+    if score < -120:
+        return "black_better"
+    return "balanced"
+
+
+def winner_from_score(score: float, engine_color: str) -> str:
     if abs(score) < 80:
         return "drawish"
     white_winning = score > 0
-    demo_is_white = demo_color == "w"
-    return "demo_win" if white_winning == demo_is_white else "demo_loss"
+    engine_is_white = engine_color == "w"
+    return "engine_win" if white_winning == engine_is_white else "engine_loss"
 
 
-def play_game(game: int, demo_color: str, seed: int, max_plies: int) -> MatchResult:
-    board = Board.from_fen()
+def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_model: dict) -> MatchResult:
+    board = board_from_fen(None)
     rng = random.Random(seed)
     plies = 0
     for _ in range(max_plies):
-        move = demo_engine_move(board) if board.turn == demo_color else weak_bot_move(board, rng)
+        if board.is_game_over(claim_draw=True):
+            break
+        move = engine_move(board, engine_model) if ((board.turn and engine_color == "w") or (not board.turn and engine_color == "b")) else baseline_move(board, rng)
         if move is None:
             break
-        result = board.move(move)
-        if result["status"] != "ok":
-            break
+        board.push(move)
         plies += 1
-    final_eval = evaluate(board)
-    return MatchResult(game, demo_color, plies, winner_from_score(final_eval["score_cp_white"], demo_color), final_eval["score_cp_white"], final_eval["bucket"])
+    final_score = static_eval(board)
+    return MatchResult(game, engine_color, plies, winner_from_score(final_score, engine_color), final_score, score_bucket(final_score))
 
 
-def run_match_suite(games: int, max_plies: int) -> dict:
-    results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies) for index in range(games)]
-    wins = sum(1 for result in results if result.outcome == "demo_win")
-    losses = sum(1 for result in results if result.outcome == "demo_loss")
+def run_match_suite(engine_model: dict, games: int, max_plies: int) -> dict:
+    results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies, engine_model) for index in range(games)]
+    wins = sum(1 for result in results if result.outcome == "engine_win")
+    losses = sum(1 for result in results if result.outcome == "engine_loss")
     drawish = sum(1 for result in results if result.outcome == "drawish")
     return {
-        "opponent": "weak community-style random/capture bot baseline, seeded locally because GitHub search returned no usable 400-800 ELO bot candidate",
+        "engine_model_type": engine_model.get("model_type"),
+        "legality_backend": engine_model.get("legality_backend"),
+        "opponent": "seeded capture/random baseline using python-chess legal move generation",
         "games": games,
         "max_plies": max_plies,
-        "demo_wins": wins,
-        "demo_losses": losses,
+        "engine_wins": wins,
+        "engine_losses": losses,
         "drawish": drawish,
-        "demo_score_rate": (wins + 0.5 * drawish) / games,
+        "engine_score_rate": (wins + 0.5 * drawish) / games,
         "rows": [result.__dict__ for result in results],
     }
 
@@ -148,7 +157,7 @@ def write_json(path: str, payload: dict) -> None:
 
 def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
     lines = [
-        "# Demo SFT Router and Chess Engine Evaluation",
+        "# SFT Router and Chess Engine Evaluation",
         "",
         f"Generated: {datetime.now(timezone.utc).isoformat()}",
         "",
@@ -160,24 +169,27 @@ def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
         "",
         "## Engine Match Evaluation",
         "",
+        f"- Engine model: {match_result.get('engine_model_type')}",
+        f"- Legality backend: {match_result.get('legality_backend')}",
         f"- Opponent: {match_result['opponent']}",
         f"- Games: {match_result['games']}",
-        f"- Demo wins: {match_result['demo_wins']}",
-        f"- Demo losses: {match_result['demo_losses']}",
+        f"- Engine wins: {match_result['engine_wins']}",
+        f"- Engine losses: {match_result['engine_losses']}",
         f"- Drawish: {match_result['drawish']}",
-        f"- Demo score rate: {match_result['demo_score_rate']:.3f}",
+        f"- Engine score rate: {match_result['engine_score_rate']:.3f}",
         "",
         "## Proficiency Conclusion",
         "",
-        "The demo engine shows basic low-level tactical proficiency against a weak random/capture baseline, but it is not a real rated chess engine. Current oracle is material/mobility only, with no castling, en passant, draw rules, Stockfish search, or calibrated ELO rating.",
+        "Current engine match uses the trained basic linear evaluator artifact with python-chess legal move generation and terminal rules. Metrics are measured locally against a seeded baseline and are not calibrated ELO.",
     ]
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate local SFT router and demo chess engine")
-    parser.add_argument("--model", default="product_demo/trained_router.json")
+    parser = argparse.ArgumentParser(description="Evaluate local SFT router and chess engine")
+    parser.add_argument("--model", default="product_demo/poc_models/router_model.json")
+    parser.add_argument("--engine-model", default="product_demo/poc_models/chess_engine_model.json")
     parser.add_argument("--eval", default="product_demo/training_data/eval_sft.jsonl")
     parser.add_argument("--out-dir", default="results/demo_eval")
     parser.add_argument("--games", type=int, default=20)
@@ -186,15 +198,16 @@ def main() -> None:
 
     os.makedirs(args.out_dir, exist_ok=True)
     model = load_model(args.model)
+    engine_model = load_model(args.engine_model)
     prompt_result = simulate_prompt_cases(model, args.eval if os.path.exists(args.eval) else None)
-    match_result = run_match_suite(args.games, args.max_plies)
-    search_result = {"github_search": "No usable community 400-800 ELO bot candidate found via gh search in this environment.", "fallback": match_result["opponent"]}
+    match_result = run_match_suite(engine_model, args.games, args.max_plies)
+    search_result = {"engine_backend": "python-chess", "engine_model_type": engine_model.get("model_type"), "opponent": match_result["opponent"]}
 
     write_json(os.path.join(args.out_dir, "sft_prompt_simulation.json"), prompt_result)
     write_json(os.path.join(args.out_dir, "engine_match_results.json"), match_result)
-    write_json(os.path.join(args.out_dir, "bot_search_result.json"), search_result)
+    write_json(os.path.join(args.out_dir, "engine_backend.json"), search_result)
     write_summary(os.path.join(args.out_dir, "summary.md"), prompt_result, match_result)
-    print(json.dumps({"out_dir": args.out_dir, "router_accuracy": prompt_result["router_accuracy"], "tool_success_rate": prompt_result["tool_success_rate"], "demo_score_rate": match_result["demo_score_rate"]}, indent=2, sort_keys=True))
+    print(json.dumps({"out_dir": args.out_dir, "router_accuracy": prompt_result["router_accuracy"], "tool_success_rate": prompt_result["tool_success_rate"], "engine_score_rate": match_result["engine_score_rate"]}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

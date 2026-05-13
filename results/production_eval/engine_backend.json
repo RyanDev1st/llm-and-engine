@@ -1,0 +1,4 @@
+{
+  "engine_backend": "python-chess",
+  "opponent": "seeded capture/random baseline using python-chess legal move generation"
+}

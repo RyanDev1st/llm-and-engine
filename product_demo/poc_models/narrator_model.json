@@ -4,43 +4,43 @@
   "templates": {
     "best_move": [
       [
-        "{\"best_move\": \"f1b5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -104, \"status\": \"ok\"}",
+        "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
         1
       ],
       [
-        "{\"best_move\": \"f3e5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -28, \"status\": \"ok\"}",
+        "{\"best_move\": \"f3e5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 109, \"status\": \"ok\"}",
         1
       ],
       [
-        "{\"best_move\": \"e7e5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -116, \"status\": \"ok\"}",
+        "{\"best_move\": \"e7e6\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 0, \"status\": \"ok\"}",
         1
       ]
     ],
     "eval": [
       [
-        "Current engine bucket: white better (116 cp from White perspective).",
+        "Current engine bucket: balanced (0 cp from White perspective).",
         1
       ],
       [
-        "Current engine bucket: white better (108 cp from White perspective).",
+        "Current engine bucket: balanced (-12 cp from White perspective).",
         1
       ],
       [
-        "Current engine bucket: black better (-80 cp from White perspective).",
+        "Current engine bucket: balanced (30 cp from White perspective).",
         1
       ]
     ],
     "review_move": [
       [
-        "Engine-backed review: a2a3 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from white better to black better.",
+        "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
         2
       ],
       [
-        "Engine-backed review: a2a3 is good. Best known alternative: f1b5. Evidence bucket moved from white better to black better.",
+        "Engine-backed review: g1h3 is good. Best known alternative: d1h5. Evidence bucket moved from balanced to balanced.",
         1
       ],
       [
-        "Engine-backed review: a7a6 is good. Best known alternative: e7e5. Evidence bucket moved from black better to white better.",
+        "Engine-backed review: g8h6 is good. Best known alternative: e7e6. Evidence bucket moved from balanced to balanced.",
         1
       ]
     ]

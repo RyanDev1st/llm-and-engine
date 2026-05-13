@@ -113,7 +113,7 @@ def convert(input_path: str, out_dir: str, limit: int | None) -> dict:
         "train_records": train_count,
         "eval_records": eval_count,
         "fen_policy": "FEN read internally only; SFT user/model-visible content stays FEN-blind.",
-        "oracle": "demo-material-mobility-v1",
+        "oracle": "python-chess-static-eval-v1",
     }
     with open(manifest_path, "w", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)

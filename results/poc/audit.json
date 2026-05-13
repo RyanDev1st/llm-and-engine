@@ -1,0 +1,9 @@
+{
+  "findings": [
+    "Implemented local training loop: generated SFT JSONL, trained CUDA router, trained narrator, trained chess evaluator, wrote measured metrics.",
+    "No high-end model imported; models are torch linear router, template narration, and linear move evaluator.",
+    "FEN remains internal; SFT visible prompts/narrations do not expose raw FEN.",
+    "Chess legality now uses python-chess, including castling, en passant, terminal rules, and legal move generation.",
+    "Kaggle CLI and Stockfish executable are not installed; current metrics use the available sample FEN CSV and static-eval baseline, not calibrated ELO."
+  ]
+}

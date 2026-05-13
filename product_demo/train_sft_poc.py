@@ -8,6 +8,8 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
+import torch
+
 TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
 
@@ -63,39 +65,70 @@ def load_narrator_examples(path: str) -> list[NarratorExample]:
     return examples
 
 
-def train_router(examples: list[RouterExample]) -> dict:
+def build_vocab(examples: list[RouterExample]) -> list[str]:
+    vocab = sorted({token for example in examples for token in tokenize(example.text)})
+    if not vocab:
+        raise ValueError("No router vocabulary found.")
+    return vocab
+
+
+def vectorize(text: str, token_to_index: dict[str, int], device: torch.device) -> torch.Tensor:
+    values = torch.zeros(len(token_to_index), device=device)
+    counts = Counter(tokenize(text))
+    for token, count in counts.items():
+        if token in token_to_index:
+            values[token_to_index[token]] = float(count)
+    return values
+
+
+def train_router_torch(examples: list[RouterExample], epochs: int, learning_rate: float, device: torch.device) -> tuple[dict, list[dict]]:
     if not examples:
         raise ValueError("No router examples found.")
-    class_counts: Counter[str] = Counter()
-    token_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    vocabulary: set[str] = set()
-    for example in examples:
-        class_counts[example.tool_name] += 1
-        tokens = tokenize(example.text)
-        vocabulary.update(tokens)
-        token_counts[example.tool_name].update(tokens)
+    vocab = build_vocab(examples)
+    labels = sorted({example.tool_name for example in examples})
+    token_to_index = {token: index for index, token in enumerate(vocab)}
+    label_to_index = {label: index for index, label in enumerate(labels)}
+    features = torch.stack([vectorize(example.text, token_to_index, device) for example in examples])
+    targets = torch.tensor([label_to_index[example.tool_name] for example in examples], device=device, dtype=torch.long)
+    model = torch.nn.Linear(len(vocab), len(labels)).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    progress = []
+    for epoch in range(1, epochs + 1):
+        optimizer.zero_grad()
+        logits = model(features)
+        loss = torch.nn.functional.cross_entropy(logits, targets)
+        loss.backward()
+        optimizer.step()
+        with torch.no_grad():
+            predicted = logits.argmax(dim=1)
+            accuracy = (predicted == targets).float().mean().item()
+        progress.append({"epoch": epoch, "loss": float(loss.item()), "accuracy": float(accuracy)})
+    weights = model.weight.detach().cpu().tolist()
+    bias = model.bias.detach().cpu().tolist()
     return {
-        "model_type": "basic-naive-bayes-router-sft-v1",
-        "class_counts": dict(class_counts),
-        "token_counts": {name: dict(counts) for name, counts in token_counts.items()},
-        "vocabulary": sorted(vocabulary),
+        "model_type": "basic-torch-linear-router-sft-v1",
+        "device": str(device),
+        "labels": labels,
+        "vocabulary": vocab,
+        "weights": weights,
+        "bias": bias,
         "example_count": len(examples),
-    }
+    }, progress
 
 
 def predict_router(model: dict, text: str) -> str:
-    class_counts = {name: int(count) for name, count in model["class_counts"].items()}
-    token_counts = {name: Counter({token: int(count) for token, count in counts.items()}) for name, counts in model["token_counts"].items()}
-    vocabulary = set(model["vocabulary"])
-    total_examples = sum(class_counts.values())
-    scores = {}
-    for name, count in class_counts.items():
-        total_tokens = sum(token_counts[name].values())
-        score = math.log(count / total_examples)
-        for token in tokenize(text):
-            score += math.log((token_counts[name][token] + 1) / (total_tokens + max(1, len(vocabulary))))
-        scores[name] = score
-    return max(scores, key=scores.get)
+    vocab = model["vocabulary"]
+    labels = model["labels"]
+    token_to_index = {token: index for index, token in enumerate(vocab)}
+    counts = Counter(tokenize(text))
+    scores = []
+    for label_index, label in enumerate(labels):
+        score = float(model["bias"][label_index])
+        for token, count in counts.items():
+            if token in token_to_index:
+                score += float(model["weights"][label_index][token_to_index[token]]) * count
+        scores.append((score, label))
+    return max(scores, key=lambda item: (item[0], item[1]))[1]
 
 
 def train_narrator(examples: list[NarratorExample]) -> dict:
@@ -164,17 +197,32 @@ def main() -> None:
     parser.add_argument("--train", default="product_demo/training_data/train_sft.jsonl")
     parser.add_argument("--eval", default="product_demo/training_data/eval_sft.jsonl")
     parser.add_argument("--out-dir", default="product_demo/poc_models")
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--learning-rate", type=float, default=0.05)
+    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
     args = parser.parse_args()
 
-    router = train_router(load_router_examples(args.train))
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but torch.cuda.is_available() is false.")
+    device = torch.device("cuda" if (args.device == "cuda" or (args.device == "auto" and torch.cuda.is_available())) else "cpu")
+    train_router_examples = load_router_examples(args.train)
+    router, progress = train_router_torch(train_router_examples, args.epochs, args.learning_rate, device)
     narrator = train_narrator(load_narrator_examples(args.train))
     router_eval = evaluate_router(router, load_router_examples(args.eval))
     narrator_eval = evaluate_narrator(narrator, load_narrator_examples(args.eval))
+    training = {
+        "device": str(device),
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_device_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "epochs": args.epochs,
+        "learning_rate": args.learning_rate,
+        "router_progress": progress,
+    }
 
     save_json(os.path.join(args.out_dir, "router_model.json"), router)
     save_json(os.path.join(args.out_dir, "narrator_model.json"), narrator)
-    save_json(os.path.join(args.out_dir, "sft_eval.json"), {"router": router_eval, "narrator": narrator_eval})
-    print(json.dumps({"out_dir": args.out_dir, "router_accuracy": router_eval["accuracy"], "narrator_grounded_rate": narrator_eval["grounded_rate"], "narrator_exact_accuracy": narrator_eval["exact_accuracy"]}, indent=2, sort_keys=True))
+    save_json(os.path.join(args.out_dir, "sft_eval.json"), {"router": router_eval, "narrator": narrator_eval, "training": training})
+    print(json.dumps({"out_dir": args.out_dir, "device": str(device), "router_accuracy": router_eval["accuracy"], "narrator_grounded_rate": narrator_eval["grounded_rate"], "narrator_exact_accuracy": narrator_eval["exact_accuracy"]}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

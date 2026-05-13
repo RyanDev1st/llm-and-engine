@@ -1,0 +1,171 @@
+{
+  "drawish": 3,
+  "engine_losses": 10,
+  "engine_score_rate": 0.425,
+  "engine_wins": 7,
+  "games": 20,
+  "max_plies": 80,
+  "opponent": "seeded capture/random baseline using python-chess legal move generation",
+  "rows": [
+    {
+      "engine_color": "w",
+      "final_bucket": "balanced",
+      "final_score_cp_white": 0,
+      "game": 1,
+      "outcome": "drawish",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 745,
+      "game": 2,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -1165,
+      "game": 3,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -536,
+      "game": 4,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 524,
+      "game": 5,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "black better",
+      "final_score_cp_white": -115,
+      "game": 6,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -1334,
+      "game": 7,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 1186,
+      "game": 8,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 430,
+      "game": 9,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "black better",
+      "final_score_cp_white": -109,
+      "game": 10,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -100000,
+      "game": 11,
+      "outcome": "engine_loss",
+      "plies": 78
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white better",
+      "final_score_cp_white": 106,
+      "game": 12,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 324,
+      "game": 13,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "balanced",
+      "final_score_cp_white": -12,
+      "game": 14,
+      "outcome": "drawish",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -986,
+      "game": 15,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "black better",
+      "final_score_cp_white": -97,
+      "game": 16,
+      "outcome": "engine_win",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black winning",
+      "final_score_cp_white": -1286,
+      "game": 17,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white winning",
+      "final_score_cp_white": 660,
+      "game": 18,
+      "outcome": "engine_loss",
+      "plies": 80
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "balanced",
+      "final_score_cp_white": 9,
+      "game": 19,
+      "outcome": "drawish",
+      "plies": 80
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white better",
+      "final_score_cp_white": 294,
+      "game": 20,
+      "outcome": "engine_loss",
+      "plies": 80
+    }
+  ]
+}
