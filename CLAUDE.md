@@ -131,3 +131,6 @@ Examples:
 ## Maintenance
 
 When the sprint ends, update `SYNTHESIS.md` and optionally add a one-line “closed” note with date in `RESEARCH_BRIEF.md`.
+
+# Git Commits
+Auto commit and audit the .gitignore file to ensure no secrets or large irrelevant files are included. Use clear commit messages for any changes to the research documentation or findings.
