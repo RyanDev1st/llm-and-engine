@@ -1,0 +1,43 @@
+{
+  "drawish": 1,
+  "engine_losses": 1,
+  "engine_model_type": "basic-linear-python-chess-evaluator-v1",
+  "engine_score_rate": 0.25,
+  "engine_wins": 0,
+  "games": 2,
+  "legality_backend": "python-chess",
+  "max_observed_plies": 8,
+  "max_plies": 8,
+  "mean_plies": 8.0,
+  "min_plies": 8,
+  "opponent": "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline",
+  "rows": [
+    {
+      "engine_color": "w",
+      "final_bucket": "black_better",
+      "final_score_cp_white": -285.6,
+      "game": 1,
+      "outcome": "engine_loss",
+      "plies": 8,
+      "termination": "max_plies"
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "balanced",
+      "final_score_cp_white": -31.599999999999973,
+      "game": 2,
+      "outcome": "drawish",
+      "plies": 8,
+      "termination": "max_plies"
+    }
+  ],
+  "starting_position": "chess.STARTING_FEN",
+  "stockfish": {
+    "available": false,
+    "blocker": "stockfish_not_found",
+    "path": null,
+    "uci_ready": false
+  },
+  "stockfish_available": false,
+  "zero_ply_games": 0
+}

@@ -1,0 +1,318 @@
+{
+  "by_board_source": {
+    "default_start": {
+      "cases": 7,
+      "end_to_end_accuracy": 0.5714285714285714,
+      "end_to_end_correct": 4,
+      "router_accuracy": 0.5714285714285714,
+      "router_correct": 4,
+      "tool_ok": 5,
+      "tool_success_rate": 0.7142857142857143
+    },
+    "eval_fen": {
+      "cases": 7,
+      "end_to_end_accuracy": 0.7142857142857143,
+      "end_to_end_correct": 5,
+      "router_accuracy": 0.7142857142857143,
+      "router_correct": 5,
+      "tool_ok": 5,
+      "tool_success_rate": 0.7142857142857143
+    }
+  },
+  "cases": 14,
+  "end_to_end_accuracy": 0.6428571428571429,
+  "end_to_end_correct": 9,
+  "failure_slices": {
+    "router=False;tool_status=error": 4,
+    "router=False;tool_status=ok": 1
+  },
+  "macro_f1": 0.5738095238095239,
+  "outcome_slices": {
+    "ok": 9,
+    "router=False;tool_status=error": 4,
+    "router=False;tool_status=ok": 1
+  },
+  "per_tool": {
+    "best_move": {
+      "accuracy": 0.5,
+      "examples": 4,
+      "f1": 0.5714285714285715,
+      "minimum_support_passed": false,
+      "minimum_support_required": 10,
+      "precision": 0.6666666666666666,
+      "recall": 0.5
+    },
+    "eval": {
+      "accuracy": 0.25,
+      "examples": 4,
+      "f1": 0.4,
+      "minimum_support_passed": false,
+      "minimum_support_required": 10,
+      "precision": 1.0,
+      "recall": 0.25
+    },
+    "review_move": {
+      "accuracy": 1.0,
+      "examples": 6,
+      "f1": 0.7499999999999999,
+      "minimum_support_passed": false,
+      "minimum_support_required": 10,
+      "precision": 0.6,
+      "recall": 1.0
+    }
+  },
+  "router_accuracy": 0.6428571428571429,
+  "router_correct": 9,
+  "rows": [
+    {
+      "argument_ok": false,
+      "board_source": "default_start",
+      "expected_arguments": {},
+      "expected_tool": "eval",
+      "narration": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "best_move",
+      "prompt": "Can you evaluate this position for me?",
+      "raw_generation": null,
+      "router_ok": false,
+      "tool_status": "ok",
+      "why": "router=False;tool_status=ok"
+    },
+    {
+      "argument_ok": false,
+      "board_source": "default_start",
+      "expected_arguments": {},
+      "expected_tool": "eval",
+      "narration": "Move must be UCI like e2e4 or e7e8q.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "review_move",
+      "prompt": "How is the current board looking?",
+      "raw_generation": null,
+      "router_ok": false,
+      "tool_status": "error",
+      "why": "router=False;tool_status=error"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "default_start",
+      "expected_arguments": {},
+      "expected_tool": "best_move",
+      "narration": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "best_move",
+      "prompt": "What move should I consider here?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": false,
+      "board_source": "default_start",
+      "expected_arguments": {},
+      "expected_tool": "best_move",
+      "narration": "Move must be UCI like e2e4 or e7e8q.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "review_move",
+      "prompt": "Find one practical candidate move.",
+      "raw_generation": null,
+      "router_ok": false,
+      "tool_status": "error",
+      "why": "router=False;tool_status=error"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "default_start",
+      "expected_arguments": {
+        "uci": "e2e4"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: e2e4 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "e2e4"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Was my move e2e4 good?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "default_start",
+      "expected_arguments": {
+        "uci": "g1f3"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1f3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "g1f3"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Is g1f3 a good move in this position?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "default_start",
+      "expected_arguments": {
+        "uci": "b1c3"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: b1c3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "b1c3"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Please review b1c3 without guessing.",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "eval_fen",
+      "expected_arguments": {},
+      "expected_tool": "eval",
+      "narration": "Current engine bucket: balanced (0 cp from White perspective).",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "eval",
+      "prompt": "Evaluate the current position.",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": false,
+      "board_source": "eval_fen",
+      "expected_arguments": {},
+      "expected_tool": "eval",
+      "narration": "Move must be UCI like e2e4 or e7e8q.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "review_move",
+      "prompt": "How is this board looking?",
+      "raw_generation": null,
+      "router_ok": false,
+      "tool_status": "error",
+      "why": "router=False;tool_status=error"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "eval_fen",
+      "expected_arguments": {},
+      "expected_tool": "best_move",
+      "narration": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "best_move",
+      "prompt": "What move should I consider?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": false,
+      "board_source": "eval_fen",
+      "expected_arguments": {},
+      "expected_tool": "best_move",
+      "narration": "Move must be UCI like e2e4 or e7e8q.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {},
+      "predicted_tool": "review_move",
+      "prompt": "Find a practical candidate move here.",
+      "raw_generation": null,
+      "router_ok": false,
+      "tool_status": "error",
+      "why": "router=False;tool_status=error"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "eval_fen",
+      "expected_arguments": {
+        "uci": "g1h3"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "g1h3"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Was my move g1h3 good?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "eval_fen",
+      "expected_arguments": {
+        "uci": "g1h3"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "g1h3"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Please review g1h3 in this position.",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    },
+    {
+      "argument_ok": true,
+      "board_source": "eval_fen",
+      "expected_arguments": {
+        "uci": "g1h3"
+      },
+      "expected_tool": "review_move",
+      "narration": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+      "parse_error": null,
+      "parse_ok": true,
+      "predicted_arguments": {
+        "uci": "g1h3"
+      },
+      "predicted_tool": "review_move",
+      "prompt": "Is g1h3 legal and useful?",
+      "raw_generation": null,
+      "router_ok": true,
+      "tool_status": "ok",
+      "why": "ok"
+    }
+  ],
+  "tool_ok": 10,
+  "tool_success_rate": 0.7142857142857143
+}

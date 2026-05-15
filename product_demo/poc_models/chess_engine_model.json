@@ -1,0 +1,300 @@
+{
+  "epochs": 10,
+  "eval": {
+    "legal_prediction_rate": 1.0,
+    "positions": 1,
+    "rows": [
+      {
+        "expert": "g1f3",
+        "ok": true,
+        "predicted": "g1f3"
+      }
+    ],
+    "top1_accuracy": 1.0
+  },
+  "eval_positions": 1,
+  "features": [
+    "bias",
+    "material_delta",
+    "piece_square_delta",
+    "mobility_delta",
+    "capture_value",
+    "gives_check",
+    "promotion_value",
+    "castle",
+    "center_control_delta"
+  ],
+  "learning_rate": 0.2,
+  "legality_backend": "python-chess",
+  "match": {
+    "drawish": 0,
+    "engine_losses": 3,
+    "engine_wins": 3,
+    "games": 6,
+    "max_plies": 40,
+    "opponent": "same-heuristic static-eval baseline using python-chess legal move generation",
+    "rows": [
+      {
+        "engine_color": "white",
+        "final_eval_cp_white": -1540.0,
+        "game": 1,
+        "outcome": "engine_loss",
+        "plies": 40,
+        "termination": "max_plies"
+      },
+      {
+        "engine_color": "black",
+        "final_eval_cp_white": -1369.0,
+        "game": 2,
+        "outcome": "engine_win",
+        "plies": 40,
+        "termination": "max_plies"
+      },
+      {
+        "engine_color": "white",
+        "final_eval_cp_white": -1540.0,
+        "game": 3,
+        "outcome": "engine_loss",
+        "plies": 40,
+        "termination": "max_plies"
+      },
+      {
+        "engine_color": "black",
+        "final_eval_cp_white": -1369.0,
+        "game": 4,
+        "outcome": "engine_win",
+        "plies": 40,
+        "termination": "max_plies"
+      },
+      {
+        "engine_color": "white",
+        "final_eval_cp_white": -1540.0,
+        "game": 5,
+        "outcome": "engine_loss",
+        "plies": 40,
+        "termination": "max_plies"
+      },
+      {
+        "engine_color": "black",
+        "final_eval_cp_white": -1369.0,
+        "game": 6,
+        "outcome": "engine_win",
+        "plies": 40,
+        "termination": "max_plies"
+      }
+    ],
+    "score_rate": 0.5
+  },
+  "model_type": "basic-linear-python-chess-evaluator-v1",
+  "progress": [
+    {
+      "accuracy": 0.75,
+      "epoch": 1,
+      "examples": 4,
+      "mistakes": 1,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 2,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 3,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 4,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 5,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 6,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 7,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 8,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 9,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    },
+    {
+      "accuracy": 1.0,
+      "epoch": 10,
+      "examples": 4,
+      "mistakes": 0,
+      "weights": {
+        "bias": 0.0,
+        "capture_value": 0.022222222222222223,
+        "castle": 0.0,
+        "center_control_delta": -0.0125,
+        "gives_check": 0.0,
+        "material_delta": 0.03483999999999998,
+        "mobility_delta": -0.0025000000000000022,
+        "piece_square_delta": 0.013439999999999987,
+        "promotion_value": 0.0
+      }
+    }
+  ],
+  "train_eval": {
+    "legal_prediction_rate": 1.0,
+    "positions": 4,
+    "rows": [
+      {
+        "expert": "d1g4",
+        "ok": true,
+        "predicted": "d1g4"
+      },
+      {
+        "expert": "f3e5",
+        "ok": true,
+        "predicted": "f3e5"
+      },
+      {
+        "expert": "g8f6",
+        "ok": true,
+        "predicted": "g8f6"
+      },
+      {
+        "expert": "f3e5",
+        "ok": true,
+        "predicted": "f3e5"
+      }
+    ],
+    "top1_accuracy": 1.0
+  },
+  "training_positions": 4,
+  "weights": {
+    "bias": 0.0,
+    "capture_value": 0.022222222222222223,
+    "castle": 0.0,
+    "center_control_delta": -0.0125,
+    "gives_check": 0.0,
+    "material_delta": 0.03483999999999998,
+    "mobility_delta": -0.0025000000000000022,
+    "piece_square_delta": 0.013439999999999987,
+    "promotion_value": 0.0
+  }
+}

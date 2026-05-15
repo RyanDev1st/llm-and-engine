@@ -1,7 +1,8 @@
 # CLAUDE.md — LLM tool-calling research workspace
 
 This file gives Claude Code (and other agents) **project context**, **constraints**, and **where to work**. Keep it factual and current.
-We're on Research-only now. No coding until the next sprint. 
+
+We're on the execution phase. Must present to the user a working proof of concept product with no fake or toy data/simulation. 
 ---
 
 ## Project overview
@@ -73,59 +74,10 @@ Full question list: `RESEARCH_BRIEF.md`.
 
  Always say AYE after you have confirmed the tasks
 @RTK.md
-!! DO NOTE USE MORE THAN **THREE** subagents !!
-!! Do not call claude subagents, do codex/gpt subagent variants only via plugin command /codex.... 
+!! NO MORE THAN **THREE** concurrent subagents !!
+!! Use only the codex subagents !!
+!! Optimize by using subagents to do concurrent work on different threads to optimize speed (e.g. one on training, one on evaluation, one on literature review) !!
 
-/codex:rescue
-Hands a task to Codex through the codex:codex-rescue subagent.
-
-Use it when you want Codex to:
-
-investigate a bug
-try a fix
-continue a previous Codex task
-take a faster or cheaper pass with a smaller model
-Note
-
-Depending on the task and the model you choose these tasks might take a long time and it's generally recommended to force the task to be in the background or move the agent to the background.
-
-It supports --background, --wait, --resume, and --fresh. If you omit --resume and --fresh, the plugin can offer to continue the latest rescue thread for this repo.
-
-Examples:
-
-/codex:rescue investigate why the tests started failing
-/codex:rescue fix the failing test with the smallest safe patch
-/codex:rescue --resume apply the top fix from the last run
-/codex:rescue --model gpt-5.4-mini --effort medium investigate the flaky integration test
-/codex:rescue --model spark fix the issue quickly
-/codex:rescue --background investigate the regression
-You can also just ask for a task to be delegated to Codex:
-
-Ask Codex to redesign the database connection to be more resilient.
-Notes:
-
-if you do not pass --model or --effort, Codex chooses its own defaults.
-if you say spark, the plugin maps that to gpt-5.3-codex-spark
-follow-up rescue requests can continue the latest Codex task in the repo
-/codex:status
-Shows running and recent Codex jobs for the current repository.
-
-Examples:
-
-/codex:status
-/codex:status task-abc123
-Use it to:
-
-check progress on background work
-see the latest completed job
-confirm whether a task is still running
-/codex:result
-Shows the final stored Codex output for a finished job. When available, it also includes the Codex session ID so you can reopen that run directly in Codex with codex resume <session-id>.
-
-Examples:
-
-/codex:result
-/codex:result task-abc123
 ---
 
 ## Maintenance
@@ -133,4 +85,5 @@ Examples:
 When the sprint ends, update `SYNTHESIS.md` and optionally add a one-line “closed” note with date in `RESEARCH_BRIEF.md`.
 
 # Git Commits
-Auto PR and audit the .gitignore file to ensure no secrets or large irrelevant files are included. Use clear commit messages for any changes to the research documentation or findings. 
+
+For every turn, even if the output is not ideal, automatically commit, push, and open a PR. Audit `.gitignore` to ensure no secrets or large, irrelevant files are included. Use clear commit messages for any changes to the research documentation or findings.

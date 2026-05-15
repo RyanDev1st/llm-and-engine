@@ -1,57 +1,304 @@
 {
   "narrator": {
-    "exact_accuracy": 0.0,
-    "exact_matches": 0,
+    "exact_accuracy": 0.3333333333333333,
+    "exact_matches": 1,
     "examples": 3,
+    "factual_accuracy": 0.3333333333333333,
+    "factual_matches": 1,
     "grounded": 3,
     "grounded_rate": 1.0,
     "rows": [
       {
-        "exact_ok": false,
-        "expected": "Current engine bucket: white better (80 cp from White perspective).",
+        "exact_ok": true,
+        "expected": "Current engine bucket: balanced (0 cp from White perspective).",
+        "factual_ok": true,
         "grounded_ok": true,
-        "predicted": "Current engine bucket: white better (116 cp from White perspective).",
+        "predicted": "Current engine bucket: balanced (0 cp from White perspective).",
+        "required_tokens": [
+          "balanced"
+        ],
         "tool_name": "eval"
       },
       {
         "exact_ok": false,
-        "expected": "Engine-backed review: a2a3 is good. Best known alternative: h2h4. Evidence bucket moved from white better to black better.",
+        "expected": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+        "factual_ok": false,
         "grounded_ok": true,
-        "predicted": "Engine-backed review: a2a3 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from white better to black better.",
+        "predicted": "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
+        "required_tokens": [
+          "g1h3",
+          "good"
+        ],
         "tool_name": "review_move"
       },
       {
         "exact_ok": false,
-        "expected": "{\"best_move\": \"h2h4\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -80, \"status\": \"ok\"}",
+        "expected": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+        "factual_ok": false,
         "grounded_ok": true,
-        "predicted": "{\"best_move\": \"f1b5\", \"engine\": \"demo-material-mobility-v1\", \"relative_score\": -104, \"status\": \"ok\"}",
+        "predicted": "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
+        "required_tokens": [
+          "e2e4"
+        ],
         "tool_name": "best_move"
       }
     ]
   },
+  "readiness": {
+    "blockers": [
+      "llm_trainer_not_used",
+      "router_eval_minimum_support_not_met",
+      "real_kaggle_manifest_not_production_valid",
+      "stockfish_not_available_for_calibration"
+    ],
+    "production_ready": false
+  },
   "router": {
     "accuracy": 1.0,
-    "correct": 3,
-    "examples": 3,
+    "argument_accuracy": 1.0,
+    "argument_examples": 3,
+    "confusion_matrix": {
+      "best_move": {
+        "best_move": 2,
+        "eval": 0,
+        "review_move": 0
+      },
+      "eval": {
+        "best_move": 0,
+        "eval": 2,
+        "review_move": 0
+      },
+      "review_move": {
+        "best_move": 0,
+        "eval": 0,
+        "review_move": 3
+      }
+    },
+    "correct": 7,
+    "end_to_end_accuracy": 1.0,
+    "end_to_end_correct": 7,
+    "examples": 7,
+    "failure_slices": {},
+    "macro_f1": 1.0,
+    "minimum_support": {
+      "passed": false,
+      "per_tool": {
+        "best_move": 2,
+        "eval": 2,
+        "review_move": 3
+      },
+      "required_per_tool": 10
+    },
+    "outcome_slices": {
+      "ok": 7
+    },
+    "per_tool": {
+      "best_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "eval": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "review_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 3
+      }
+    },
     "rows": [
       {
+        "argument_ok": null,
+        "arguments": {},
         "expected": "eval",
-        "ok": true,
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
         "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": null,
+        "router_ok": true,
         "text": "Evaluate the current position."
       },
       {
-        "expected": "review_move",
-        "ok": true,
-        "predicted": "review_move",
-        "text": "Was my move a2a3 good?"
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "eval",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "How is this board looking?"
       },
       {
+        "argument_ok": null,
+        "arguments": {},
         "expected": "best_move",
-        "ok": true,
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
         "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": null,
+        "router_ok": true,
         "text": "What move should I consider?"
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "best_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Find a practical candidate move here."
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Was my move g1h3 good?"
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Please review g1h3 in this position."
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": null,
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": null,
+        "router_ok": true,
+        "text": "Is g1h3 legal and useful?"
       }
-    ]
+    ],
+    "where_it_succeeds": {
+      "best_move": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "eval": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "review_move": {
+        "accuracy": 1.0,
+        "examples": 3
+      }
+    }
+  },
+  "training": {
+    "batch_size": 4,
+    "batching_enabled": false,
+    "cuda_available": true,
+    "cuda_device_name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "device": "cpu",
+    "download_attempted": false,
+    "epochs": 5,
+    "grad_accum_steps": 1,
+    "learning_rate": 0.05,
+    "local_only": false,
+    "local_transformers_sft_completed": false,
+    "max_length": 256,
+    "max_new_tokens": 96,
+    "model_path": null,
+    "qwen_gemma_status": "not_run_linear_baseline",
+    "readiness_limits": [],
+    "readiness_scope": null,
+    "router_progress": [
+      {
+        "accuracy": 0.1428571492433548,
+        "epoch": 1,
+        "loss": 1.2304341793060303
+      },
+      {
+        "accuracy": 0.5357142686843872,
+        "epoch": 2,
+        "loss": 0.93086838722229
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 3,
+        "loss": 0.6873190999031067
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 4,
+        "loss": 0.49853381514549255
+      },
+      {
+        "accuracy": 1.0,
+        "epoch": 5,
+        "loss": 0.35807567834854126
+      }
+    ],
+    "stockfish": {
+      "available": false,
+      "blocker": "stockfish_not_found",
+      "path": null,
+      "uci_ready": false
+    },
+    "target_length_summary": null,
+    "trainer": "linear",
+    "trainer_blockers": []
   }
 }

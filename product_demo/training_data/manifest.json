@@ -1,9 +1,31 @@
 {
-  "input_path": "product_demo/sample_kaggle_fens.csv",
   "accepted_positions": 5,
-  "rejected_positions": 0,
-  "train_records": 24,
-  "eval_records": 6,
+  "data_mode": "sample",
+  "duplicate_positions": 0,
+  "eval_ratio": 0.2,
+  "eval_records": 10,
+  "fen_internal_position_records": 50,
+  "fen_leakage_audit_fields": [
+    "full_fen",
+    "piece_placement",
+    "castling",
+    "en_passant"
+  ],
+  "fen_leakage_audit_passed": true,
+  "fen_leakage_records_dropped": 0,
   "fen_policy": "FEN read internally only; SFT user/model-visible content stays FEN-blind.",
-  "oracle": "demo-material-mobility-v1"
+  "input_path": "product_demo/sample_kaggle_fens.csv",
+  "input_rows_total": 5,
+  "input_sha256": "60a2f38d4884f8c0d3aa1f32c66e0646578e93c218973ed8f93a8dd9a6d2b0b6",
+  "is_production_valid": false,
+  "oracle": "python-chess-static-eval-v1",
+  "rejected_positions": 0,
+  "rejection_reasons": {},
+  "source_columns": [
+    "fen",
+    "label"
+  ],
+  "source_dataset": "sample_or_subset_fen_csv",
+  "split_seed": 20260513,
+  "train_records": 40
 }
