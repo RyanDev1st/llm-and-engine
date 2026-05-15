@@ -1,0 +1,81 @@
+{
+  "drawish": 0,
+  "engine_losses": 6,
+  "engine_model_type": "basic-linear-python-chess-evaluator-v1",
+  "engine_score_rate": 0.0,
+  "engine_wins": 0,
+  "games": 6,
+  "legality_backend": "python-chess",
+  "max_observed_plies": 40,
+  "max_plies": 40,
+  "mean_plies": 36.0,
+  "min_plies": 30,
+  "opponent": "Stockfish UCI opponent at 50ms/move, skill_level=1",
+  "rows": [
+    {
+      "engine_color": "w",
+      "final_bucket": "black_better",
+      "final_score_cp_white": -100000.0,
+      "game": 1,
+      "outcome": "engine_loss",
+      "plies": 36,
+      "termination": "CHECKMATE"
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white_better",
+      "final_score_cp_white": 385.0,
+      "game": 2,
+      "outcome": "engine_loss",
+      "plies": 40,
+      "termination": "max_plies"
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black_better",
+      "final_score_cp_white": -100000.0,
+      "game": 3,
+      "outcome": "engine_loss",
+      "plies": 30,
+      "termination": "CHECKMATE"
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white_better",
+      "final_score_cp_white": 100000.0,
+      "game": 4,
+      "outcome": "engine_loss",
+      "plies": 31,
+      "termination": "CHECKMATE"
+    },
+    {
+      "engine_color": "w",
+      "final_bucket": "black_better",
+      "final_score_cp_white": -2560.2,
+      "game": 5,
+      "outcome": "engine_loss",
+      "plies": 40,
+      "termination": "max_plies"
+    },
+    {
+      "engine_color": "b",
+      "final_bucket": "white_better",
+      "final_score_cp_white": 100000.0,
+      "game": 6,
+      "outcome": "engine_loss",
+      "plies": 39,
+      "termination": "CHECKMATE"
+    }
+  ],
+  "starting_position": "chess.STARTING_FEN",
+  "stockfish": {
+    "available": true,
+    "blocker": null,
+    "path": "A:/Download/llm_tool_calling_research_workspace/local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe",
+    "uci_ready": true
+  },
+  "stockfish_available": true,
+  "stockfish_movetime_ms": 50,
+  "stockfish_skill_level": 1,
+  "zero_ply_games": 0
+}

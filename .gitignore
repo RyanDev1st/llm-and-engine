@@ -4,3 +4,22 @@ __pycache__/
 
 .claude/worktrees/
 .vscode/
+local_runtime/
+**/local_runtime/
+**/pydeps/
+.venv/
+venv/
+env/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+vendor/
+third_party/
+external/

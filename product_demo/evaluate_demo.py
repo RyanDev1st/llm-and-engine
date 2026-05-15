@@ -11,7 +11,7 @@ import torch
 import chess
 
 from chess_tool_demo import Board, run_tool_turn
-from train_chess_engine import predict_move, static_eval
+from train_chess_engine import StockfishOpponent, predict_move, static_eval
 from train_sft_poc import RouterLmPredictor, extract_uci, load_router_examples, metric_summary_from_counts, predict_router, predict_router_lm, stockfish_status
 
 HUMAN_PROMPT_CASES = [
@@ -168,7 +168,7 @@ def winner_from_score(score: float, engine_color: str) -> str:
     return "engine_win" if white_winning == engine_is_white else "engine_loss"
 
 
-def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_model: dict) -> MatchResult:
+def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_model: dict, stockfish_opponent: StockfishOpponent | None = None) -> MatchResult:
     board = chess.Board()
     rng = random.Random(seed)
     plies = 0
@@ -177,7 +177,13 @@ def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_mo
         if board.is_game_over(claim_draw=True):
             termination = board.outcome(claim_draw=True).termination.name if board.outcome(claim_draw=True) else "game_over"
             break
-        move = engine_move(board, engine_model) if ((board.turn and engine_color == "w") or (not board.turn and engine_color == "b")) else baseline_move(board, rng)
+        engine_turn = (board.turn and engine_color == "w") or (not board.turn and engine_color == "b")
+        if engine_turn:
+            move = engine_move(board, engine_model)
+        elif stockfish_opponent is not None:
+            move = stockfish_opponent.move(board)
+        else:
+            move = baseline_move(board, rng)
         if move is None:
             termination = "no_legal_move"
             break
@@ -187,8 +193,19 @@ def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_mo
     return MatchResult(game, engine_color, plies, winner_from_score(final_score, engine_color), final_score, score_bucket(final_score), termination)
 
 
-def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: dict) -> dict:
-    results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies, engine_model) for index in range(games)]
+def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: dict, stockfish_path: str | None = None, stockfish_movetime_ms: int = 50, stockfish_skill_level: int | None = None) -> dict:
+    stockfish_opponent = None
+    opponent = "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline"
+    if stockfish_path and stockfish.get("available"):
+        stockfish_opponent = StockfishOpponent(stockfish_path, stockfish_movetime_ms, stockfish_skill_level)
+        opponent = f"Stockfish UCI opponent at {stockfish_movetime_ms}ms/move"
+        if stockfish_skill_level is not None:
+            opponent += f", skill_level={stockfish_skill_level}"
+    try:
+        results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies, engine_model, stockfish_opponent) for index in range(games)]
+    finally:
+        if stockfish_opponent is not None:
+            stockfish_opponent.close()
     zero_ply_games = sum(1 for result in results if result.plies == 0)
     if games > 0 and zero_ply_games == games:
         raise RuntimeError("Engine match sanity gate failed: every game ended with zero plies.")
@@ -199,10 +216,12 @@ def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: d
     return {
         "engine_model_type": engine_model.get("model_type"),
         "legality_backend": engine_model.get("legality_backend"),
-        "opponent": "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline",
+        "opponent": opponent,
         "starting_position": "chess.STARTING_FEN",
         "stockfish": stockfish,
         "stockfish_available": bool(stockfish.get("available")),
+        "stockfish_movetime_ms": stockfish_movetime_ms if stockfish_path else None,
+        "stockfish_skill_level": stockfish_skill_level if stockfish_path else None,
         "games": games,
         "max_plies": max_plies,
         "min_plies": min(plies) if plies else 0,
@@ -228,7 +247,7 @@ def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
         "",
         f"Generated: {datetime.now(timezone.utc).isoformat()}",
         "",
-        "## SFT Router Prompt Simulation",
+        "## SFT Router Prompt Evaluation",
         "",
         f"- Cases: {prompt_result['cases']}",
         f"- Router tool-name accuracy: {prompt_result['router_accuracy']:.3f} ({prompt_result['router_correct']}/{prompt_result['cases']})",
@@ -248,7 +267,7 @@ def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
     if prompt_result["failure_slices"]:
         lines.extend(f"  - {reason}: {count}" for reason, count in prompt_result["failure_slices"].items())
     else:
-        lines.append("  - No prompt simulation failures recorded.")
+        lines.append("  - No prompt evaluation failures recorded.")
     lines.extend([
         "",
         "## Engine Match Evaluation",
@@ -268,7 +287,7 @@ def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
         "",
         "## Proficiency Conclusion",
         "",
-        "Current engine match uses trained basic linear evaluator artifact with python-chess legal move generation and terminal rules. Match opponent is seeded capture/random baseline for lightweight sanity only; training artifacts may report separate same-heuristic baseline metrics. Metrics here are measured locally and are not calibrated ELO; Stockfish availability is reported only as environment smoke check.",
+        "Current engine match uses trained basic linear evaluator artifact with python-chess legal move generation and terminal rules. Metrics here are measured locally and are not calibrated ELO.",
     ])
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -284,6 +303,8 @@ def main() -> None:
     parser.add_argument("--max-plies", type=int, default=80)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--stockfish-path")
+    parser.add_argument("--stockfish-movetime-ms", type=int, default=50)
+    parser.add_argument("--stockfish-skill-level", type=int, default=None)
     args = parser.parse_args()
 
     if args.device == "cuda" and not torch.cuda.is_available():
@@ -294,7 +315,7 @@ def main() -> None:
     engine_model = load_model(args.engine_model)
     stockfish = stockfish_status(args.stockfish_path)
     prompt_result = simulate_prompt_cases(model, args.eval if os.path.exists(args.eval) else None, device)
-    match_result = run_match_suite(engine_model, args.games, args.max_plies, stockfish)
+    match_result = run_match_suite(engine_model, args.games, args.max_plies, stockfish, args.stockfish_path, args.stockfish_movetime_ms, args.stockfish_skill_level)
     search_result = {"engine_backend": "python-chess", "engine_model_type": engine_model.get("model_type"), "opponent": match_result["opponent"], "stockfish": stockfish, "stockfish_available": bool(stockfish.get("available")), "zero_ply_games": match_result["zero_ply_games"]}
 
     write_json(os.path.join(args.out_dir, "sft_prompt_simulation.json"), prompt_result)
