@@ -23,3 +23,5 @@ coverage/
 vendor/
 third_party/
 external/
+results/production_router_qwen_retry/router_lm_model/
+results/tmp_gate_*/

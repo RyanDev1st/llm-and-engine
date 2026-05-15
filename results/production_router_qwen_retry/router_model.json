@@ -1,0 +1,31 @@
+{
+  "artifact_dir": "A:/Download/llm_tool_calling_research_workspace/results/production_router_qwen_retry\\router_lm_model",
+  "base_model_path": "A:/Download/llm_tool_calling_research_workspace/local_runtime/models/Qwen2.5-0.5B-Instruct",
+  "batch_size": 1,
+  "download_attempted": false,
+  "example_count": 28,
+  "grad_accum_steps": 2,
+  "labels": [
+    "best_move",
+    "eval",
+    "review_move"
+  ],
+  "local_files_only": true,
+  "max_length": 256,
+  "max_new_tokens": 64,
+  "model_type": "local-transformers-causal-lm-router-sft-v1",
+  "readiness_limits": [
+    "full_parameter_finetune_without_adapters",
+    "single_node_local_only",
+    "no_production_serving_validation",
+    "no_calibrated_latency_or_cost_budget"
+  ],
+  "readiness_scope": "prototype_full_parameter_sft_not_production_validated",
+  "target_length_summary": {
+    "max": 17,
+    "mean": 13.857142857142858,
+    "min": 11
+  },
+  "trained": true,
+  "trainer": "qwen"
+}

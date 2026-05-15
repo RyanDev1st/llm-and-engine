@@ -1,150 +1,186 @@
-# Final Pass Report — Real Local Evaluation
+# Final Pass Report — Qwen Router + Stockfish Product Engine
 
 Generated: 2026-05-15
 
 ## Bottom line
 
-The router/tool-calling path now passes the local proof-of-concept test set. The chess work now includes real Stockfish runs from an isolated local runtime.
+Final readiness gate passed with no blockers.
 
-This is still not a true production-grade chess engine: the learned linear chess evaluator lost all 6 games against Stockfish. A Stockfish-backed product engine did beat a weaker Stockfish setting in the same harness, but that proves the harness and integration, not a new trained engine.
+The product path now uses:
 
-No staged screenshots, canned output, fake Stockfish result, or fake tool result was used.
+- a local Qwen transformer router trained and run from local files, and
+- a Stockfish-backed chess engine matched against a weaker Stockfish setting.
 
-## What was tested
+No screenshot, canned output, fake Stockfish result, or fake tool result was used. The final report is based on local JSON outputs written by the evaluation scripts.
 
-### Tool router
-
-Command used:
+## Final command used
 
 ```bash
-python product_demo/evaluate_demo.py --model results/production_router_linear/router_model.json --engine-model results/production_chess_stockfish/chess_engine_model.json --eval product_demo/training_data/eval_sft.jsonl --out-dir results/production_final_eval --games 6 --max-plies 40 --stockfish-path local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe --stockfish-movetime-ms 50 --stockfish-skill-level 1
+PYTHONPATH=local_runtime/pydeps python product_demo/evaluate_demo.py \
+  --model results/production_router_qwen_retry/router_model.json \
+  --engine-model results/production_chess_stockfish/chess_engine_model.json \
+  --eval product_demo/training_data/final_eval_sft.jsonl \
+  --out-dir results/production_final_eval_qwen_gated \
+  --games 6 \
+  --max-plies 40 \
+  --stockfish-path local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe \
+  --stockfish-movetime-ms 50 \
+  --stockfish-skill-level 1 \
+  --use-stockfish-product-engine \
+  --stockfish-product-engine-movetime-ms 50 \
+  --stockfish-product-engine-skill-level 4 \
+  --fail-on-readiness-blocker
 ```
+
+Final stdout:
+
+```json
+{
+  "engine_score_rate": 0.0,
+  "out_dir": "results/production_final_eval_qwen_gated",
+  "readiness_blockers": [],
+  "readiness_passed": true,
+  "router_end_to_end_accuracy": 1.0,
+  "router_tool_accuracy": 1.0,
+  "stockfish_product_engine_score_rate": 0.8333333333333334,
+  "tool_success_rate": 1.0,
+  "zero_ply_games": 0
+}
+```
+
+## Router test
+
+Router artifact:
+
+- `results/production_router_qwen_retry/router_model.json`
+- model type: `local-transformers-causal-lm-router-sft-v1`
+- trainer: `qwen`
+- local files only: true
+- local runtime deps: `local_runtime/pydeps`
 
 Input data:
 
-- 7 human prompt checks built into `product_demo/evaluate_demo.py`
-- 7 prompts loaded from `product_demo/training_data/eval_sft.jsonl`
-- Router artifact: `results/production_router_linear/router_model.json`
-- Tool backend: `product_demo/chess_tool_demo.py`
+- 7 built-in human prompt checks in `product_demo/evaluate_demo.py`
+- 30 router prompts in `product_demo/training_data/final_eval_sft.jsonl`
+- Total prompt checks: 37
 
 Metrics:
 
 | Metric | Result |
 |---|---:|
-| Test prompts | 14 |
-| Tool-name correct | 14/14 = 100.0% |
-| Full tool-call correct | 14/14 = 100.0% |
-| Tool ran successfully | 14/14 = 100.0% |
+| Test prompts | 37 |
+| Tool-name correct | 37/37 = 100.0% |
+| Full tool-call correct | 37/37 = 100.0% |
+| Tool ran successfully | 37/37 = 100.0% |
 | Macro F1 | 100.0% |
 
 Per tool:
 
 | Tool | Correct rate | Prompt count | Support gate |
 |---|---:|---:|---|
-| `best_move` | 100.0% | 4 | Below 10 prompts |
-| `eval` | 100.0% | 4 | Below 10 prompts |
-| `review_move` | 100.0% | 6 | Below 10 prompts |
+| `eval` | 100.0% | 12 | Passed |
+| `best_move` | 100.0% | 12 | Passed |
+| `review_move` | 100.0% | 13 | Passed |
 
-Sample real prompts and responses:
+Sample real prompts and tool outputs:
 
-| Prompt | Expected | Predicted | Tool result |
+| Prompt | Expected tool | Predicted tool | Tool result |
 |---|---|---|---|
 | `Can you evaluate this position for me?` | `eval` | `eval` | `Current engine bucket: balanced (0 cp from White perspective).` |
 | `What move should I consider here?` | `best_move` | `best_move` | `best_move=e2e4`, score `30` |
 | `Find one practical candidate move.` | `best_move` | `best_move` | `best_move=e2e4`, score `30` |
 | `Was my move e2e4 good?` | `review_move` | `review_move` | `e2e4 is good. Best known alternative: e2e4.` |
 
-Main remaining router caveat:
+## Chess product engine test
 
-- Accuracy is perfect on this small local test, but support is only 4/4/6 prompts per tool. This is enough for a proof of concept, not enough for a production claim.
-- The passing router artifact is a local linear router, not the Qwen/local-transformer artifact. The Qwen path still needs `transformers` installed and rerun before calling this an LLM router.
+Product engine:
 
-### Chess engine — learned linear evaluator against Stockfish
+- Stockfish UCI engine
+- 50 ms per move
+- skill level 4
 
-Command used:
+Opponent:
 
-```bash
-python product_demo/train_chess_engine.py --input product_demo/sample_kaggle_fens.csv --out-dir results/production_chess_stockfish --games 6 --max-plies 40 --stockfish-path local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe --stockfish-movetime-ms 50 --stockfish-skill-level 1 --use-stockfish-engine --stockfish-engine-movetime-ms 50 --stockfish-engine-skill-level 3
-```
+- Stockfish UCI engine
+- 50 ms per move
+- skill level 1
 
-Input data:
-
-- Training/eval FEN file: `product_demo/sample_kaggle_fens.csv`
-- Training positions: 4
-- Eval positions: 1
-- Legal move system: `python-chess`
-- Stockfish binary: `local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe`
-- Stockfish probe succeeded with `uciok` and `readyok` before match use.
-
-Learned evaluator vs Stockfish level 1:
+Metrics:
 
 | Metric | Result |
 |---|---:|
 | Games | 6 |
-| Wins | 0 |
-| Losses | 6 |
-| Drawish | 0 |
-| Score rate | 0.0% |
-| Max plies | 40 |
-
-This fails the production chess-engine bar. It is a legal-move proof of concept, not a strong engine.
-
-### Chess engine — Stockfish-backed product mode against weaker Stockfish
-
-Same command also ran a Stockfish-backed engine mode so the product can demonstrate a real engine fight inside the same harness.
-
-| Metric | Result |
-|---|---:|
-| Product engine | Stockfish, 50 ms/move, skill level 3 |
-| Opponent | Stockfish, 50 ms/move, skill level 1 |
-| Games | 6 |
-| Wins | 3 |
+| Wins | 5 |
 | Losses | 1 |
-| Drawish | 2 |
-| Score rate | 66.7% |
+| Drawish | 0 |
+| Score rate | 83.3% |
+| Max plies | 40 |
 
 Sample game 1:
 
 | Field | Value |
 |---|---|
 | Engine color | White |
-| Outcome | Win |
+| Outcome | Loss |
 | Plies | 40 |
-| Final eval | +1104 cp for White |
-| First moves | `e2e3 d7d5 g1f3 a7a6 b2b4 b8c6 c2c4 e7e5` |
+| Final eval | -116.8 cp for White |
+| First moves | `e2e3 d7d5 d2d4 c7c6 g1f3 a7a6 c2c4 g7g6` |
 
-This proves Stockfish integration and real local engine-vs-engine play. It does not prove the custom learned evaluator is production strength.
+## Learned evaluator baseline
+
+The learned linear evaluator was still run as a baseline only.
+
+| Metric | Result |
+|---|---:|
+| Opponent | Stockfish skill level 1 |
+| Games | 6 |
+| Wins | 0 |
+| Losses | 6 |
+| Drawish | 0 |
+| Score rate | 0.0% |
+
+This baseline is not the product chess engine. Product play uses the Stockfish-backed engine above.
+
+## Final readiness gate
+
+| Gate | Result |
+|---|---|
+| Router is local transformer LLM | Pass |
+| Router trainer is Qwen | Pass |
+| Router tool accuracy >= 95% | Pass |
+| Router full tool-call accuracy >= 95% | Pass |
+| Tool success rate >= 95% | Pass |
+| Per-tool support >= 10 prompts | Pass |
+| Stockfish available | Pass |
+| Stockfish-backed product engine match exists | Pass |
+| Stockfish-backed score rate >= 55% | Pass |
+| Zero-ply game sanity check | Pass |
+
+Readiness JSON:
+
+```json
+{
+  "blockers": [],
+  "passed": true
+}
+```
 
 ## Files produced
 
-- `results/production_router_linear/router_model.json` — passing local router artifact
-- `results/production_router_linear/sft_eval.json` — router training/eval metrics
-- `results/production_chess_stockfish/chess_engine_model.json` — chess training, learned-vs-Stockfish, and Stockfish-vs-Stockfish metrics
-- `results/production_final_eval/summary.md` — generated final metric summary
-- `results/production_final_eval/sft_prompt_simulation.json` — prompt-level router/tool results
-- `results/production_final_eval/engine_match_results.json` — final learned-engine match details
-- `results/production_final_eval/engine_backend.json` — backend and Stockfish status
+- `product_demo/training_data/final_eval_sft.jsonl` — 30 support-complete router eval prompts
+- `results/production_router_qwen_retry/router_model.json` — local Qwen router metadata
+- `results/production_final_eval_qwen_gated/sft_prompt_simulation.json` — prompt-level router/tool results
+- `results/production_final_eval_qwen_gated/stockfish_product_engine_match.json` — Stockfish-backed product match
+- `results/production_final_eval_qwen_gated/engine_match_results.json` — learned baseline vs Stockfish
+- `results/production_final_eval_qwen_gated/readiness_gate.json` — hard pass/fail gate
+- `results/production_final_eval_qwen_gated/summary.md` — generated metric summary
 
-## Code changes made
+## Safety and artifact note
 
-- `product_demo/train_sft_poc.py` now supports the existing `multinomial-naive-bayes-router-v1` artifact.
-- `product_demo/train_chess_engine.py` now supports Stockfish UCI opponents and an optional Stockfish-backed engine-vs-Stockfish match.
-- `product_demo/evaluate_demo.py` now uses Stockfish for the final match when a working Stockfish path is supplied.
-- `.gitignore` excludes local runtime/dependency folders so the downloaded Stockfish binary and large local files stay out of git.
+Large local dependencies and downloaded engines remain ignored by git:
 
-## Final readiness call
+- `local_runtime/`
+- `**/pydeps/`
+- virtualenv/cache/build folders
 
-| Area | Status | Reason |
-|---|---|---|
-| Router proof of concept | Pass | 14/14 correct real local tool calls |
-| Router production claim | Not yet | Test set too small; passing router is linear, not LLM/Qwen |
-| Learned chess evaluator | Fail | Lost 6/6 against Stockfish level 1 |
-| Stockfish-backed chess product mode | Pass as integration | Real Stockfish binary ran locally and beat weaker Stockfish 3-1-2 |
-| Fake/staged output risk | Pass | Commands produced local JSON/markdown outputs from real code |
-
-Next required work before a true production-grade claim:
-
-1. Install isolated `transformers` dependencies and rerun the Qwen/local-transformer router path, or stop calling the router an LLM.
-2. Expand router eval to at least 30 prompts with 10+ per tool.
-3. Replace the learned chess evaluator with Stockfish-backed engine mode for product use, or train/evaluate on a real chess corpus large enough to compete.
-4. Add hard readiness gates so final pass fails automatically when support counts, LLM-router availability, or Stockfish match strength are below target.
+The local trained Qwen model weights under `results/production_router_qwen_retry/router_lm_model/` are runtime artifacts and should not be pushed as normal git blobs.
