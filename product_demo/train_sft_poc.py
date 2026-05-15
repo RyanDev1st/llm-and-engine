@@ -148,6 +148,24 @@ def train_router_torch(examples: list[RouterExample], epochs: int, learning_rate
 def predict_router(model: dict, text: str) -> str:
     if model.get("model_type") == "local-transformers-causal-lm-router-sft-v1":
         raise ValueError("Use predict_router_lm() or evaluate_router(..., device=...) for LM router inference.")
+    if model.get("model_type") == "multinomial-naive-bayes-router-v1":
+        class_counts = model["class_counts"]
+        token_counts = model["token_counts"]
+        vocabulary = set(model["vocabulary"])
+        vocab_size = len(vocabulary)
+        total_examples = sum(class_counts.values())
+        counts = Counter(tokenize(text))
+        scores = []
+        for label in sorted(class_counts):
+            label_token_counts = token_counts.get(label, {})
+            total_label_tokens = sum(label_token_counts.values())
+            score = math.log(class_counts[label] / total_examples)
+            denominator = total_label_tokens + vocab_size
+            for token, count in counts.items():
+                if token in vocabulary:
+                    score += count * math.log((label_token_counts.get(token, 0) + 1) / denominator)
+            scores.append((score, label))
+        return max(scores, key=lambda item: (item[0], item[1]))[1]
     vocab = model["vocabulary"]
     labels = model["labels"]
     token_to_index = {token: index for index, token in enumerate(vocab)}

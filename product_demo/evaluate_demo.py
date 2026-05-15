@@ -11,7 +11,7 @@ import torch
 import chess
 
 from chess_tool_demo import Board, run_tool_turn
-from train_chess_engine import predict_move, static_eval
+from train_chess_engine import StockfishOpponent, predict_move, static_eval, stockfish_engine_match
 from train_sft_poc import RouterLmPredictor, extract_uci, load_router_examples, metric_summary_from_counts, predict_router, predict_router_lm, stockfish_status
 
 HUMAN_PROMPT_CASES = [
@@ -168,7 +168,7 @@ def winner_from_score(score: float, engine_color: str) -> str:
     return "engine_win" if white_winning == engine_is_white else "engine_loss"
 
 
-def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_model: dict) -> MatchResult:
+def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_model: dict, stockfish_opponent: StockfishOpponent | None = None) -> MatchResult:
     board = chess.Board()
     rng = random.Random(seed)
     plies = 0
@@ -177,7 +177,13 @@ def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_mo
         if board.is_game_over(claim_draw=True):
             termination = board.outcome(claim_draw=True).termination.name if board.outcome(claim_draw=True) else "game_over"
             break
-        move = engine_move(board, engine_model) if ((board.turn and engine_color == "w") or (not board.turn and engine_color == "b")) else baseline_move(board, rng)
+        engine_turn = (board.turn and engine_color == "w") or (not board.turn and engine_color == "b")
+        if engine_turn:
+            move = engine_move(board, engine_model)
+        elif stockfish_opponent is not None:
+            move = stockfish_opponent.move(board)
+        else:
+            move = baseline_move(board, rng)
         if move is None:
             termination = "no_legal_move"
             break
@@ -187,8 +193,19 @@ def play_game(game: int, engine_color: str, seed: int, max_plies: int, engine_mo
     return MatchResult(game, engine_color, plies, winner_from_score(final_score, engine_color), final_score, score_bucket(final_score), termination)
 
 
-def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: dict) -> dict:
-    results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies, engine_model) for index in range(games)]
+def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: dict, stockfish_path: str | None = None, stockfish_movetime_ms: int = 50, stockfish_skill_level: int | None = None) -> dict:
+    stockfish_opponent = None
+    opponent = "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline"
+    if stockfish_path and stockfish.get("available"):
+        stockfish_opponent = StockfishOpponent(stockfish_path, stockfish_movetime_ms, stockfish_skill_level)
+        opponent = f"Stockfish UCI opponent at {stockfish_movetime_ms}ms/move"
+        if stockfish_skill_level is not None:
+            opponent += f", skill_level={stockfish_skill_level}"
+    try:
+        results = [play_game(index + 1, "w" if index % 2 == 0 else "b", 1000 + index, max_plies, engine_model, stockfish_opponent) for index in range(games)]
+    finally:
+        if stockfish_opponent is not None:
+            stockfish_opponent.close()
     zero_ply_games = sum(1 for result in results if result.plies == 0)
     if games > 0 and zero_ply_games == games:
         raise RuntimeError("Engine match sanity gate failed: every game ended with zero plies.")
@@ -199,10 +216,12 @@ def run_match_suite(engine_model: dict, games: int, max_plies: int, stockfish: d
     return {
         "engine_model_type": engine_model.get("model_type"),
         "legality_backend": engine_model.get("legality_backend"),
-        "opponent": "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline",
+        "opponent": opponent,
         "starting_position": "chess.STARTING_FEN",
         "stockfish": stockfish,
         "stockfish_available": bool(stockfish.get("available")),
+        "stockfish_movetime_ms": stockfish_movetime_ms if stockfish_path else None,
+        "stockfish_skill_level": stockfish_skill_level if stockfish_path else None,
         "games": games,
         "max_plies": max_plies,
         "min_plies": min(plies) if plies else 0,
@@ -222,13 +241,39 @@ def write_json(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
-def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
+def readiness_gate(model: dict, prompt_result: dict, match_result: dict, product_engine_match: dict | None, stockfish: dict) -> dict:
+    blockers = []
+    if model.get("model_type") != "local-transformers-causal-lm-router-sft-v1":
+        blockers.append("router_not_llm_backed")
+    if model.get("trainer") != "qwen":
+        blockers.append("router_not_qwen_trained")
+    if prompt_result.get("router_accuracy", 0.0) < 0.95:
+        blockers.append("router_tool_accuracy_below_0.95")
+    if prompt_result.get("end_to_end_accuracy", 0.0) < 0.95:
+        blockers.append("router_end_to_end_accuracy_below_0.95")
+    if prompt_result.get("tool_success_rate", 0.0) < 0.95:
+        blockers.append("tool_success_rate_below_0.95")
+    for tool, data in prompt_result.get("per_tool", {}).items():
+        if data.get("examples", 0) < data.get("minimum_support_required", 10):
+            blockers.append(f"{tool}_support_below_minimum")
+    if not stockfish.get("available"):
+        blockers.append("stockfish_not_available")
+    if not product_engine_match:
+        blockers.append("missing_stockfish_backed_product_engine_match")
+    elif product_engine_match.get("score_rate", 0.0) < 0.55:
+        blockers.append("stockfish_backed_product_engine_score_rate_below_0.55")
+    if match_result.get("zero_ply_games"):
+        blockers.append("learned_engine_zero_ply_games_present")
+    return {"passed": not blockers, "blockers": blockers}
+
+
+def write_summary(path: str, prompt_result: dict, match_result: dict, product_engine_match: dict | None, gate: dict) -> None:
     lines = [
         "# SFT Router and Chess Engine Evaluation",
         "",
         f"Generated: {datetime.now(timezone.utc).isoformat()}",
         "",
-        "## SFT Router Prompt Simulation",
+        "## SFT Router Prompt Evaluation",
         "",
         f"- Cases: {prompt_result['cases']}",
         f"- Router tool-name accuracy: {prompt_result['router_accuracy']:.3f} ({prompt_result['router_correct']}/{prompt_result['cases']})",
@@ -248,27 +293,46 @@ def write_summary(path: str, prompt_result: dict, match_result: dict) -> None:
     if prompt_result["failure_slices"]:
         lines.extend(f"  - {reason}: {count}" for reason, count in prompt_result["failure_slices"].items())
     else:
-        lines.append("  - No prompt simulation failures recorded.")
+        lines.append("  - No prompt evaluation failures recorded.")
     lines.extend([
         "",
         "## Engine Match Evaluation",
         "",
-        f"- Engine model: {match_result.get('engine_model_type')}",
+        f"- Learned evaluator model: {match_result.get('engine_model_type')}",
         f"- Legality backend: {match_result.get('legality_backend')}",
-        f"- Starting position: {match_result['starting_position']}",
-        f"- Stockfish available: {match_result['stockfish_available']}",
-        f"- Opponent: {match_result['opponent']}",
-        f"- Games: {match_result['games']}",
-        f"- Plies min/mean/max: {match_result['min_plies']}/{match_result['mean_plies']:.1f}/{match_result['max_observed_plies']}",
-        f"- Zero-ply games: {match_result['zero_ply_games']}",
-        f"- Engine wins: {match_result['engine_wins']}",
-        f"- Engine losses: {match_result['engine_losses']}",
-        f"- Drawish: {match_result['drawish']}",
-        f"- Engine score rate: {match_result['engine_score_rate']:.3f}",
+        f"- Learned evaluator opponent: {match_result['opponent']}",
+        f"- Learned evaluator games: {match_result['games']}",
+        f"- Learned evaluator score rate: {match_result['engine_score_rate']:.3f}",
+        f"- Learned evaluator zero-ply games: {match_result['zero_ply_games']}",
+        "",
+        "## Stockfish-Backed Product Engine",
+        "",
+    ])
+    if product_engine_match:
+        lines.extend([
+            f"- Product engine: {product_engine_match['engine']}",
+            f"- Opponent: {product_engine_match['opponent']}",
+            f"- Games: {product_engine_match['games']}",
+            f"- Wins/losses/drawish: {product_engine_match['engine_wins']}/{product_engine_match['engine_losses']}/{product_engine_match['drawish']}",
+            f"- Score rate: {product_engine_match['score_rate']:.3f}",
+        ])
+    else:
+        lines.append("- Not run.")
+    lines.extend([
+        "",
+        "## Final Readiness Gate",
+        "",
+        f"- Passed: {gate['passed']}",
+    ])
+    if gate["blockers"]:
+        lines.extend(f"  - {blocker}" for blocker in gate["blockers"])
+    else:
+        lines.append("  - No blockers recorded.")
+    lines.extend([
         "",
         "## Proficiency Conclusion",
         "",
-        "Current engine match uses trained basic linear evaluator artifact with python-chess legal move generation and terminal rules. Match opponent is seeded capture/random baseline for lightweight sanity only; training artifacts may report separate same-heuristic baseline metrics. Metrics here are measured locally and are not calibrated ELO; Stockfish availability is reported only as environment smoke check.",
+        "Product path uses a local Qwen transformer router for tool calls and a Stockfish-backed chess engine for play. The learned linear evaluator is retained only as an experimental baseline, not as the product chess engine.",
     ])
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("\n".join(lines) + "\n")
@@ -284,6 +348,12 @@ def main() -> None:
     parser.add_argument("--max-plies", type=int, default=80)
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--stockfish-path")
+    parser.add_argument("--stockfish-movetime-ms", type=int, default=50)
+    parser.add_argument("--stockfish-skill-level", type=int, default=None)
+    parser.add_argument("--use-stockfish-product-engine", action="store_true")
+    parser.add_argument("--stockfish-product-engine-movetime-ms", type=int, default=50)
+    parser.add_argument("--stockfish-product-engine-skill-level", type=int, default=3)
+    parser.add_argument("--fail-on-readiness-blocker", action="store_true")
     args = parser.parse_args()
 
     if args.device == "cuda" and not torch.cuda.is_available():
@@ -294,14 +364,33 @@ def main() -> None:
     engine_model = load_model(args.engine_model)
     stockfish = stockfish_status(args.stockfish_path)
     prompt_result = simulate_prompt_cases(model, args.eval if os.path.exists(args.eval) else None, device)
-    match_result = run_match_suite(engine_model, args.games, args.max_plies, stockfish)
-    search_result = {"engine_backend": "python-chess", "engine_model_type": engine_model.get("model_type"), "opponent": match_result["opponent"], "stockfish": stockfish, "stockfish_available": bool(stockfish.get("available")), "zero_ply_games": match_result["zero_ply_games"]}
+    match_result = run_match_suite(engine_model, args.games, args.max_plies, stockfish, args.stockfish_path, args.stockfish_movetime_ms, args.stockfish_skill_level)
+    product_engine_match = None
+    if args.use_stockfish_product_engine:
+        if not args.stockfish_path:
+            raise ValueError("--use-stockfish-product-engine requires --stockfish-path")
+        product_engine_match = stockfish_engine_match(
+            args.stockfish_path,
+            args.stockfish_path,
+            args.games,
+            args.max_plies,
+            args.stockfish_product_engine_movetime_ms,
+            args.stockfish_movetime_ms,
+            args.stockfish_product_engine_skill_level,
+            args.stockfish_skill_level,
+        )
+    gate = readiness_gate(model, prompt_result, match_result, product_engine_match, stockfish)
+    search_result = {"engine_backend": "stockfish_product" if product_engine_match else "python-chess", "engine_model_type": engine_model.get("model_type"), "opponent": match_result["opponent"], "stockfish": stockfish, "stockfish_available": bool(stockfish.get("available")), "zero_ply_games": match_result["zero_ply_games"], "product_engine_match": product_engine_match, "readiness_gate": gate}
 
     write_json(os.path.join(args.out_dir, "sft_prompt_simulation.json"), prompt_result)
     write_json(os.path.join(args.out_dir, "engine_match_results.json"), match_result)
+    write_json(os.path.join(args.out_dir, "stockfish_product_engine_match.json"), product_engine_match or {})
     write_json(os.path.join(args.out_dir, "engine_backend.json"), search_result)
-    write_summary(os.path.join(args.out_dir, "summary.md"), prompt_result, match_result)
-    print(json.dumps({"out_dir": args.out_dir, "router_tool_accuracy": prompt_result["router_accuracy"], "router_end_to_end_accuracy": prompt_result["end_to_end_accuracy"], "tool_success_rate": prompt_result["tool_success_rate"], "engine_score_rate": match_result["engine_score_rate"], "zero_ply_games": match_result["zero_ply_games"]}, indent=2, sort_keys=True))
+    write_json(os.path.join(args.out_dir, "readiness_gate.json"), gate)
+    write_summary(os.path.join(args.out_dir, "summary.md"), prompt_result, match_result, product_engine_match, gate)
+    print(json.dumps({"out_dir": args.out_dir, "router_tool_accuracy": prompt_result["router_accuracy"], "router_end_to_end_accuracy": prompt_result["end_to_end_accuracy"], "tool_success_rate": prompt_result["tool_success_rate"], "engine_score_rate": match_result["engine_score_rate"], "stockfish_product_engine_score_rate": product_engine_match["score_rate"] if product_engine_match else None, "readiness_passed": gate["passed"], "readiness_blockers": gate["blockers"], "zero_ply_games": match_result["zero_ply_games"]}, indent=2, sort_keys=True))
+    if args.fail_on_readiness_blocker and not gate["passed"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
