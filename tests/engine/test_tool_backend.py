@@ -112,6 +112,13 @@ def test_backend_review_threats_and_chessbot() -> None:
     assert backend.execute("<tool>review_move</tool>") == "error: no moves to review"
     backend.execute("<tool>move san=e4</tool>")
     assert backend.execute("<tool>review_move</tool>").startswith("review: e4, label=good")
-    assert backend.execute("<tool>threats depth=12</tool>").startswith("threats: opponent's best is ")
+    assert backend.execute("<tool>threats depth=12</tool>") == "threats: best reply is a5, score for side to move: +0.00 pawns"
     assert "Sicilian Defense" in backend.execute("<tool>ask_chessbot query=Sicilian</tool>")
     assert "Sicilian Defense" in backend.execute('<tool>ask_chessbot query="Sicilian defense ideas"</tool>')
+
+
+def test_backend_threats_reports_search_score() -> None:
+    board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 b - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+
+    assert backend.execute("<tool>threats depth=12</tool>") == "threats: best reply is Qxd2, score for side to move: -9.00 pawns"

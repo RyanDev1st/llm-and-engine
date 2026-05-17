@@ -25,6 +25,7 @@ def main() -> None:
         tool_disambiguated_piece_san_shape,
         tool_castling_san_shape,
         tool_castling_list_shape,
+        tool_threats_search_shape,
         filters_self_check,
         blocks_castle_through_check,
     ]
@@ -141,6 +142,12 @@ def tool_castling_list_shape() -> bool:
     board = BoardState.from_fen("4k2r/8/8/8/8/8/8/R3K2R w KQk - 0 1")
     backend = ToolBackend(ChessEngine(board))
     return "O-O" in backend.execute("<tool>legal_moves square=e1</tool>")
+
+
+def tool_threats_search_shape() -> bool:
+    board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 b - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+    return backend.execute("<tool>threats depth=12</tool>") == "threats: best reply is Qxd2, score for side to move: -9.00 pawns"
 
 
 def filters_self_check() -> bool:

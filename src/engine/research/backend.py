@@ -69,9 +69,7 @@ class ToolBackend:
         result = search_position(self.engine, d)
         score_note = f"requested_depth={d}, searched_plies={result.plies}"
         if not result.pv:
-            if abs(result.score) >= 99900:
-                return f"best: none, score: {mate_label(result)}, {score_note}"
-            return f"best: none, score: {result.score / 100:+.2f} pawns from white POV, {score_note}"
+            return no_best(result, score_note)
         san_moves = san_line(self.engine, result.pv[:max(1, min(series, 5))])
         if series == 1:
             return f"best: {san_moves[0]}, {score_note}"
@@ -85,10 +83,12 @@ class ToolBackend:
         return f"review: {last}, label=good, delta=+0.00 pawns, best_was={last}"
 
     def _threats(self, d: int) -> str:
-        moves = self.engine.legal_moves()
-        if not moves:
-            return "threats: none significant (best opponent move only changes eval by 0.00)"
-        return f"threats: opponent's best is {move_to_san(self.engine.board, moves[0])}, score for them: +0.00 pawns"
+        result = search_position(self.engine, d)
+        if not result.pv:
+            return "threats: none significant (no legal opponent moves)"
+        san = move_to_san(self.engine.board, result.pv[0])
+        score = (1 if self.engine.board.turn == "w" else -1) * result.score / 100
+        return f"threats: best reply is {san}, score for side to move: {score:+.2f} pawns"
 
     def _legal_moves(self, square: str | None) -> str:
         moves = [move_to_san(self.engine.board, move) for move in self.engine.legal_moves() if square is None or move.startswith(square)]
@@ -129,6 +129,11 @@ def mate_label(result: SearchResult) -> str:
     if distance > 0:
         return f"mate in {distance} for {winner}"
     return f"mate for {winner}"
+
+
+def no_best(result: SearchResult, score_note: str) -> str:
+    score = mate_label(result) if abs(result.score) >= 99900 else f"{result.score / 100:+.2f} pawns from white POV"
+    return f"best: none, score: {score}, {score_note}"
 
 
 def depth(args: dict[str, str], default: int) -> int:
@@ -191,6 +196,4 @@ def ask_chessbot(query: str) -> str:
     q = query.lower()
     if "sicilian" in q:
         return "The Sicilian Defense starts with 1...c5 against 1.e4 and creates asymmetrical, fighting positions."
-    if "fork" in q:
-        return "A fork is a tactic where one piece attacks two or more enemy pieces at the same time."
-    return "Chess principles depend on position, but development, king safety, and central control are usually good guides."
+    return "A fork is a tactic where one piece attacks two or more enemy pieces at the same time." if "fork" in q else "Chess principles depend on position, but development, king safety, and central control are usually good guides."
