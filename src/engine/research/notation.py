@@ -12,7 +12,7 @@ def move_to_san(board: BoardState, uci: str) -> str:
         return "O-O-O" + _check_suffix(board, uci)
     source, target = uci[:2], uci[2:4]
     piece = board.piece_at(source)
-    capture = board.piece_at(target) != "."
+    capture = board.piece_at(target) != "." or (piece.upper() == "P" and target == board.en_passant and source[0] != target[0])
     suffix = _check_suffix(board, uci)
     promote = f"={uci[4].upper()}" if len(uci) > 4 else ""
     if piece.upper() == "P":

@@ -100,10 +100,12 @@ class ChessEngine:
         piece = self.board.piece_at(source)
         placed = uci[4].upper() if len(uci) > 4 and piece.isupper() else uci[4] if len(uci) > 4 else piece
         next_board = self.board.with_piece(source, ".").with_piece(target, placed)
+        if _is_en_passant(self.board, source, target, piece):
+            next_board = next_board.with_piece(f"{target[0]}{source[1]}", ".")
         next_board = replace(next_board, castling=castling_rights_after(self.board.castling, source, target))
         if piece.upper() == "P" or self.board.piece_at(target) != ".":
             next_board = replace(next_board, halfmove=-1)
-        return next_board.switch_turn()
+        return next_board.switch_turn(_en_passant_target(source, target, piece))
 
     def _piece_moves(self, row: int, col: int, piece: str) -> list[str]:
         kind = piece.upper()
@@ -126,7 +128,9 @@ class ChessEngine:
                 moves.append(_uci(row, col, row + step * 2, col))
         for dc in (-1, 1):
             nr, nc = row + step, col + dc
-            if inside(nr, nc) and _enemy(piece, self.board.squares[nr][nc]):
+            if not inside(nr, nc):
+                continue
+            if _enemy(piece, self.board.squares[nr][nc]) or self.board.en_passant == _square(nr, nc):
                 moves.extend(_pawn_uci(row, col, nr, nc, nr == promote))
         return moves
 
@@ -163,6 +167,16 @@ def _friend(piece: str, other: str) -> bool:
 
 def _enemy(piece: str, other: str) -> bool:
     return other != "." and piece.isupper() != other.isupper()
+
+
+def _is_en_passant(board: BoardState, source: str, target: str, piece: str) -> bool:
+    return piece.upper() == "P" and target == board.en_passant and source[0] != target[0] and board.piece_at(target) == "."
+
+
+def _en_passant_target(source: str, target: str, piece: str) -> str:
+    if piece.upper() == "P" and abs(int(source[1]) - int(target[1])) == 2:
+        return f"{source[0]}{(int(source[1]) + int(target[1])) // 2}"
+    return "-"
 
 
 def _other(turn: str) -> str:
