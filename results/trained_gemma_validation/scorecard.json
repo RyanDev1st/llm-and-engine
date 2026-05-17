@@ -1,0 +1,7 @@
+{
+  "artifact_path": "results\\trained_model_linear_final",
+  "blocker_type": "artifact_load_error",
+  "error": "model artifact exists but no validation_transcripts.json inference adapter is present",
+  "generated_at": "2026-05-17T10:30:42.815691+00:00",
+  "status": "blocked"
+}

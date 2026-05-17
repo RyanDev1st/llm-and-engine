@@ -1,0 +1,13 @@
+{
+    "cursor.terminal.usePreviewBox": true,
+    "terminal.integrated.confirmOnExit": "always",
+    "terminal.integrated.cursorBlinking": true,
+    "terminal.integrated.copyOnSelection": true,
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    "terminal.integrated.enableImages": true,
+    "terminal.integrated.enableWin32InputMode": true,
+    "terminal.integrated.enableVisualBell": true,
+    "terminal.integrated.sendKeybindingsToShell": false,
+    "terminal.integrated.smoothScrolling": true,
+    "terminal.integrated.suggest.enabled": true
+}

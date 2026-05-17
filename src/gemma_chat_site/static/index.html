@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Gemma Chat</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">local gpu inference</p>
+      <h1>Real Gemma chat test.</h1>
+      <p class="lead">This site loads the local model weights directly from disk. No router JSON. No legacy demo.</p>
+    </section>
+
+    <section class="grid">
+      <aside class="card status-card">
+        <div class="card-top">
+          <h2>Model runtime</h2>
+          <button id="refresh">Refresh</button>
+        </div>
+        <dl id="status"></dl>
+      </aside>
+
+      <section class="card chat-card">
+        <div id="chat" class="chat"></div>
+        <form id="form" class="composer">
+          <textarea id="prompt" placeholder="Ask the local Gemma model…" required></textarea>
+          <div class="controls">
+            <label>Tokens <input id="tokens" type="number" min="1" max="512" value="128"></label>
+            <label>Temp <input id="temp" type="number" min="0" max="2" step="0.1" value="0.7"></label>
+            <button id="send" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

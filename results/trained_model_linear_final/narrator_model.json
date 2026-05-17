@@ -1,0 +1,48 @@
+{
+  "example_count": 12,
+  "model_type": "basic-template-narrator-sft-v1",
+  "templates": {
+    "best_move": [
+      [
+        "Candidate move: Ng5",
+        2
+      ],
+      [
+        "Candidate move: Nh3",
+        1
+      ],
+      [
+        "Candidate move: Nh6",
+        1
+      ]
+    ],
+    "eval": [
+      [
+        "Stockfish says balanced here, around about even.",
+        1
+      ],
+      [
+        "Looks balanced by the engine, about +0.7 for White.",
+        1
+      ],
+      [
+        "Quick engine check: balanced, roughly +0.5 for White.",
+        1
+      ]
+    ],
+    "evaluate_move": [
+      [
+        "If you try Nh3, engine calls it good. Best idea I found was Bc4. It would land balanced.",
+        1
+      ],
+      [
+        "Ng5 looks blunder if played now. Best idea I found was Bc4. Engine bucket: black better.",
+        1
+      ],
+      [
+        "If you try Nh6, engine calls it good. Best idea I found was Nc6. It would land balanced.",
+        1
+      ]
+    ]
+  }
+}
