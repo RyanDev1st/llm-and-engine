@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from .engine import ChessEngine
-from .notation import move_to_san
+from .notation import move_to_san, san_line
 from .search import MATE, SearchResult, search_position
 
 TOOL_RE = re.compile(r"^<tool>(\w+)(.*?)</tool>$")
@@ -72,7 +72,7 @@ class ToolBackend:
             if abs(result.score) >= 99900:
                 return f"best: none, score: {mate_label(result)}, {score_note}"
             return f"best: none, score: {result.score / 100:+.2f} pawns from white POV, {score_note}"
-        san_moves = [move_to_san(self.engine.board, move) for move in result.pv[:max(1, min(series, 5))]]
+        san_moves = san_line(self.engine, result.pv[:max(1, min(series, 5))])
         if series == 1:
             return f"best: {san_moves[0]}, {score_note}"
         line = " ".join(san_moves)
@@ -172,14 +172,6 @@ def _resolve_san_target(target: str, piece: str, engine: ChessEngine, source_hin
 
 def _matches_source_hint(source: str, source_hint: str | None) -> bool:
     return source_hint is None or source.startswith(source_hint) or source.endswith(source_hint)
-
-
-def uci_to_san(uci: str) -> str:
-    if uci == "e1g1" or uci == "e8g8":
-        return "O-O"
-    if uci == "e1c1" or uci == "e8c8":
-        return "O-O-O"
-    return uci[2:4] if uci[0] == uci[2] else uci
 
 
 def filter_pieces(pieces: list[str], color: str, turn: str) -> list[str]:

@@ -68,7 +68,15 @@ def test_backend_rejects_illegal_move() -> None:
     assert backend.execute("<tool>move san=e5</tool>") == "error: illegal, reason=illegal move"
 
 
-def test_backend_eval_reports_mate() -> None:
+def test_backend_formats_check_and_mate_suffixes() -> None:
+    check_board = BoardState.from_fen("6k1/5Q2/6K1/8/8/8/8/8 w - - 0 1")
+    mate_board = BoardState.from_fen("7k/5Q2/7K/8/8/8/8/8 w - - 0 1")
+
+    assert "Qf1" in ToolBackend(ChessEngine(check_board)).execute("<tool>legal_moves square=f7</tool>")
+    assert "Qf8+" in ToolBackend(ChessEngine(check_board)).execute("<tool>legal_moves square=f7</tool>")
+    assert "Qg7#" in ToolBackend(ChessEngine(mate_board)).execute("<tool>legal_moves square=f7</tool>")
+
+
     board = BoardState.from_fen("6k1/5Q2/6K1/8/8/8/8/8 w - - 0 1")
     backend = ToolBackend(ChessEngine(board))
 
