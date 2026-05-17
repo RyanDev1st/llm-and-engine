@@ -2,7 +2,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Claude Code — local / ephemeral (do not commit)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
 .claude/worktrees/
+
 .vscode/
 local_runtime/
 **/local_runtime/
