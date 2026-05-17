@@ -1,0 +1,377 @@
+{
+  "narrator": {
+    "exact_accuracy": 0.3333333333333333,
+    "exact_matches": 1,
+    "examples": 3,
+    "factual_accuracy": 0.3333333333333333,
+    "factual_matches": 1,
+    "grounded": 3,
+    "grounded_rate": 1.0,
+    "rows": [
+      {
+        "exact_ok": true,
+        "expected": "Current engine bucket: balanced (0 cp from White perspective).",
+        "factual_ok": true,
+        "grounded_ok": true,
+        "predicted": "Current engine bucket: balanced (0 cp from White perspective).",
+        "required_tokens": [
+          "balanced"
+        ],
+        "tool_name": "eval"
+      },
+      {
+        "exact_ok": false,
+        "expected": "Engine-backed review: g1h3 is good. Best known alternative: e2e4. Evidence bucket moved from balanced to balanced.",
+        "factual_ok": false,
+        "grounded_ok": true,
+        "predicted": "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
+        "required_tokens": [
+          "g1h3",
+          "good"
+        ],
+        "tool_name": "review_move"
+      },
+      {
+        "exact_ok": false,
+        "expected": "{\"best_move\": \"e2e4\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 30, \"status\": \"ok\"}",
+        "factual_ok": false,
+        "grounded_ok": true,
+        "predicted": "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
+        "required_tokens": [
+          "e2e4"
+        ],
+        "tool_name": "best_move"
+      }
+    ]
+  },
+  "readiness": {
+    "blockers": [
+      "router_eval_minimum_support_not_met",
+      "real_kaggle_manifest_not_production_valid"
+    ],
+    "production_ready": false
+  },
+  "router": {
+    "accuracy": 1.0,
+    "argument_accuracy": 1.0,
+    "argument_examples": 3,
+    "confusion_matrix": {
+      "best_move": {
+        "best_move": 2,
+        "eval": 0,
+        "review_move": 0
+      },
+      "eval": {
+        "best_move": 0,
+        "eval": 2,
+        "review_move": 0
+      },
+      "review_move": {
+        "best_move": 0,
+        "eval": 0,
+        "review_move": 3
+      }
+    },
+    "correct": 7,
+    "end_to_end_accuracy": 1.0,
+    "end_to_end_correct": 7,
+    "examples": 7,
+    "failure_slices": {},
+    "macro_f1": 1.0,
+    "minimum_support": {
+      "passed": false,
+      "per_tool": {
+        "best_move": 2,
+        "eval": 2,
+        "review_move": 3
+      },
+      "required_per_tool": 10
+    },
+    "outcome_slices": {
+      "ok": 7
+    },
+    "per_tool": {
+      "best_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "eval": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 2
+      },
+      "review_move": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 3
+      }
+    },
+    "rows": [
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "eval",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {},
+          "tool_name": "eval"
+        },
+        "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": "{\"arguments\":{},\"tool_name\":\"eval\"}",
+        "router_ok": true,
+        "text": "Evaluate the current position."
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "eval",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {},
+          "tool_name": "eval"
+        },
+        "predicted": "eval",
+        "predicted_arguments": {},
+        "prompt_family": "eval",
+        "raw_generation": "{\"arguments\":{},\"tool_name\":\"eval\"}",
+        "router_ok": true,
+        "text": "How is this board looking?"
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "best_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {},
+          "tool_name": "best_move"
+        },
+        "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": "{\"arguments\":{},\"tool_name\":\"best_move\"}",
+        "router_ok": true,
+        "text": "What move should I consider?"
+      },
+      {
+        "argument_ok": null,
+        "arguments": {},
+        "expected": "best_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {},
+          "tool_name": "best_move"
+        },
+        "predicted": "best_move",
+        "predicted_arguments": {},
+        "prompt_family": "best_move",
+        "raw_generation": "{\"arguments\":{},\"tool_name\":\"best_move\"}",
+        "router_ok": true,
+        "text": "Find a practical candidate move here."
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {
+            "uci": "g1h3"
+          },
+          "tool_name": "review_move"
+        },
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": "{\"arguments\":{\"uci\":\"g1h3\"},\"tool_name\":\"review_move\"}",
+        "router_ok": true,
+        "text": "Was my move g1h3 good?"
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {
+            "uci": "g1h3"
+          },
+          "tool_name": "review_move"
+        },
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": "{\"arguments\":{\"uci\":\"g1h3\"},\"tool_name\":\"review_move\"}",
+        "router_ok": true,
+        "text": "Please review g1h3 in this position."
+      },
+      {
+        "argument_ok": true,
+        "arguments": {
+          "uci": "g1h3"
+        },
+        "expected": "review_move",
+        "failure_reason": "ok",
+        "parse_error": null,
+        "parse_ok": true,
+        "parsed_tool_call": {
+          "arguments": {
+            "uci": "g1h3"
+          },
+          "tool_name": "review_move"
+        },
+        "predicted": "review_move",
+        "predicted_arguments": {
+          "uci": "g1h3"
+        },
+        "prompt_family": "review_move",
+        "raw_generation": "{\"arguments\":{\"uci\":\"g1h3\"},\"tool_name\":\"review_move\"}",
+        "router_ok": true,
+        "text": "Is g1h3 legal and useful?"
+      }
+    ],
+    "where_it_succeeds": {
+      "best_move": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "eval": {
+        "accuracy": 1.0,
+        "examples": 2
+      },
+      "review_move": {
+        "accuracy": 1.0,
+        "examples": 3
+      }
+    }
+  },
+  "training": {
+    "batch_size": 1,
+    "batching_enabled": true,
+    "cuda_available": false,
+    "cuda_device_name": null,
+    "device": "cpu",
+    "download_attempted": false,
+    "epochs": 8,
+    "grad_accum_steps": 2,
+    "learning_rate": 5e-05,
+    "local_only": true,
+    "local_transformers_sft_completed": true,
+    "max_length": 256,
+    "max_new_tokens": 64,
+    "model_path": "A:/Download/llm_tool_calling_research_workspace/local_runtime/models/Qwen2.5-0.5B-Instruct",
+    "qwen_gemma_status": "trained_local_router_sft",
+    "readiness_limits": [
+      "full_parameter_finetune_without_adapters",
+      "single_node_local_only",
+      "no_production_serving_validation",
+      "no_calibrated_latency_or_cost_budget"
+    ],
+    "readiness_scope": "prototype_full_parameter_sft_not_production_validated",
+    "router_progress": [
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 1,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.9550405923343662
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 2,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.021151188894041946
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 3,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.005292124746899519
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 4,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.0023543057988198207
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 5,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.0016607652692722955
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 6,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.0013003998007791648
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 7,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.0010820228427681805
+      },
+      {
+        "batch_size": 1,
+        "batches": 28,
+        "epoch": 8,
+        "examples": 28,
+        "grad_accum_steps": 2,
+        "loss": 0.0009591310476285539
+      }
+    ],
+    "stockfish": {
+      "available": true,
+      "blocker": null,
+      "path": "A:/Download/llm_tool_calling_research_workspace/local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe",
+      "uci_ready": true
+    },
+    "target_length_summary": {
+      "max": 17,
+      "mean": 13.857142857142858,
+      "min": 11
+    },
+    "trainer": "qwen",
+    "trainer_blockers": []
+  }
+}

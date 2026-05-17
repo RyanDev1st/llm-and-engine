@@ -1,0 +1,48 @@
+{
+  "example_count": 12,
+  "model_type": "basic-template-narrator-sft-v1",
+  "templates": {
+    "best_move": [
+      [
+        "{\"best_move\": \"d1h5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 39, \"status\": \"ok\"}",
+        1
+      ],
+      [
+        "{\"best_move\": \"f3e5\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 109, \"status\": \"ok\"}",
+        1
+      ],
+      [
+        "{\"best_move\": \"e7e6\", \"engine\": \"python-chess-static-eval-v1\", \"relative_score\": 0, \"status\": \"ok\"}",
+        1
+      ]
+    ],
+    "eval": [
+      [
+        "Current engine bucket: balanced (0 cp from White perspective).",
+        1
+      ],
+      [
+        "Current engine bucket: balanced (-12 cp from White perspective).",
+        1
+      ],
+      [
+        "Current engine bucket: balanced (30 cp from White perspective).",
+        1
+      ]
+    ],
+    "review_move": [
+      [
+        "Engine-backed review: f3g5 is inaccuracy. Best known alternative: f3e5. Evidence bucket moved from balanced to balanced.",
+        2
+      ],
+      [
+        "Engine-backed review: g1h3 is good. Best known alternative: d1h5. Evidence bucket moved from balanced to balanced.",
+        1
+      ],
+      [
+        "Engine-backed review: g8h6 is good. Best known alternative: e7e6. Evidence bucket moved from balanced to balanced.",
+        1
+      ]
+    ]
+  }
+}

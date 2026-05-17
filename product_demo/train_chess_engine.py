@@ -5,6 +5,7 @@ import json
 import math
 import os
 import random
+import subprocess
 from collections import defaultdict
 
 import chess
@@ -190,7 +191,74 @@ def baseline_move(board: chess.Board) -> chess.Move | None:
     return max(legal, key=lambda move: (color_sign * eval_after(board, move), move.uci()))
 
 
-def play(weights: dict[str, float], game: int, engine_color: chess.Color, max_plies: int) -> dict:
+class StockfishOpponent:
+    def __init__(self, path: str, movetime_ms: int, skill_level: int | None) -> None:
+        self.path = path
+        self.movetime_ms = movetime_ms
+        self.process = subprocess.Popen(
+            [path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        self._send("uci")
+        self._read_until("uciok")
+        if skill_level is not None:
+            self._send(f"setoption name Skill Level value {skill_level}")
+        self._send("isready")
+        self._read_until("readyok")
+
+    def close(self) -> None:
+        if self.process.poll() is None:
+            self._send("quit")
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+    def move(self, board: chess.Board) -> chess.Move | None:
+        if board.is_game_over(claim_draw=True):
+            return None
+        self._send(f"position fen {board.fen()}")
+        self._send(f"go movetime {self.movetime_ms}")
+        line = self._read_until("bestmove")
+        parts = line.split()
+        if len(parts) < 2 or parts[1] == "(none)":
+            return None
+        move = chess.Move.from_uci(parts[1])
+        if move not in board.legal_moves:
+            raise ValueError(f"Stockfish returned illegal move {move.uci()} for {board.fen()}")
+        return move
+
+    def _send(self, command: str) -> None:
+        if self.process.stdin is None:
+            raise RuntimeError("Stockfish stdin unavailable")
+        self.process.stdin.write(command + "\n")
+        self.process.stdin.flush()
+
+    def _read_until(self, marker: str) -> str:
+        if self.process.stdout is None:
+            raise RuntimeError("Stockfish stdout unavailable")
+        while True:
+            line = self.process.stdout.readline()
+            if line == "":
+                stderr = self.process.stderr.read() if self.process.stderr else ""
+                raise RuntimeError(f"Stockfish exited before {marker}: {stderr.strip()}")
+            if line.startswith(marker) or line.strip() == marker:
+                return line.strip()
+
+
+def choose_opponent_move(board: chess.Board, opponent: StockfishOpponent | None) -> chess.Move | None:
+    if opponent is not None:
+        return opponent.move(board)
+    return baseline_move(board)
+
+
+def play(weights: dict[str, float], game: int, engine_color: chess.Color, max_plies: int, opponent: StockfishOpponent | None = None) -> dict:
     board = chess.Board()
     plies = 0
     termination = "max_plies"
@@ -198,7 +266,7 @@ def play(weights: dict[str, float], game: int, engine_color: chess.Color, max_pl
         if board.is_game_over(claim_draw=True):
             termination = board.outcome(claim_draw=True).termination.name.lower()
             break
-        move = engine_move(board, weights) if board.turn == engine_color else baseline_move(board)
+        move = engine_move(board, weights) if board.turn == engine_color else choose_opponent_move(board, opponent)
         if move is None:
             termination = "no_legal_moves"
             break
@@ -214,13 +282,88 @@ def play(weights: dict[str, float], game: int, engine_color: chess.Color, max_pl
     return {"game": game, "engine_color": "white" if engine_color == chess.WHITE else "black", "plies": plies, "outcome": outcome, "termination": termination, "final_eval_cp_white": round(score, 3)}
 
 
-def match_suite(weights: dict[str, float], games: int, max_plies: int) -> dict:
-    rows = [play(weights, index + 1, chess.WHITE if index % 2 == 0 else chess.BLACK, max_plies) for index in range(games)]
+def match_suite(weights: dict[str, float], games: int, max_plies: int, stockfish_path: str | None = None, stockfish_movetime_ms: int = 50, stockfish_skill_level: int | None = None) -> dict:
+    opponent = None
+    opponent_name = "same-heuristic static-eval baseline using python-chess legal move generation"
+    if stockfish_path:
+        opponent = StockfishOpponent(stockfish_path, stockfish_movetime_ms, stockfish_skill_level)
+        opponent_name = f"Stockfish UCI opponent at {stockfish_movetime_ms}ms/move"
+        if stockfish_skill_level is not None:
+            opponent_name += f", skill_level={stockfish_skill_level}"
+    try:
+        rows = [play(weights, index + 1, chess.WHITE if index % 2 == 0 else chess.BLACK, max_plies, opponent) for index in range(games)]
+    finally:
+        if opponent is not None:
+            opponent.close()
     counts = defaultdict(int)
     for row in rows:
         counts[row["outcome"]] += 1
     return {
-        "opponent": "same-heuristic static-eval baseline using python-chess legal move generation",
+        "opponent": opponent_name,
+        "stockfish_path": stockfish_path,
+        "stockfish_movetime_ms": stockfish_movetime_ms if stockfish_path else None,
+        "stockfish_skill_level": stockfish_skill_level if stockfish_path else None,
+        "games": games,
+        "max_plies": max_plies,
+        "engine_wins": counts["engine_win"],
+        "engine_losses": counts["engine_loss"],
+        "drawish": counts["drawish"],
+        "score_rate": (counts["engine_win"] + 0.5 * counts["drawish"]) / games if games else 0.0,
+        "rows": rows,
+    }
+
+
+def play_stockfish_engine_game(game: int, engine_color: chess.Color, max_plies: int, product_engine: StockfishOpponent, opponent: StockfishOpponent) -> dict:
+    board = chess.Board()
+    plies = 0
+    termination = "max_plies"
+    moves = []
+    for _ in range(max_plies):
+        if board.is_game_over(claim_draw=True):
+            outcome = board.outcome(claim_draw=True)
+            termination = outcome.termination.name.lower() if outcome else "game_over"
+            break
+        move = product_engine.move(board) if board.turn == engine_color else opponent.move(board)
+        if move is None:
+            termination = "no_legal_moves"
+            break
+        moves.append(move.uci())
+        board.push(move)
+        plies += 1
+    score = static_eval(board)
+    if board.is_checkmate():
+        outcome = "engine_win" if board.turn != engine_color else "engine_loss"
+    elif abs(score) < 80:
+        outcome = "drawish"
+    else:
+        outcome = "engine_win" if (score > 0) == (engine_color == chess.WHITE) else "engine_loss"
+    return {
+        "game": game,
+        "engine_color": "white" if engine_color == chess.WHITE else "black",
+        "plies": plies,
+        "outcome": outcome,
+        "termination": termination,
+        "final_eval_cp_white": round(score, 3),
+        "moves": moves[:80],
+    }
+
+
+def stockfish_engine_match(engine_path: str, opponent_path: str, games: int, max_plies: int, engine_movetime_ms: int, opponent_movetime_ms: int, engine_skill_level: int | None, opponent_skill_level: int | None) -> dict:
+    product_engine = StockfishOpponent(engine_path, engine_movetime_ms, engine_skill_level)
+    opponent = StockfishOpponent(opponent_path, opponent_movetime_ms, opponent_skill_level)
+    try:
+        rows = [play_stockfish_engine_game(index + 1, chess.WHITE if index % 2 == 0 else chess.BLACK, max_plies, product_engine, opponent) for index in range(games)]
+    finally:
+        product_engine.close()
+        opponent.close()
+    counts = defaultdict(int)
+    for row in rows:
+        counts[row["outcome"]] += 1
+    return {
+        "engine": f"Stockfish UCI engine at {engine_movetime_ms}ms/move, skill_level={engine_skill_level}",
+        "opponent": f"Stockfish UCI opponent at {opponent_movetime_ms}ms/move, skill_level={opponent_skill_level}",
+        "engine_path": engine_path,
+        "opponent_path": opponent_path,
         "games": games,
         "max_plies": max_plies,
         "engine_wins": counts["engine_win"],
@@ -256,6 +399,12 @@ def main() -> None:
     parser.add_argument("--max-plies", type=int, default=80)
     parser.add_argument("--eval-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=1729)
+    parser.add_argument("--stockfish-path", default=None)
+    parser.add_argument("--stockfish-movetime-ms", type=int, default=50)
+    parser.add_argument("--stockfish-skill-level", type=int, default=None)
+    parser.add_argument("--use-stockfish-engine", action="store_true")
+    parser.add_argument("--stockfish-engine-movetime-ms", type=int, default=50)
+    parser.add_argument("--stockfish-engine-skill-level", type=int, default=1)
     args = parser.parse_args()
 
     loaded = read_fens(args.input, None)
@@ -267,7 +416,21 @@ def main() -> None:
     weights, progress = train_from_positions(train_fens, args.epochs, args.learning_rate, args.seed)
     train_eval = evaluate_positions(train_fens, weights)
     eval_result = evaluate_positions(eval_fens, weights)
-    matches = match_suite(weights, args.games, args.max_plies)
+    matches = match_suite(weights, args.games, args.max_plies, args.stockfish_path, args.stockfish_movetime_ms, args.stockfish_skill_level)
+    stockfish_engine_matches = None
+    if args.use_stockfish_engine:
+        if not args.stockfish_path:
+            raise ValueError("--use-stockfish-engine requires --stockfish-path")
+        stockfish_engine_matches = stockfish_engine_match(
+            args.stockfish_path,
+            args.stockfish_path,
+            args.games,
+            args.max_plies,
+            args.stockfish_engine_movetime_ms,
+            args.stockfish_movetime_ms,
+            args.stockfish_engine_skill_level,
+            args.stockfish_skill_level,
+        )
     payload = {
         "model_type": "basic-linear-python-chess-evaluator-v1",
         "legality_backend": "python-chess",
@@ -281,6 +444,7 @@ def main() -> None:
         "train_eval": train_eval,
         "eval": eval_result,
         "match": matches,
+        "stockfish_engine_match": stockfish_engine_matches,
     }
     save_json(os.path.join(args.out_dir, "chess_engine_model.json"), payload)
     print(json.dumps({
@@ -292,6 +456,10 @@ def main() -> None:
         "eval_accuracy": eval_result["top1_accuracy"],
         "legal_prediction_rate": eval_result["legal_prediction_rate"],
         "match_score_rate": matches["score_rate"],
+        "match_opponent": matches["opponent"],
+        "stockfish_engine_score_rate": stockfish_engine_matches["score_rate"] if stockfish_engine_matches else None,
+        "stockfish_engine_wins": stockfish_engine_matches["engine_wins"] if stockfish_engine_matches else None,
+        "stockfish_engine_losses": stockfish_engine_matches["engine_losses"] if stockfish_engine_matches else None,
         "engine_wins": matches["engine_wins"],
         "engine_losses": matches["engine_losses"],
     }, indent=2, sort_keys=True))

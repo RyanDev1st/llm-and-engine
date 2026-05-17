@@ -1,0 +1,13 @@
+{
+  "engine_backend": "python-chess",
+  "engine_model_type": "basic-linear-python-chess-evaluator-v1",
+  "opponent": "Stockfish UCI opponent at 50ms/move, skill_level=1",
+  "stockfish": {
+    "available": true,
+    "blocker": null,
+    "path": "A:/Download/llm_tool_calling_research_workspace/local_runtime/stockfish/stockfish/stockfish-windows-x86-64.exe",
+    "uci_ready": true
+  },
+  "stockfish_available": true,
+  "zero_ply_games": 0
+}

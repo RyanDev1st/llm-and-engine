@@ -1,0 +1,13 @@
+{
+  "engine_backend": "python-chess",
+  "engine_model_type": "basic-linear-python-chess-evaluator-v1",
+  "opponent": "seeded capture/random baseline using python-chess legal move generation; separate from training-time same-heuristic baseline",
+  "stockfish": {
+    "available": false,
+    "blocker": "stockfish_not_found",
+    "path": null,
+    "uci_ready": false
+  },
+  "stockfish_available": false,
+  "zero_ply_games": 0
+}
