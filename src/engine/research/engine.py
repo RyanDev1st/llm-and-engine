@@ -98,7 +98,8 @@ class ChessEngine:
             return self._apply_castle(uci)
         source, target = uci[:2], uci[2:4]
         piece = self.board.piece_at(source)
-        next_board = self.board.with_piece(source, ".").with_piece(target, piece)
+        placed = uci[4].upper() if len(uci) > 4 and piece.isupper() else uci[4] if len(uci) > 4 else piece
+        next_board = self.board.with_piece(source, ".").with_piece(target, placed)
         next_board = replace(next_board, castling=castling_rights_after(self.board.castling, source, target))
         if piece.upper() == "P" or self.board.piece_at(target) != ".":
             next_board = replace(next_board, halfmove=-1)
@@ -117,15 +118,16 @@ class ChessEngine:
     def _pawn_moves(self, row: int, col: int, piece: str) -> list[str]:
         step = -1 if piece.isupper() else 1
         start = 6 if piece.isupper() else 1
+        promote = 0 if piece.isupper() else 7
         moves: list[str] = []
         if inside(row + step, col) and self.board.squares[row + step][col] == ".":
-            moves.append(_uci(row, col, row + step, col))
+            moves.extend(_pawn_uci(row, col, row + step, col, row + step == promote))
             if row == start and self.board.squares[row + step * 2][col] == ".":
                 moves.append(_uci(row, col, row + step * 2, col))
         for dc in (-1, 1):
             nr, nc = row + step, col + dc
             if inside(nr, nc) and _enemy(piece, self.board.squares[nr][nc]):
-                moves.append(_uci(row, col, nr, nc))
+                moves.extend(_pawn_uci(row, col, nr, nc, nr == promote))
         return moves
 
     def _jump_moves(self, row: int, col: int, piece: str, dirs: tuple[tuple[int, int], ...]) -> list[str]:
@@ -173,6 +175,11 @@ def _square(row: int, col: int) -> str:
 
 def _uci(a: int, b: int, c: int, d: int) -> str:
     return f"{_square(a, b)}{_square(c, d)}"
+
+
+def _pawn_uci(a: int, b: int, c: int, d: int, promote: bool) -> list[str]:
+    move = _uci(a, b, c, d)
+    return [f"{move}{piece}" for piece in "qrbn"] if promote else [move]
 
 
 def _square_from_uci(uci: str) -> str:

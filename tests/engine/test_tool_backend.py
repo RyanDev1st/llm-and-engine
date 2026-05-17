@@ -62,6 +62,13 @@ def test_backend_accepts_capture_san() -> None:
     assert backend.execute("<tool>move san=exd5</tool>") == "success: exd5"
 
 
+def test_backend_accepts_promotion_san() -> None:
+    board = BoardState.from_fen("k7/4P3/8/8/8/8/8/4K3 w - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+
+    assert backend.execute("<tool>move san=e8=Q</tool>") == "success: e8=Q"
+
+
 def test_backend_rejects_illegal_move() -> None:
     backend = ToolBackend()
 
@@ -71,10 +78,12 @@ def test_backend_rejects_illegal_move() -> None:
 def test_backend_formats_check_and_mate_suffixes() -> None:
     check_board = BoardState.from_fen("6k1/5Q2/6K1/8/8/8/8/8 w - - 0 1")
     mate_board = BoardState.from_fen("7k/5Q2/7K/8/8/8/8/8 w - - 0 1")
+    promotion_board = BoardState.from_fen("k7/4P3/8/8/8/8/8/4K3 w - - 0 1")
 
     assert "Qf1" in ToolBackend(ChessEngine(check_board)).execute("<tool>legal_moves square=f7</tool>")
     assert "Qf8+" in ToolBackend(ChessEngine(check_board)).execute("<tool>legal_moves square=f7</tool>")
     assert "Qg7#" in ToolBackend(ChessEngine(mate_board)).execute("<tool>legal_moves square=f7</tool>")
+    assert "e8=Q" in ToolBackend(ChessEngine(promotion_board)).execute("<tool>legal_moves square=e7</tool>")
 
 
     board = BoardState.from_fen("6k1/5Q2/6K1/8/8/8/8/8 w - - 0 1")

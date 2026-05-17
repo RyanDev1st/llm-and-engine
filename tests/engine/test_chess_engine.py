@@ -172,3 +172,25 @@ def test_rook_move_updates_castling_rights() -> None:
 
     assert result.ok
     assert engine.board.castling == "Qk"
+
+
+def test_pawn_promotion_generates_choices() -> None:
+    board = BoardState.from_fen("k7/4P3/8/8/8/8/8/4K3 w - - 0 1")
+
+    moves = ChessEngine(board).legal_moves()
+
+    assert "e7e8q" in moves
+    assert "e7e8r" in moves
+    assert "e7e8b" in moves
+    assert "e7e8n" in moves
+
+
+def test_pawn_promotion_replaces_pawn() -> None:
+    board = BoardState.from_fen("k7/4P3/8/8/8/8/8/4K3 w - - 0 1")
+    engine = ChessEngine(board)
+
+    result = engine.move("e7e8q")
+
+    assert result.ok
+    assert engine.board.piece_at("e8") == "Q"
+    assert engine.board.piece_at("e7") == "."
