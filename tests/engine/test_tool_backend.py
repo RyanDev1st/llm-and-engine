@@ -111,10 +111,30 @@ def test_backend_review_threats_and_chessbot() -> None:
 
     assert backend.execute("<tool>review_move</tool>") == "error: no moves to review"
     backend.execute("<tool>move san=e4</tool>")
-    assert backend.execute("<tool>review_move</tool>").startswith("review: e4, label=good")
+    review = backend.execute("<tool>review_move</tool>")
+    assert review.startswith("review: e4, label=good, delta=+0.00 pawns, best_was=")
     assert backend.execute("<tool>threats depth=12</tool>") == "threats: best reply is a5, score for side to move: +0.00 pawns"
     assert "Sicilian Defense" in backend.execute("<tool>ask_chessbot query=Sicilian</tool>")
     assert "Sicilian Defense" in backend.execute('<tool>ask_chessbot query="Sicilian defense ideas"</tool>')
+
+
+def test_backend_review_preserves_position() -> None:
+    backend = ToolBackend()
+
+    backend.execute("<tool>move san=e4</tool>")
+    before_review = backend.engine.board.to_fen()
+    backend.execute("<tool>review_move</tool>")
+
+    assert backend.engine.board.to_fen() == before_review
+    assert backend.execute("<tool>undo</tool>") == "success: undid e4"
+
+
+def test_backend_review_move_scores_mistakes() -> None:
+    board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 w - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+
+    assert backend.execute("<tool>move san=Qf2</tool>") == "success: Qf2"
+    assert backend.execute("<tool>review_move</tool>") == "review: Qf2, label=blunder, delta=-9.00 pawns, best_was=Qxd4"
 
 
 def test_backend_threats_reports_search_score() -> None:

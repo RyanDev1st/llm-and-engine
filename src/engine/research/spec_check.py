@@ -19,6 +19,7 @@ def main() -> None:
         tool_eval_shape,
         tool_utility_shape,
         tool_review_shape,
+        tool_review_score_shape,
         tool_piece_san_shape,
         tool_capture_san_shape,
         tool_quoted_query_shape,
@@ -106,6 +107,13 @@ def tool_review_shape() -> bool:
     backend = ToolBackend()
     backend.execute("<tool>move san=e4</tool>")
     return backend.execute("<tool>review_move</tool>").startswith("review: e4, label=good")
+
+
+def tool_review_score_shape() -> bool:
+    board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 w - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+    backend.execute("<tool>move san=Qf2</tool>")
+    return backend.execute("<tool>review_move</tool>") == "review: Qf2, label=blunder, delta=-9.00 pawns, best_was=Qxd4"
 
 
 def tool_piece_san_shape() -> bool:

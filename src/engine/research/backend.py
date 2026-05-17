@@ -4,6 +4,7 @@ import re
 
 from .engine import ChessEngine
 from .notation import move_to_san, san_line
+from .review import review_last_move
 from .search import MATE, SearchResult, search_position
 
 TOOL_RE = re.compile(r"^<tool>(\w+)(.*?)</tool>$")
@@ -13,15 +14,14 @@ ARG_RE = re.compile(r"\s+(\w+)=(?:\"([^\"]*)\"|(\S+))")
 class ToolBackend:
     def __init__(self, engine: ChessEngine | None = None) -> None:
         self.engine = engine or ChessEngine()
-        self._san_history: list[str] = []
+        self._move_history: list[tuple[str, str]] = []
 
     def execute(self, call: str) -> str:
         parsed = parse_tool_call(call)
         if parsed is None:
             return "error: invalid_syntax"
-        name, args = parsed
         try:
-            return self._dispatch(name, args)
+            return self._dispatch(*parsed)
         except KeyError:
             return "error: invalid_syntax"
 
@@ -53,7 +53,7 @@ class ToolBackend:
             return "error: illegal, reason=illegal move"
         result = self.engine.move(uci)
         if result.ok:
-            self._san_history.append(san)
+            self._move_history.append((san, uci))
             return f"success: {san}"
         return "error: illegal, reason=illegal move"
 
@@ -77,10 +77,10 @@ class ToolBackend:
         return f"best_line: {line}, score: {result.score / 100:+.2f} pawns from white POV, {score_note}"
 
     def _review_move(self) -> str:
-        last = self._san_history[-1] if self._san_history else None
-        if last is None:
+        if not self._move_history:
             return "error: no moves to review"
-        return f"review: {last}, label=good, delta=+0.00 pawns, best_was={last}"
+        san, uci = self._move_history[-1]
+        return review_last_move(self.engine, san, uci, 15)
 
     def _threats(self, d: int) -> str:
         result = search_position(self.engine, d)
@@ -95,10 +95,10 @@ class ToolBackend:
         return f"legal: [{', '.join(moves)}]" if moves else "legal: none (square empty or not your piece)"
 
     def _undo(self) -> str:
-        san = self._san_history[-1] if self._san_history else self.engine.last_move_san()
+        san = self._move_history[-1][0] if self._move_history else self.engine.last_move_san()
         result = self.engine.undo()
-        if result.ok and self._san_history:
-            self._san_history.pop()
+        if result.ok and self._move_history:
+            self._move_history.pop()
         return f"success: undid {san}" if result.ok else "error: no moves to undo"
 
     def _list_pieces(self, color: str) -> str:
