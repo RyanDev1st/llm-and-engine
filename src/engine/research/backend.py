@@ -4,7 +4,7 @@ import re
 
 from .engine import ChessEngine
 from .notation import move_to_san
-from .search import search_position
+from .search import MATE, SearchResult, search_position
 
 TOOL_RE = re.compile(r"^<tool>(\w+)(.*?)</tool>$")
 ARG_RE = re.compile(r"\s+(\w+)=(?:\"([^\"]*)\"|(\S+))")
@@ -59,23 +59,24 @@ class ToolBackend:
 
     def _eval(self, d: int) -> str:
         result = search_position(self.engine, d)
+        depth_note = f"requested_depth={d}, searched_plies={result.plies}"
         if abs(result.score) >= 99900:
-            winner = "white" if result.score > 0 else "black"
-            return f"score: mate in 1 for {winner}, depth={d}"
+            return f"score: {mate_label(result)}, {depth_note}"
         score = result.score / 100
-        return f"score: {score:+.2f} pawns from white POV, depth={d}"
+        return f"score: {score:+.2f} pawns from white POV, {depth_note}"
 
     def _best_move(self, d: int, series: int) -> str:
         result = search_position(self.engine, d)
+        score_note = f"requested_depth={d}, searched_plies={result.plies}"
         if not result.pv:
             if abs(result.score) >= 99900:
-                return "best: none, score: mate in 1 for black" if self.engine.board.turn == "w" else "best: none, score: mate in 1 for white"
-            return f"best: none, score: {result.score / 100:+.2f} pawns from white POV"
+                return f"best: none, score: {mate_label(result)}, {score_note}"
+            return f"best: none, score: {result.score / 100:+.2f} pawns from white POV, {score_note}"
         san_moves = [move_to_san(self.engine.board, move) for move in result.pv[:max(1, min(series, 5))]]
         if series == 1:
-            return f"best: {san_moves[0]}"
+            return f"best: {san_moves[0]}, {score_note}"
         line = " ".join(san_moves)
-        return f"best_line: {line}, score: {result.score / 100:+.2f} pawns from white POV"
+        return f"best_line: {line}, score: {result.score / 100:+.2f} pawns from white POV, {score_note}"
 
     def _review_move(self) -> str:
         last = self._san_history[-1] if self._san_history else None
@@ -120,6 +121,14 @@ def parse_tool_call(call: str) -> tuple[str, dict[str, str]] | None:
     if args_text[pos:].strip():
         return None
     return match.group(1), args
+
+
+def mate_label(result: SearchResult) -> str:
+    winner = "white" if result.score > 0 else "black"
+    distance = MATE - abs(result.score)
+    if distance > 0:
+        return f"mate in {distance} for {winner}"
+    return f"mate for {winner}"
 
 
 def depth(args: dict[str, str], default: int) -> int:

@@ -12,21 +12,23 @@ MATE = 100000
 class SearchResult:
     score: int
     pv: list[str]
+    plies: int
 
 
 def search_position(engine: ChessEngine, depth: int) -> SearchResult:
-    return _search(engine, _plies(depth), -MATE, MATE)
+    plies = _plies(depth)
+    return _search(engine, plies, plies, -MATE, MATE)
 
 
-def _search(engine: ChessEngine, depth: int, alpha: int, beta: int) -> SearchResult:
+def _search(engine: ChessEngine, root_depth: int, depth: int, alpha: int, beta: int) -> SearchResult:
     moves = _ordered_moves(engine)
     if depth == 0 or not moves:
-        return SearchResult(_terminal_or_static(engine, depth, moves), [])
+        return SearchResult(_terminal_or_static(engine, depth, moves), [], root_depth)
     best_score = -MATE
     best_pv: list[str] = []
     for move in moves:
         engine.move(move)
-        child = _search(engine, depth - 1, -beta, -alpha)
+        child = _search(engine, root_depth, depth - 1, -beta, -alpha)
         engine.undo()
         score = -child.score
         if score > best_score:
@@ -35,7 +37,7 @@ def _search(engine: ChessEngine, depth: int, alpha: int, beta: int) -> SearchRes
         alpha = max(alpha, score)
         if alpha >= beta:
             break
-    return SearchResult(best_score, best_pv)
+    return SearchResult(best_score, best_pv, root_depth)
 
 
 def _ordered_moves(engine: ChessEngine) -> list[str]:

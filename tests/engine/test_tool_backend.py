@@ -72,7 +72,7 @@ def test_backend_eval_reports_mate() -> None:
     board = BoardState.from_fen("6k1/5Q2/6K1/8/8/8/8/8 w - - 0 1")
     backend = ToolBackend(ChessEngine(board))
 
-    assert backend.execute("<tool>eval depth=15</tool>") == "score: mate in 1 for white, depth=15"
+    assert backend.execute("<tool>eval depth=15</tool>") == "score: mate for white, requested_depth=15, searched_plies=3"
     assert backend.execute("<tool>best_move depth=15</tool>").startswith("best: Q")
 
 
@@ -80,13 +80,13 @@ def test_backend_best_move_prefers_big_capture() -> None:
     board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 w - - 0 1")
     backend = ToolBackend(ChessEngine(board))
 
-    assert backend.execute("<tool>best_move depth=15</tool>") == "best: Qxd4"
+    assert backend.execute("<tool>best_move depth=15</tool>") == "best: Qxd4, requested_depth=15, searched_plies=3"
 
 
 def test_backend_eval_and_best_move_shapes() -> None:
     backend = ToolBackend()
 
-    assert backend.execute("<tool>eval depth=15</tool>") == "score: +0.00 pawns from white POV, depth=15"
+    assert backend.execute("<tool>eval depth=15</tool>") == "score: +0.00 pawns from white POV, requested_depth=15, searched_plies=3"
     assert backend.execute("<tool>best_move depth=15</tool>").startswith("best: ")
     assert backend.execute("<tool>best_move depth=15 series=3</tool>").startswith("best_line: ")
 
