@@ -83,6 +83,12 @@ def test_backend_reports_insufficient_material_draw_after_move() -> None:
     assert ToolBackend(ChessEngine(board)).execute("<tool>move san=Bg7</tool>") == "success: Bg7, game_over=draw"
 
 
+def test_backend_reports_fifty_move_draw_after_move() -> None:
+    board = BoardState.from_fen("4k3/8/8/8/8/8/4R3/4K3 w - - 99 1")
+
+    assert ToolBackend(ChessEngine(board)).execute("<tool>move san=Ra2</tool>") == "success: Ra2, game_over=draw"
+
+
 def test_backend_rejects_illegal_move() -> None:
     backend = ToolBackend()
 

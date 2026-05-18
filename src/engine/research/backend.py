@@ -109,7 +109,7 @@ class ToolBackend:
 
 
 def game_over(engine: ChessEngine) -> str:
-    if insufficient_material(engine):
+    if insufficient_material(engine) or engine.board.halfmove >= 100:
         return ", game_over=draw"
     if engine.legal_moves():
         return ""
