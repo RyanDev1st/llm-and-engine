@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from .attack import is_attacked, king_square
 from .engine import ChessEngine
+from .evaluation import static_evaluation
 
 MATE = 100000
 
@@ -54,7 +55,7 @@ def _move_priority(engine: ChessEngine, move: str) -> int:
 
 def _terminal_or_static(engine: ChessEngine, depth: int, moves: list[str]) -> int:
     if moves:
-        return _white_pov(engine) * engine.evaluate_material()
+        return _white_pov(engine) * static_evaluation(engine)
     king = king_square(engine.board, engine.board.turn)
     if king and is_attacked(engine.board, king, _other(engine.board.turn)):
         return -MATE + depth
