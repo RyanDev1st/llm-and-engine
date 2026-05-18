@@ -89,6 +89,24 @@ def test_backend_reports_fifty_move_draw_after_move() -> None:
     assert ToolBackend(ChessEngine(board)).execute("<tool>move san=Ra2</tool>") == "success: Ra2, game_over=draw"
 
 
+def test_backend_reports_repetition_draw_after_move() -> None:
+    backend = ToolBackend()
+
+    for san in ("Nf3", "Nf6", "Ng1", "Ng8", "Nf3", "Nf6", "Ng1"):
+        backend.execute(f"<tool>move san={san}</tool>")
+
+    assert backend.execute("<tool>move san=Ng8</tool>") == "success: Ng8, game_over=draw"
+
+
+def test_backend_repetition_draw_stops_at_irreversible_move() -> None:
+    backend = ToolBackend()
+
+    for san in ("Nf3", "Nf6", "Ng1", "Ng8", "e4", "a5", "e5", "Ra6", "Nf3", "Ra8", "Ng1"):
+        backend.execute(f"<tool>move san={san}</tool>")
+
+    assert backend.execute("<tool>move san=Nf6</tool>") == "success: Nf6"
+
+
 def test_backend_rejects_illegal_move() -> None:
     backend = ToolBackend()
 

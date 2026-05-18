@@ -19,6 +19,7 @@ def main() -> None:
         tool_game_over_shape,
         tool_draw_shape,
         tool_fifty_move_draw_shape,
+        tool_repetition_draw_shape,
         tool_eval_shape,
         tool_utility_shape,
         tool_review_shape,
@@ -33,8 +34,7 @@ def main() -> None:
         filters_self_check,
         blocks_castle_through_check,
     ]
-    passed = sum(1 for check in checks if check())
-    print(passed)
+    print(sum(1 for check in checks if check()))
 
 
 def start_position_count() -> bool:
@@ -113,6 +113,13 @@ def tool_fifty_move_draw_shape() -> bool:
     return backend.execute("<tool>move san=Ra2</tool>") == "success: Ra2, game_over=draw"
 
 
+def tool_repetition_draw_shape() -> bool:
+    backend = ToolBackend()
+    for san in ("Nf3", "Nf6", "Ng1", "Ng8", "Nf3", "Nf6", "Ng1"):
+        backend.execute(f"<tool>move san={san}</tool>")
+    return backend.execute("<tool>move san=Ng8</tool>") == "success: Ng8, game_over=draw"
+
+
 def tool_eval_shape() -> bool:
     backend = ToolBackend()
     return backend.execute("<tool>eval depth=15</tool>") == "score: +0.00 pawns from white POV, requested_depth=15, searched_plies=3"
@@ -181,8 +188,7 @@ def tool_threats_search_shape() -> bool:
 
 
 def filters_self_check() -> bool:
-    board = BoardState.from_fen("4r1k1/8/8/8/8/8/4R3/4K3 w - - 0 1")
-    return "e2d2" not in ChessEngine(board).legal_moves()
+    return "e2d2" not in ChessEngine(BoardState.from_fen("4r1k1/8/8/8/8/8/4R3/4K3 w - - 0 1")).legal_moves()
 
 
 def blocks_castle_through_check() -> bool:

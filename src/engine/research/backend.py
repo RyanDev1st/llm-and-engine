@@ -109,7 +109,7 @@ class ToolBackend:
 
 
 def game_over(engine: ChessEngine) -> str:
-    if insufficient_material(engine) or engine.board.halfmove >= 100:
+    if insufficient_material(engine) or engine.board.halfmove >= 100 or repeated_position(engine):
         return ", game_over=draw"
     if engine.legal_moves():
         return ""
@@ -117,6 +117,26 @@ def game_over(engine: ChessEngine) -> str:
     if king and is_attacked(engine.board, king, "b" if engine.board.turn == "w" else "w"):
         return ", game_over=checkmate"
     return ", game_over=stalemate"
+
+
+def repeated_position(engine: ChessEngine) -> bool:
+    current = position_key(engine.board)
+    count = 1
+    for board, uci in reversed(engine._history):
+        if irreversible(board, uci):
+            break
+        if position_key(board) == current:
+            count += 1
+    return count >= 3
+
+
+def irreversible(board: object, uci: str) -> bool:
+    piece = board.piece_at(uci[:2])
+    return piece.upper() == "P" or board.piece_at(uci[2:4]) != "."
+
+
+def position_key(board: object) -> str:
+    return " ".join(board.to_fen().split()[:4])
 
 
 def insufficient_material(engine: ChessEngine) -> bool:
