@@ -50,7 +50,16 @@ def _move_priority(engine: ChessEngine, move: str) -> int:
     mover = engine.board.piece_at(move[:2])
     capture = 10 * _value(target) - _value(mover) if target != "." else 0
     promotion = 800 if len(move) > 4 else 0
-    return capture + promotion
+    check = 50 if _gives_check(engine, move) else 0
+    return capture + promotion + check
+
+
+def _gives_check(engine: ChessEngine, move: str) -> bool:
+    engine.move(move)
+    king = king_square(engine.board, engine.board.turn)
+    checked = bool(king and is_attacked(engine.board, king, _other(engine.board.turn)))
+    engine.undo()
+    return checked
 
 
 def _terminal_or_static(engine: ChessEngine, depth: int, moves: list[str]) -> int:
