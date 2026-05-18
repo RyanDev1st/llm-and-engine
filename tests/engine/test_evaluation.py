@@ -1,5 +1,6 @@
+from engine.research import ChessEngine
 from engine.research.board import BoardState
-from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, pawn_structure, piece_activity, rook_mobility
+from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, knight_mobility, pawn_structure, piece_activity, rook_mobility, static_evaluation
 
 
 def test_pawn_structure_rewards_passed_pawns() -> None:
@@ -53,3 +54,17 @@ def test_bishop_pair_rewards_two_bishops() -> None:
     two_bishops = BoardState.from_fen("4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1")
 
     assert bishop_pair(two_bishops) > bishop_pair(one_bishop)
+
+
+def test_knight_mobility_rewards_open_jumps() -> None:
+    rim = BoardState.from_fen("4k3/8/8/8/N7/8/8/4K3 w - - 0 1")
+    center = BoardState.from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1")
+
+    assert knight_mobility(center) > knight_mobility(rim)
+
+
+def test_static_evaluation_includes_knight_mobility() -> None:
+    rim = ChessEngine(BoardState.from_fen("4k3/8/8/8/N7/8/8/4K3 w - - 0 1"))
+    center = ChessEngine(BoardState.from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1"))
+
+    assert static_evaluation(center) > static_evaluation(rim)
