@@ -49,7 +49,7 @@ def _move_priority(engine: ChessEngine, move: str) -> int:
     target = engine.board.piece_at(move[2:4])
     mover = engine.board.piece_at(move[:2])
     capture = 10 * _value(target) - _value(mover) if target != "." else 0
-    promotion = 800 if len(move) > 4 else 0
+    promotion = _value(move[4]) if len(move) > 4 else 0
     mate = 5000 if _is_mate(engine, move) else 0
     check = 50 if mate == 0 and _gives_check(engine, move) else 0
     return capture + promotion + mate + check
