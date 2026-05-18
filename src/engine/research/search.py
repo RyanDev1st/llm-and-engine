@@ -52,7 +52,8 @@ def _move_priority(engine: ChessEngine, move: str) -> int:
     promotion = _value(move[4]) if len(move) > 4 else 0
     mate = 5000 if _is_mate(engine, move) else 0
     check = 50 if mate == 0 and _gives_check(engine, move) else 0
-    return capture + promotion + mate + check
+    castle = 25 if move in {"e1g1", "e1c1", "e8g8", "e8c8"} else 0
+    return capture + promotion + mate + check + castle
 
 
 def _is_mate(engine: ChessEngine, move: str) -> bool:
