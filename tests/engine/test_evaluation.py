@@ -21,6 +21,18 @@ def test_pawn_structure_blocks_passed_pawn_bonus() -> None:
     assert pawn_structure(board) < 20
 
 
+def test_pawn_structure_rewards_connected_passed_pawns() -> None:
+    split = BoardState.from_fen("4k3/8/8/8/8/8/P1P5/4K3 w - - 0 1")
+    connected = BoardState.from_fen("4k3/8/8/8/8/8/PP6/4K3 w - - 0 1")
+
+    assert pawn_structure(split) == 0
+    assert pawn_structure(connected) == 50
+
+
+def test_pawn_structure_keeps_exact_start_score() -> None:
+    assert pawn_structure(BoardState.start()) == 0
+
+
 def test_piece_activity_rewards_center_minors() -> None:
     edge = BoardState.from_fen("4k3/8/8/8/N7/8/8/4K3 w - - 0 1")
     center = BoardState.from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1")

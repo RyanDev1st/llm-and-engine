@@ -36,6 +36,8 @@ def side_pawn_score(own: dict[int, list[int]], enemy: dict[int, list[int]], whit
                 score -= 20
             if passed(file, rank, enemy, white):
                 score += 20 + 5 * advancement(rank, white)
+                if any(passed(adjacent, other, enemy, white) and abs(other - rank) <= 1 for adjacent in (file - 1, file + 1) for other in own.get(adjacent, [])):
+                    score += 5
     return score
 
 
