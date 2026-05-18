@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import re
 
-from .attack import is_attacked, king_square
 from .engine import ChessEngine
 from .notation import move_to_san, san_line
 from .review import review_last_move
 from .san import san_to_uci
 from .search import MATE, SearchResult, search_position
+from .status import game_over
 
 TOOL_RE = re.compile(r"^<tool>(\w+)(.*?)</tool>$")
 ARG_RE = re.compile(r"\s+(\w+)=(?:\"([^\"]*)\"|(\S+))")
@@ -106,43 +106,6 @@ class ToolBackend:
     def _list_pieces(self, color: str) -> str:
         pieces = filter_pieces(self.engine.list_pieces(), color, self.engine.board.turn)
         return "pieces: " + ", ".join(pieces)
-
-
-def game_over(engine: ChessEngine) -> str:
-    if insufficient_material(engine) or engine.board.halfmove >= 100 or repeated_position(engine):
-        return ", game_over=draw"
-    if engine.legal_moves():
-        return ""
-    king = king_square(engine.board, engine.board.turn)
-    if king and is_attacked(engine.board, king, "b" if engine.board.turn == "w" else "w"):
-        return ", game_over=checkmate"
-    return ", game_over=stalemate"
-
-
-def repeated_position(engine: ChessEngine) -> bool:
-    current = position_key(engine.board)
-    count = 1
-    for board, uci in reversed(engine._history):
-        if irreversible(board, uci):
-            break
-        if position_key(board) == current:
-            count += 1
-    return count >= 3
-
-
-def irreversible(board: object, uci: str) -> bool:
-    piece = board.piece_at(uci[:2])
-    return piece.upper() == "P" or board.piece_at(uci[2:4]) != "."
-
-
-def position_key(board: object) -> str:
-    return " ".join(board.to_fen().split()[:4])
-
-
-def insufficient_material(engine: ChessEngine) -> bool:
-    pieces = [item.split("@")[0] for item in engine.list_pieces()]
-    minor = [piece for piece in pieces if piece.upper() in {"B", "N"}]
-    return all(piece.upper() in {"K", "B", "N"} for piece in pieces) and len(minor) <= 1
 
 
 def parse_tool_call(call: str) -> tuple[str, dict[str, str]] | None:
