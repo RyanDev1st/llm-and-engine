@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .attack import king_square
 from .board import BoardState
 from .engine import ChessEngine
 
@@ -7,7 +8,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + king_safety(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -48,6 +49,22 @@ def piece_activity(board: BoardState) -> int:
                 value = center_bonus(row, col)
                 score += value if piece.isupper() else -value
     return score
+
+
+def king_safety(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 2:
+        return 0
+    return side_king_safety(board, "w") - side_king_safety(board, "b")
+
+
+def side_king_safety(board: BoardState, color: str) -> int:
+    king = king_square(board, color)
+    if not king:
+        return 0
+    col = FILES.index(king[0])
+    rank = int(king[1])
+    edge = min(col, 7 - col) + min(rank - 1, 8 - rank)
+    return min(16, edge * 4)
 
 
 def center_bonus(row: int, col: int) -> int:
