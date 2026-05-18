@@ -8,7 +8,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + rook_activity(engine.board) + bishop_mobility(engine.board) + knight_mobility(engine.board) + bishop_pair(engine.board) + king_safety(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + rook_activity(engine.board) + bishop_mobility(engine.board) + queen_mobility(engine.board) + knight_mobility(engine.board) + bishop_pair(engine.board) + king_safety(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -114,6 +114,17 @@ def diagonal_mobility(board: BoardState, row: int, col: int) -> int:
             current_row += row_step
             current_col += col_step
     return min(16, value)
+
+
+def queen_mobility(board: BoardState) -> int:
+    queens = [(piece, row, col) for row, rank in enumerate(board.squares) for col, piece in enumerate(rank) if piece.upper() == "Q"]
+    if len(queens) != 1:
+        return 0
+    piece, row, col = queens[0]
+    if piece.isupper() != (board.turn == "w"):
+        return 0
+    value = diagonal_mobility(board, row, col) + rook_file_mobility(board, row, col)
+    return value // 2 if piece.isupper() else -(value // 2)
 
 
 def bishop_pair(board: BoardState) -> int:

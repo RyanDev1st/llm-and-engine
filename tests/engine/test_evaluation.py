@@ -1,6 +1,6 @@
 from engine.research import ChessEngine
 from engine.research.board import BoardState
-from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, knight_mobility, pawn_structure, piece_activity, rook_activity, rook_mobility, static_evaluation
+from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, knight_mobility, pawn_structure, piece_activity, queen_mobility, rook_activity, rook_mobility, static_evaluation
 
 
 def test_pawn_structure_rewards_passed_pawns() -> None:
@@ -61,6 +61,25 @@ def test_bishop_mobility_rewards_open_diagonals() -> None:
     open_diagonals = BoardState.from_fen("4k3/8/8/8/3B4/8/8/4K3 w - - 0 1")
 
     assert bishop_mobility(open_diagonals) > bishop_mobility(blocked)
+
+
+def test_queen_mobility_rewards_lone_queen_open_lines() -> None:
+    blocked = BoardState.from_fen("4k3/8/8/2p1p3/3Q4/2p1p3/8/4K3 w - - 0 1")
+    open_lines = BoardState.from_fen("4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1")
+
+    assert queen_mobility(open_lines) > queen_mobility(blocked)
+
+
+def test_queen_mobility_ignores_queen_trades() -> None:
+    board = BoardState.from_fen("6k1/8/8/8/3q4/8/3Q4/6K1 w - - 0 1")
+
+    assert queen_mobility(board) == 0
+
+
+def test_queen_mobility_ignores_waiting_lone_queen() -> None:
+    board = BoardState.from_fen("4k3/8/8/8/3Q4/8/8/4K3 b - - 0 1")
+
+    assert queen_mobility(board) == 0
 
 
 def test_bishop_pair_rewards_two_bishops() -> None:
