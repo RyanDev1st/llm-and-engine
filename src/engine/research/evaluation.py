@@ -7,7 +7,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -36,6 +36,23 @@ def side_pawn_score(own: dict[int, list[int]], enemy: dict[int, list[int]], whit
             if passed(file, rank, enemy, white):
                 score += 20 + 5 * advancement(rank, white)
     return score
+
+
+def piece_activity(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 10:
+        return 0
+    score = 0
+    for row, rank in enumerate(board.squares):
+        for col, piece in enumerate(rank):
+            if piece.upper() in {"B", "N"}:
+                value = center_bonus(row, col)
+                score += value if piece.isupper() else -value
+    return score
+
+
+def center_bonus(row: int, col: int) -> int:
+    distance = abs(row - 3.5) + abs(col - 3.5)
+    return int((7 - distance) * 4)
 
 
 def isolated(file: int, own: dict[int, list[int]]) -> bool:
