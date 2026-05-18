@@ -77,6 +77,12 @@ def test_backend_reports_checkmate_and_stalemate_after_move() -> None:
     assert ToolBackend(ChessEngine(stalemate)).execute("<tool>move san=Qg6</tool>") == "success: Qg6, game_over=stalemate"
 
 
+def test_backend_reports_insufficient_material_draw_after_move() -> None:
+    board = BoardState.from_fen("8/8/8/8/8/3K4/1B6/4k3 w - - 0 1")
+
+    assert ToolBackend(ChessEngine(board)).execute("<tool>move san=Bg7</tool>") == "success: Bg7, game_over=draw"
+
+
 def test_backend_rejects_illegal_move() -> None:
     backend = ToolBackend()
 

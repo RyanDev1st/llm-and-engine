@@ -109,12 +109,20 @@ class ToolBackend:
 
 
 def game_over(engine: ChessEngine) -> str:
+    if insufficient_material(engine):
+        return ", game_over=draw"
     if engine.legal_moves():
         return ""
     king = king_square(engine.board, engine.board.turn)
     if king and is_attacked(engine.board, king, "b" if engine.board.turn == "w" else "w"):
         return ", game_over=checkmate"
     return ", game_over=stalemate"
+
+
+def insufficient_material(engine: ChessEngine) -> bool:
+    pieces = [item.split("@")[0] for item in engine.list_pieces()]
+    minor = [piece for piece in pieces if piece.upper() in {"B", "N"}]
+    return all(piece.upper() in {"K", "B", "N"} for piece in pieces) and len(minor) <= 1
 
 
 def parse_tool_call(call: str) -> tuple[str, dict[str, str]] | None:
