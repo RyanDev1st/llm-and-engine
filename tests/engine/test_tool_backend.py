@@ -69,6 +69,14 @@ def test_backend_accepts_promotion_san() -> None:
     assert backend.execute("<tool>move san=e8=Q</tool>") == "success: e8=Q"
 
 
+def test_backend_reports_checkmate_and_stalemate_after_move() -> None:
+    mate = BoardState.from_fen("7k/5Q2/7K/8/8/8/8/8 w - - 0 1")
+    stalemate = BoardState.from_fen("7k/8/5K2/5Q2/8/8/8/8 w - - 0 1")
+
+    assert ToolBackend(ChessEngine(mate)).execute("<tool>move san=Qg7#</tool>") == "success: Qg7#, game_over=checkmate"
+    assert ToolBackend(ChessEngine(stalemate)).execute("<tool>move san=Qg6</tool>") == "success: Qg6, game_over=stalemate"
+
+
 def test_backend_rejects_illegal_move() -> None:
     backend = ToolBackend()
 

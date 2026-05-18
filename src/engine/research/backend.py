@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from .attack import is_attacked, king_square
 from .engine import ChessEngine
 from .notation import move_to_san, san_line
 from .review import review_last_move
@@ -55,7 +56,7 @@ class ToolBackend:
         result = self.engine.move(uci)
         if result.ok:
             self._move_history.append((san, uci))
-            return f"success: {san}"
+            return f"success: {san}{game_over(self.engine)}"
         return "error: illegal, reason=illegal move"
 
     def _eval(self, d: int) -> str:
@@ -105,6 +106,15 @@ class ToolBackend:
     def _list_pieces(self, color: str) -> str:
         pieces = filter_pieces(self.engine.list_pieces(), color, self.engine.board.turn)
         return "pieces: " + ", ".join(pieces)
+
+
+def game_over(engine: ChessEngine) -> str:
+    if engine.legal_moves():
+        return ""
+    king = king_square(engine.board, engine.board.turn)
+    if king and is_attacked(engine.board, king, "b" if engine.board.turn == "w" else "w"):
+        return ", game_over=checkmate"
+    return ", game_over=stalemate"
 
 
 def parse_tool_call(call: str) -> tuple[str, dict[str, str]] | None:

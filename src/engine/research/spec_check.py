@@ -16,6 +16,7 @@ def main() -> None:
         tool_search_mate_shape,
         tool_capture_preference_shape,
         tool_move_shape,
+        tool_game_over_shape,
         tool_eval_shape,
         tool_utility_shape,
         tool_review_shape,
@@ -89,6 +90,13 @@ def tool_capture_preference_shape() -> bool:
 def tool_move_shape() -> bool:
     backend = ToolBackend()
     return backend.execute("<tool>move san=e4</tool>") == "success: e4"
+
+
+def tool_game_over_shape() -> bool:
+    board = BoardState.from_fen("7k/5Q2/7K/8/8/8/8/8 w - - 0 1")
+    backend = ToolBackend(ChessEngine(board))
+    stale = BoardState.from_fen("7k/8/5K2/5Q2/8/8/8/8 w - - 0 1")
+    return backend.execute("<tool>move san=Qg7#</tool>") == "success: Qg7#, game_over=checkmate" and ToolBackend(ChessEngine(stale)).execute("<tool>move san=Qg6</tool>") == "success: Qg6, game_over=stalemate"
 
 
 def tool_eval_shape() -> bool:
