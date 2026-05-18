@@ -50,8 +50,17 @@ def _move_priority(engine: ChessEngine, move: str) -> int:
     mover = engine.board.piece_at(move[:2])
     capture = 10 * _value(target) - _value(mover) if target != "." else 0
     promotion = 800 if len(move) > 4 else 0
-    check = 50 if _gives_check(engine, move) else 0
-    return capture + promotion + check
+    mate = 5000 if _is_mate(engine, move) else 0
+    check = 50 if mate == 0 and _gives_check(engine, move) else 0
+    return capture + promotion + mate + check
+
+
+def _is_mate(engine: ChessEngine, move: str) -> bool:
+    engine.move(move)
+    king = king_square(engine.board, engine.board.turn)
+    mated = bool(king and is_attacked(engine.board, king, _other(engine.board.turn)) and not engine.legal_moves())
+    engine.undo()
+    return mated
 
 
 def _gives_check(engine: ChessEngine, move: str) -> bool:
