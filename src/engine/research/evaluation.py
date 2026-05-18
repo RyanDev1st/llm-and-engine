@@ -8,7 +8,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + bishop_mobility(engine.board) + knight_mobility(engine.board) + bishop_pair(engine.board) + king_safety(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + rook_activity(engine.board) + bishop_mobility(engine.board) + knight_mobility(engine.board) + bishop_pair(engine.board) + king_safety(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -77,6 +77,19 @@ def rook_file_mobility(board: BoardState, row: int, col: int) -> int:
             value += 2
             current += step
     return min(20, value)
+
+
+def rook_activity(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 10:
+        return 0
+    score = 0
+    for row, rank in enumerate(board.squares):
+        for piece in rank:
+            if piece == "R" and row == 1:
+                score += 10
+            if piece == "r" and row == 6:
+                score -= 10
+    return score
 
 
 def bishop_mobility(board: BoardState) -> int:

@@ -1,6 +1,6 @@
 from engine.research import ChessEngine
 from engine.research.board import BoardState
-from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, knight_mobility, pawn_structure, piece_activity, rook_mobility, static_evaluation
+from engine.research.evaluation import bishop_mobility, bishop_pair, king_safety, knight_mobility, pawn_structure, piece_activity, rook_activity, rook_mobility, static_evaluation
 
 
 def test_pawn_structure_rewards_passed_pawns() -> None:
@@ -40,6 +40,20 @@ def test_rook_mobility_rewards_open_files() -> None:
     open_file = BoardState.from_fen("4k3/8/8/8/8/8/R7/4K3 w - - 0 1")
 
     assert rook_mobility(open_file) > rook_mobility(blocked)
+
+
+def test_rook_activity_rewards_seventh_rank() -> None:
+    home = BoardState.from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1")
+    seventh = BoardState.from_fen("4k3/R7/8/8/8/8/8/4K3 w - - 0 1")
+
+    assert rook_activity(seventh) > rook_activity(home)
+
+
+def test_static_evaluation_includes_rook_activity() -> None:
+    home = ChessEngine(BoardState.from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1"))
+    seventh = ChessEngine(BoardState.from_fen("4k3/R7/8/8/8/8/8/4K3 w - - 0 1"))
+
+    assert static_evaluation(seventh) > static_evaluation(home)
 
 
 def test_bishop_mobility_rewards_open_diagonals() -> None:
