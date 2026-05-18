@@ -8,7 +8,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + king_safety(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + king_safety(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -55,6 +55,28 @@ def king_safety(board: BoardState) -> int:
     if sum(piece != "." for rank in board.squares for piece in rank) > 2:
         return 0
     return side_king_safety(board, "w") - side_king_safety(board, "b")
+
+
+def rook_mobility(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 10:
+        return 0
+    score = 0
+    for row, rank in enumerate(board.squares):
+        for col, piece in enumerate(rank):
+            if piece.upper() == "R":
+                value = rook_file_mobility(board, row, col)
+                score += value if piece.isupper() else -value
+    return score
+
+
+def rook_file_mobility(board: BoardState, row: int, col: int) -> int:
+    value = 0
+    for step in (-1, 1):
+        current = row + step
+        while 0 <= current < 8 and board.squares[current][col] == ".":
+            value += 2
+            current += step
+    return min(20, value)
 
 
 def side_king_safety(board: BoardState, color: str) -> int:

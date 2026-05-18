@@ -1,5 +1,5 @@
 from engine.research.board import BoardState
-from engine.research.evaluation import king_safety, pawn_structure, piece_activity
+from engine.research.evaluation import king_safety, pawn_structure, piece_activity, rook_mobility
 
 
 def test_pawn_structure_rewards_passed_pawns() -> None:
@@ -32,3 +32,10 @@ def test_king_safety_rewards_active_bare_king() -> None:
     active = BoardState.from_fen("8/8/8/3k4/3K4/8/8/8 w - - 0 1")
 
     assert king_safety(active) > king_safety(edge)
+
+
+def test_rook_mobility_rewards_open_files() -> None:
+    blocked = BoardState.from_fen("4k3/8/8/8/8/8/R7/P3K3 w - - 0 1")
+    open_file = BoardState.from_fen("4k3/8/8/8/8/8/R7/4K3 w - - 0 1")
+
+    assert rook_mobility(open_file) > rook_mobility(blocked)
