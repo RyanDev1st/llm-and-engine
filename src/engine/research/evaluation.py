@@ -8,7 +8,7 @@ FILES = "abcdefgh"
 
 
 def static_evaluation(engine: ChessEngine) -> int:
-    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + king_safety(engine.board)
+    return engine.evaluate_material() + pawn_structure(engine.board) + piece_activity(engine.board) + rook_mobility(engine.board) + bishop_mobility(engine.board) + king_safety(engine.board)
 
 
 def pawn_structure(board: BoardState) -> int:
@@ -77,6 +77,30 @@ def rook_file_mobility(board: BoardState, row: int, col: int) -> int:
             value += 2
             current += step
     return min(20, value)
+
+
+def bishop_mobility(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 10:
+        return 0
+    score = 0
+    for row, rank in enumerate(board.squares):
+        for col, piece in enumerate(rank):
+            if piece.upper() == "B":
+                value = diagonal_mobility(board, row, col)
+                score += value if piece.isupper() else -value
+    return score
+
+
+def diagonal_mobility(board: BoardState, row: int, col: int) -> int:
+    value = 0
+    for row_step, col_step in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+        current_row = row + row_step
+        current_col = col + col_step
+        while 0 <= current_row < 8 and 0 <= current_col < 8 and board.squares[current_row][current_col] == ".":
+            value += 2
+            current_row += row_step
+            current_col += col_step
+    return min(16, value)
 
 
 def side_king_safety(board: BoardState, color: str) -> int:
