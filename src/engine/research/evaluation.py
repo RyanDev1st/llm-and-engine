@@ -117,6 +117,8 @@ def diagonal_mobility(board: BoardState, row: int, col: int) -> int:
 
 
 def queen_mobility(board: BoardState) -> int:
+    if sum(piece != "." for rank in board.squares for piece in rank) > 6:
+        return 0
     queens = [(piece, row, col) for row, rank in enumerate(board.squares) for col, piece in enumerate(rank) if piece.upper() == "Q"]
     if len(queens) != 1:
         return 0

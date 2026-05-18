@@ -82,6 +82,12 @@ def test_queen_mobility_ignores_waiting_lone_queen() -> None:
     assert queen_mobility(board) == 0
 
 
+def test_queen_mobility_ignores_crowded_positions() -> None:
+    board = BoardState.from_fen("r3k2r/ppp2ppp/2n5/3Q4/3P4/2N5/PPP2PPP/R3K2R w KQkq - 0 1")
+
+    assert queen_mobility(board) == 0
+
+
 def test_bishop_pair_rewards_two_bishops() -> None:
     one_bishop = BoardState.from_fen("4k3/8/8/8/8/8/8/2B1K3 w - - 0 1")
     two_bishops = BoardState.from_fen("4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1")
