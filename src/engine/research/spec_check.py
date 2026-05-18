@@ -3,7 +3,6 @@ from __future__ import annotations
 from engine.research import ChessEngine, ToolBackend
 from engine.research.board import BoardState
 
-
 def main() -> None:
     checks = [
         start_position_count,
@@ -18,6 +17,7 @@ def main() -> None:
         tool_move_shape,
         tool_game_over_shape,
         tool_draw_shape,
+        tool_same_bishop_draw_shape,
         tool_fifty_move_draw_shape,
         tool_repetition_draw_shape,
         tool_eval_shape,
@@ -34,7 +34,7 @@ def main() -> None:
         filters_self_check,
         blocks_castle_through_check,
     ]
-    print(sum(1 for check in checks if check()))
+    print(sum(check() for check in checks))
 
 
 def start_position_count() -> bool:
@@ -58,7 +58,6 @@ def undo_restores_position() -> bool:
     before = engine.board.to_fen()
     engine.move("g1f3")
     return engine.undo().ok and engine.board.to_fen() == before
-
 
 def lists_piece_locations() -> bool:
     pieces = ChessEngine().list_pieces()
@@ -103,15 +102,16 @@ def tool_game_over_shape() -> bool:
 
 def tool_draw_shape() -> bool:
     board = BoardState.from_fen("8/8/8/8/8/3K4/1B6/4k3 w - - 0 1")
-    backend = ToolBackend(ChessEngine(board))
-    return backend.execute("<tool>move san=Bg7</tool>") == "success: Bg7, game_over=draw"
+    return ToolBackend(ChessEngine(board)).execute("<tool>move san=Bg7</tool>") == "success: Bg7, game_over=draw"
 
+
+def tool_same_bishop_draw_shape() -> bool:
+    board = BoardState.from_fen("4k2b/8/8/8/8/3K4/1B6/8 w - - 0 1")
+    return ToolBackend(ChessEngine(board)).execute("<tool>move san=Bg7</tool>") == "success: Bg7, game_over=draw"
 
 def tool_fifty_move_draw_shape() -> bool:
     board = BoardState.from_fen("4k3/8/8/8/8/8/4R3/4K3 w - - 99 1")
-    backend = ToolBackend(ChessEngine(board))
-    return backend.execute("<tool>move san=Ra2</tool>") == "success: Ra2, game_over=draw"
-
+    return ToolBackend(ChessEngine(board)).execute("<tool>move san=Ra2</tool>") == "success: Ra2, game_over=draw"
 
 def tool_repetition_draw_shape() -> bool:
     backend = ToolBackend()

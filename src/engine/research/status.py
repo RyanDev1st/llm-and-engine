@@ -16,9 +16,18 @@ def game_over(engine: ChessEngine) -> str:
 
 
 def insufficient_material(engine: ChessEngine) -> bool:
-    pieces = [item.split("@")[0] for item in engine.list_pieces()]
-    minor = [piece for piece in pieces if piece.upper() in {"B", "N"}]
-    return all(piece.upper() in {"K", "B", "N"} for piece in pieces) and len(minor) <= 1
+    pieces = engine.list_pieces()
+    kinds = [item.split("@")[0].upper() for item in pieces]
+    if any(piece not in {"K", "B", "N"} for piece in kinds):
+        return False
+    minors = [(piece, square) for piece, square in (item.split("@") for item in pieces) if piece.upper() in {"B", "N"}]
+    if len(minors) <= 1:
+        return True
+    return len(minors) == 2 and all(piece.upper() == "B" for piece, _ in minors) and same_color(minors[0][1], minors[1][1])
+
+
+def same_color(a: str, b: str) -> bool:
+    return (ord(a[0]) + int(a[1])) % 2 == (ord(b[0]) + int(b[1])) % 2
 
 
 def repeated_position(engine: ChessEngine) -> bool:
