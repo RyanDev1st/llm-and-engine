@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemma Chess Coach</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">♞ Gemma&nbsp;Chess&nbsp;Coach <span class="sub">Gemma-4 E2B · Q4_0 LoRA + Stockfish</span></div>
+    <button id="reset" class="btn">New game</button>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: evaluation bar -->
+    <section class="evalcol" aria-label="Evaluation bar">
+      <div class="evalbar"><div id="evalfill" class="evalfill"></div></div>
+      <div id="evaltext" class="evaltext">0.00</div>
+      <div class="evalcap">eval</div>
+    </section>
+
+    <!-- MIDDLE: board -->
+    <section class="boardcol">
+      <div id="board" class="board"></div>
+      <div class="movestrip"><span class="turnpill" id="turnpill">White to move</span>
+        <span id="movelist" class="movelist"></span></div>
+    </section>
+
+    <!-- RIGHT: chat -->
+    <section class="chatcol" aria-label="Coach chat">
+      <div class="chathead">Coach</div>
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="typing hidden">Coach is thinking…</div>
+      <form id="chatform" class="composer">
+        <input id="chatinput" class="chatinput" autocomplete="off"
+               placeholder="Ask your coach… (e.g. how's my position?)" />
+        <button class="btn send" type="submit">Send</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="/static/board.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

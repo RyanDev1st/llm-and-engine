@@ -59,6 +59,19 @@ class Game:
             return "your king is in check"
         return "that move isn't legal in this position"
 
+    def move_uci(self, uci: str) -> bool:
+        """Apply a drag-and-drop move given in UCI (e.g. e2e4, e7e8q). Returns
+        True if legal and played. Board stays authoritative for the frontend."""
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            return False
+        if mv not in self.board.legal_moves:
+            return False
+        self.san_stack.append(self.board.san(mv))
+        self.board.push(mv)
+        return True
+
     # ---- undo -------------------------------------------------------------
     def undo(self) -> str:
         if not self.board.move_stack:
