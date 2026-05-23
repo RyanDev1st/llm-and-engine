@@ -10,3 +10,17 @@
 .env
 .env.*
 *.pem
+
+# Large ML artifacts — never commit (base weights, runs, engines, GGUF)
+src/llm/models/
+src/llm/runtime/
+runs/
+*.gguf
+*.safetensors
+*.bak
+ruvector.db
+*.db
+
+# Python caches
+__pycache__/
+*.pyc
