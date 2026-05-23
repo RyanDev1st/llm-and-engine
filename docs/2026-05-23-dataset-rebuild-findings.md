@@ -18,6 +18,15 @@ Rebuilt chess_assistant_v3 train/val from human slices.
 - Validation rejects: 0.
 - Final per-slice: {'A': 630, 'B': 296, 'C': 244, 'D': 308, 'E': 350, 'F': 315, 'G': 140, 'H': 139, 'I': 119, 'J': 122, 'K': 238}
 - Split: train=2616 val=285 total=2901.
+- Quality gates: schema, tool grammar (free-text ask_chessbot allowed), mode-2
+  discipline, and per-slice routing all pass (0 rejects).
+- NOTE on spec 7.3 replay: the data is FEN-blind by design - conversations do not
+  encode their board position (e.g. slice-A castling/captures imply mid-game
+  positions). Replaying from `chess.Board()` startpos is therefore NOT applicable
+  to the human slices (a startpos walk mismatches ~80% of move slices because the
+  true position is external). Slice-D scores are real-by-construction (computed by
+  Stockfish on the sampled position). The live backend tracks the real board from
+  startpos as the user plays, so the tool executor is replay-correct there.
 
 ## Next
 1. Smoke train, then full 3-epoch QLoRA on gemma4_e2b.

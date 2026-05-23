@@ -1,7 +1,8 @@
 # LLM tool-calling — product workspace
 
-Project memory for Claude Code and other agents. Loaded every session. Keep **under 200 lines**, signal-dense, and verifiable. Update this file when layout, commands, or rules change.
+Project memory for Claude Code and other agents. Loaded every session. Keep **under 200 lines**, signal-dense, and verifiable. Update this file when layout, commands, or rules change. 
 
+! Do not touch ./legacy/ ignore it.
 <!-- Maintainer: add path-scoped rules under .claude/rules/ when this file grows. -->
 
 ## Mission
@@ -46,7 +47,7 @@ Follow Anthropic’s **explore → plan → implement → verify** loop. Skip pl
 
 ### File size (hard cap)
 
-- No source file may exceed **200 lines** (imports and blank lines count).
+- No code source file may exceed **200 lines** (imports and blank lines count). Meaning all other files can exceed this. 
 - If a change would exceed 200 lines: split into additional files in the **same feature folder** (next section). Never bypass the cap with comments or string concatenation.
 
 ### Feature folders (colocation)
