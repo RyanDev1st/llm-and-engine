@@ -20,6 +20,8 @@ Ship **working software** for reliable **LLM tool use**: tool selection, JSON sc
 | --- | --- |
 | `CLAUDE.md` | Team agent instructions (this file) |
 | `docs/` | Durable project documentation |
+| `src/llm/` | Chess-coach product: dataset build, QLoRA trainer, Stockfish backend, web app (see `src/llm/README.md`) |
+| `data/sft/` | SFT dataset: human slices + assembled `chess_assistant_v3_{train,val}.jsonl` |
 | `legacy/` | Active product code, eval, tests, findings, plans |
 | `legacy/superpowers/plans/` | Dated implementation plans |
 | `legacy/findings/` | Evidence-backed status and experiment write-ups |
