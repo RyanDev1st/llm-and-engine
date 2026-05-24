@@ -37,11 +37,21 @@ class App:
         self._adapter = adapter
 
     def load_model(self) -> None:
+        # Prefer the Q4_0 GGUF (~3.2 GiB, light mmap) when present; only fall back
+        # to bnb 4-bit + HF adapter if no GGUF exists. This avoids the Windows
+        # "paging file too small" trap on 16 GB laptops.
+        from .model_gguf import DEFAULT_GGUF
         try:
+            if DEFAULT_GGUF.exists():
+                from .model_gguf import GGUFModel
+                model = GGUFModel()
+                self.loop = CoachLoop(model, self.executor)
+                print(f"model loaded (GGUF {DEFAULT_GGUF.name})", flush=True)
+                return
             from .model_hf import HFModel
             model = HFModel(adapter=self._adapter)
             self.loop = CoachLoop(model, self.executor)
-            print("model loaded", flush=True)
+            print("model loaded (HF 4-bit + adapter)", flush=True)
         except Exception as exc:  # board + eval still work without the model
             self.model_error = str(exc)
             print(f"model unavailable ({exc}); board/eval still work", flush=True)
