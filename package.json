@@ -1,0 +1,16 @@
+{
+  "name": "chess-coach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Gemma-4 E2B chess-coach LoRA + Stockfish + 3-panel SPA",
+  "scripts": {
+    "dev": "cd src/llm && python -u -m backend.server ../../runs/gemma4_chess",
+    "dev:no-model": "cd src/llm && python -u -m backend.server",
+    "start": "npm run dev",
+    "build:dataset": "cd src/llm && python -m llm_dataset.build.assemble",
+    "train": "cd src/llm && python -u -m llm_training.run_train --targets attn-only --max-seq 1152 --epochs 1",
+    "train:smoke": "cd src/llm && python -u -m llm_training.run_train --smoke --targets attn-only --max-seq 1152",
+    "audit": "cd src/llm && python -u -m llm_training.eval_routing ../../runs/gemma4_chess",
+    "export": "cd src/llm && python -u -m llm_training.export_gguf ../../runs/gemma4_chess"
+  }
+}
