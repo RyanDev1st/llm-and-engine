@@ -23,14 +23,29 @@ class HFModel:
             self.tok.pad_token = self.tok.eos_token
         quant = BitsAndBytesConfig(
             load_in_4bit=True, bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+            bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+            llm_int8_enable_fp32_cpu_offload=True)
+        # Inference path: no grads/optimizer, so fit the whole 4-bit model on GPU
+        # (cpu-offload was for training only; it strands pad/eos tensors on meta
+        # at generate() time and crashes torch.isin).
         self.model = AutoModelForImageTextToText.from_pretrained(
             str(base), local_files_only=True, quantization_config=quant,
-            torch_dtype=torch.bfloat16, low_cpu_mem_usage=True,
-            device_map={"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"})
+            torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, device_map={"": 0})
         if adapter:
-            from peft import PeftModel
-            self.model = PeftModel.from_pretrained(self.model, str(adapter))
+            # Manual adapter attach: PeftModel.from_pretrained re-runs accelerate
+            # dispatch and trips a Params4bit/_is_hf_initialized bug on this stack.
+            # Build matching LoraConfig and load state_dict directly instead.
+            import json as _json
+            from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
+            from safetensors.torch import load_file
+            cfg_d = _json.loads((Path(adapter) / "adapter_config.json").read_text())
+            lora = LoraConfig(
+                task_type="CAUSAL_LM", r=cfg_d["r"], lora_alpha=cfg_d["lora_alpha"],
+                lora_dropout=cfg_d["lora_dropout"], target_modules=cfg_d["target_modules"],
+                bias=cfg_d.get("bias", "none"))
+            self.model = get_peft_model(self.model, lora)
+            sd = load_file(str(Path(adapter) / "adapter_model.safetensors"))
+            set_peft_model_state_dict(self.model, sd)
         self.model.eval()
 
     @torch.inference_mode()
