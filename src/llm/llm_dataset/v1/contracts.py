@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 SLICES = (
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K",
     "V1_A_skill_index_selection",
     "V1_B_skill_conflict_and_absence",
     "V1_C_dynamic_tool_schema",
