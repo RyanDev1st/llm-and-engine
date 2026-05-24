@@ -41,7 +41,17 @@ def run(plan: dict[str, int], seed: int, out: Path = OUT) -> tuple[int, int]:
     rejected: list[dict] = []
     for scenario in scenarios:
         if scenario.slice in CHESS_SLICES and annotator is not None:
-            row = render_chess_row(scenario, annotator)
+            try:
+                row = render_chess_row(scenario, annotator)
+            except Exception as exc:
+                rejected.append({
+                    "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",
+                    "slice": scenario.slice,
+                    "kind": "harness_chess",
+                    "intent": scenario.intent,
+                    "reject_reason": f"annotator_error: {type(exc).__name__}: {exc}",
+                })
+                continue
         elif scenario.slice in UNIVERSALITY_SLICES:
             row = render_universality_row(scenario)
         else:

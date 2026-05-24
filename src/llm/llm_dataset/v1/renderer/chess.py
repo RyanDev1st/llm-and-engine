@@ -23,7 +23,7 @@ INTERNAL_LESSON = "Use board tools before claims. Ground evaluation in Stockfish
 
 
 def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[str, Any]:
-    annotated = annotator.annotate(scenario.position.fen, depth=15) if scenario.position else None
+    annotated = annotator.annotate(scenario.position.fen, depth=12) if scenario.position else None
     user = _user_message(scenario)
     messages: list[dict[str, str]] = [{"role": "user", "content": user}]
     _emit_skill_load(messages, scenario)

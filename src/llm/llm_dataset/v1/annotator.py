@@ -36,7 +36,14 @@ class StockfishAnnotator:
             self._engine = chess.engine.SimpleEngine.popen_uci(self.path)
         return self._engine
 
-    def annotate(self, fen: str, depth: int = 15) -> AnnotatedPosition:
+    def annotate(self, fen: str, depth: int = 12) -> AnnotatedPosition:
+        try:
+            return self._annotate_once(fen, depth)
+        except (chess.engine.EngineTerminatedError, chess.engine.EngineError, BrokenPipeError):
+            self._restart()
+            return self._annotate_once(fen, depth)
+
+    def _annotate_once(self, fen: str, depth: int) -> AnnotatedPosition:
         board = chess.Board(fen)
         info = self._ensure().analyse(
             board, chess.engine.Limit(depth=depth, time=self.timeout)
@@ -59,6 +66,14 @@ class StockfishAnnotator:
             fen, depth, int(score.score()), "cp",
             best_san, tuple(line_sans), threats,
         )
+
+    def _restart(self) -> None:
+        if self._engine is not None:
+            try:
+                self._engine.quit()
+            except Exception:
+                pass
+        self._engine = None
 
     def _threats(self, board: chess.Board, depth: int) -> str | None:
         if board.is_game_over():
