@@ -9,6 +9,8 @@ from .text import eval_language, score_pawns, score_text
 
 SLICE_USER_TEMPLATES = {
     "A": ("play {san}", "let's go {san}", "{san} for me", "push {san}"),
+    "B": ("should I move the knight or bishop?", "what plan should I choose?", "which capture is best?", "help me decide"),
+    "C": ("play e5 for me", "can my king move to e2?", "castle through check", "make the illegal capture"),
     "D": ("who is winning?", "rate this position", "is this lost for me?", "how is it?"),
     "E": ("what should I play?", "best move?", "give me the line", "show me a plan"),
     "F": ("how was that move?", "did I blunder?", "rate my last move", "was that ok?"),
@@ -27,7 +29,10 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     user = _user_message(scenario)
     messages: list[dict[str, str]] = [{"role": "user", "content": user}]
     _emit_skill_load(messages, scenario)
-    if scenario.slice in {"A", "D", "E", "F", "G", "H"}:
+    if scenario.slice == "F":
+        messages.append({"role": "assistant", "content": "<tool>move san=e4</tool>"})
+        messages.append({"role": "tool", "content": "success: e4"})
+    if scenario.slice in {"A", "B", "C", "D", "E", "F", "G", "H"}:
         messages.append({"role": "assistant", "content": "<tool>board_state fields=basic</tool>"})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
     _emit_slice_tool(messages, scenario, annotated)
@@ -62,6 +67,9 @@ def _emit_slice_tool(
     if scenario.slice == "A":
         messages.append({"role": "assistant", "content": "<tool>move san=e4</tool>"})
         messages.append({"role": "tool", "content": "success: e4"})
+    elif scenario.slice == "B":
+        messages.append({"role": "assistant", "content": "<tool>legal_moves square=e2</tool>"})
+        messages.append({"role": "tool", "content": "legal: e4, e3"})
     elif scenario.slice == "D" and annotated:
         messages.append({"role": "assistant", "content": "<tool>eval depth=15</tool>"})
         messages.append({"role": "tool", "content": score_text(annotated)})
@@ -93,6 +101,10 @@ def _final(scenario: Scenario, annotated: AnnotatedPosition | None) -> str:
         opener = tone.pick(scenario.seed, tone.OPENERS_SOCRATIC)
     if scenario.slice == "A":
         return f"{opener} Played e4 — central, opens lines for the bishop and queen."
+    if scenario.slice == "B":
+        return f"{opener} I checked legal moves first. Both e4 and e3 are legal, so choose based on plan."
+    if scenario.slice == "C":
+        return f"{opener} I will not execute that without a legal move result; board_state alone is not enough."
     if scenario.slice == "D" and annotated:
         return f"{opener} {eval_language(annotated)}"
     if scenario.slice == "E" and annotated:
@@ -131,11 +143,11 @@ def _envelope(
         "selected_skills": ["chess-coach"],
         "tool_manifest": list(scenario.tool_manifest),
         "expected_tool_calls": expected,
-        "grounding_sources": ["board_state"] if scenario.slice in {"A", "D", "E", "F", "G", "H"} else [],
+        "grounding_sources": ["board_state"] if scenario.slice in {"A", "B", "C", "D", "E", "F", "G", "H"} else [],
         "messages": messages,
         "acceptance_rules": [
             "final_no_xml", "known_tool_only", "args_match_schema",
-            "selected_skill_exists", "skill_index_only_before_load", "engine_grounded",
+            "selected_skill_exists", "skill_index_only_before_load", "skill_body_strict", "engine_grounded",
         ],
         "position_fen": scenario.position.fen if scenario.position else None,
         "stockfish_truth": (

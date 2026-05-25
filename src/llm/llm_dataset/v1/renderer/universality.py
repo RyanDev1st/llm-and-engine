@@ -93,7 +93,7 @@ def _final(scenario: Scenario) -> str:
 def _rules_for(slice_name: str) -> list[str]:
     rules = [
         "final_no_xml", "known_tool_only", "args_match_schema",
-        "selected_skill_exists", "skill_index_only_before_load",
+        "selected_skill_exists", "skill_index_only_before_load", "skill_body_strict",
         "applies_when_respected", "plugin_only_tools",
     ]
     if slice_name == "V1_E_board_grounding":

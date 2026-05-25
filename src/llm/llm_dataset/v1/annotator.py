@@ -89,6 +89,6 @@ class StockfishAnnotator:
     def quit(self) -> None:
         if self._engine is not None:
             try:
-                self._engine.quit()
+                self._engine.close()
             finally:
                 self._engine = None

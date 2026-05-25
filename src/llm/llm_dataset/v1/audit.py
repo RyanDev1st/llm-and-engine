@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -29,14 +30,19 @@ def audit(gold_dir: Path = OUT) -> int:
     print("rule_counts=" + _fmt_counts(rule_counts))
     _print_samples(accepted)
     _print_rejects(rejected)
-    missing = _missing(by_slice, reject_by_slice, rule_counts)
+    print(f"accepted_synthetic_share={_synthetic_share(accepted):.3f}")
+    print(f"rejected_synthetic_share={_synthetic_share(rejected):.3f}")
+    missing = _missing(accepted, rejected, by_slice, reject_by_slice, rule_counts)
     for item in missing:
         print(f"MISSING: {item}")
     for row_id, rule, reason in failures:
         print(f"FAIL: {row_id} {rule} {reason}")
     for row_id in reject_passed:
         print(f"FAIL: rejected row passed validation {row_id}")
-    return 1 if failures or reject_passed or missing else 0
+    ok = not failures and not reject_passed and not missing
+    print(f"failures_count={len(failures) + len(reject_passed) + len(missing)}")
+    print(f"freeze_ok={ok}")
+    return 0 if ok else 1
 
 
 def _fmt_counts(counts: Counter) -> str:
@@ -61,17 +67,33 @@ def _print_rejects(rows: list[dict]) -> None:
         print(f"REJECTS {slice_name}: " + "; ".join(grouped[slice_name]))
 
 
-def _missing(by_slice: Counter, reject_by_slice: Counter, rule_counts: Counter) -> list[str]:
+def _missing(
+    accepted: list[dict], rejected: list[dict], by_slice: Counter, reject_by_slice: Counter, rule_counts: Counter
+) -> list[str]:
     out = []
+    if len(accepted) < 4000:
+        out.append("accepted < 4000")
+    if len(rejected) < 800:
+        out.append("rejected < 800")
+    if _synthetic_share(accepted) < 0.28:
+        out.append("accepted synthetic share < 28%")
+    if _synthetic_share(rejected) < 0.28:
+        out.append("rejected synthetic share < 28%")
     for slice_name in SLICES:
         if by_slice[slice_name] < 20:
             out.append(f"{slice_name} accepted < 20")
-        if reject_by_slice[slice_name] < 5:
-            out.append(f"{slice_name} rejected < 5")
     for rule in RULES:
         if rule_counts[rule] == 0:
             out.append(f"rule has no accepted coverage: {rule}")
     return out
+
+
+def _synthetic_share(rows: list[dict]) -> float:
+    if not rows:
+        return 0.0
+    pattern = re.compile(r"tool_[a-z]+_\d+|\b(skill|ski|plugin|ext)-[a-z]+-\d+")
+    hits = sum(1 for row in rows if pattern.search(json.dumps(row)))
+    return hits / len(rows)
 
 
 if __name__ == "__main__":

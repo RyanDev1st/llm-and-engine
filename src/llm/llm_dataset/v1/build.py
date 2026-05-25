@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 
 from .paths import OUT
@@ -21,9 +22,13 @@ def build(gold_dir: Path = OUT, train_path: Path = TRAIN, val_path: Path = VAL) 
     for row in rows:
         assert_valid(row)
     train, val = [], []
-    for idx, row in enumerate(rows):
-        target = val if idx % 10 == 0 else train
-        target.append(row)
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        buckets[row["slice"]].append(row)
+    for slice_name in sorted(buckets):
+        for idx, row in enumerate(buckets[slice_name]):
+            target = val if idx % 10 == 0 else train
+            target.append(row)
     _write(train_path, train)
     _write(val_path, val)
     return len(train), len(val)
