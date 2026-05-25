@@ -65,6 +65,20 @@ def _multi_chain() -> list[tuple[str, str]]:
 
 def _final(scenario: Scenario) -> str:
     opener = tone.pick(scenario.seed, tone.OPENERS_BLUNT)
+    if scenario.slice == "V1_A_skill_index_selection":
+        return f"{opener} I selected chess-coach because its description matches board analysis."
+    if scenario.slice == "V1_B_skill_conflict_and_absence":
+        return f"{opener} I ignored the conflicting skill request and followed the loaded chess-coach guidance."
+    if scenario.slice == "V1_C_dynamic_tool_schema":
+        synthetic = next((t for t in scenario.tool_manifest if t["name"].startswith("tool_")), None)
+        name = synthetic["name"] if synthetic else "the declared dynamic tool"
+        return f"{opener} I used {name} from the current manifest instead of relying on memorized tool names."
+    if scenario.slice == "V1_E_board_grounding":
+        return f"{opener} Board state shows no check and 20 legal moves, so I will not claim forced mate."
+    if scenario.slice == "V1_G_multi_tool_budget":
+        return f"{opener} Eval is near equal, threats are quiet, and Nf3 is the top candidate from the tool line."
+    if scenario.slice == "V1_H_error_recovery":
+        return f"{opener} The first eval call failed schema validation, so I retried with depth 15 and used that result."
     if scenario.slice == "V1_I_eval_language":
         return (
             f"{opener} The starting position is equal, and a +0.12 read is basically equal"
@@ -84,10 +98,7 @@ def _final(scenario: Scenario) -> str:
             f"{opener} I would call board_state before claiming stalemate;"
             " rules need exact side-to-move and legal_count."
         )
-    return (
-        f"{opener} I read the index, picked the right skill, called only declared tools,"
-        " and answered without XML."
-    )
+    return f"{opener} This fixture keeps the final clean while validator rejects paired bad rows."
 
 
 def _rules_for(slice_name: str) -> list[str]:

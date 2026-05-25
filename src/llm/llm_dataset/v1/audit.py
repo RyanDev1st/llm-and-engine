@@ -9,6 +9,17 @@ from .contracts import RULES, SLICES
 from .paths import OUT
 from .validate import validate_row
 
+CHESS_TARGETS = {"A": 630, "B": 385, "C": 280, "D": 315, "E": 350, "F": 315, "G": 140, "H": 210, "I": 420, "J": 280, "K": 175}
+UNIVERSAL_MINIMUM = 60
+RULE_MINIMUMS = {"engine_grounded": 200, "skill_body_strict": 200}
+GENERIC_FINAL_MAX_SHARE = 0.02
+GENERIC_FINAL_PATTERNS = (
+    "i read the index",
+    "picked the right skill",
+    "called only declared tools",
+    "answered without xml",
+)
+
 
 def load_rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -32,6 +43,8 @@ def audit(gold_dir: Path = OUT) -> int:
     _print_rejects(rejected)
     print(f"accepted_synthetic_share={_synthetic_share(accepted):.3f}")
     print(f"rejected_synthetic_share={_synthetic_share(rejected):.3f}")
+    print(f"reject_reason_diversity={_reject_reason_diversity(rejected)}")
+    print(f"generic_final_share={_generic_final_share(accepted):.3f}")
     missing = _missing(accepted, rejected, by_slice, reject_by_slice, rule_counts)
     for item in missing:
         print(f"MISSING: {item}")
@@ -80,11 +93,22 @@ def _missing(
     if _synthetic_share(rejected) < 0.28:
         out.append("rejected synthetic share < 28%")
     for slice_name in SLICES:
-        if by_slice[slice_name] < 20:
-            out.append(f"{slice_name} accepted < 20")
+        threshold = UNIVERSAL_MINIMUM if slice_name.startswith("V1_") else 20
+        if by_slice[slice_name] < threshold:
+            out.append(f"{slice_name} accepted < {threshold}")
+    for slice_name, target in CHESS_TARGETS.items():
+        if abs(by_slice[slice_name] - target) > max(20, round(target * 0.10)):
+            out.append(f"{slice_name} outside target tolerance")
     for rule in RULES:
         if rule_counts[rule] == 0:
             out.append(f"rule has no accepted coverage: {rule}")
+    for rule, minimum in RULE_MINIMUMS.items():
+        if rule_counts[rule] < minimum:
+            out.append(f"rule coverage < {minimum}: {rule}")
+    if _reject_reason_diversity(rejected) < 4:
+        out.append("reject reason diversity < 4")
+    if _generic_final_share(accepted) > GENERIC_FINAL_MAX_SHARE:
+        out.append("generic final share > 2%")
     return out
 
 
@@ -94,6 +118,21 @@ def _synthetic_share(rows: list[dict]) -> float:
     pattern = re.compile(r"tool_[a-z]+_\d+|\b(skill|ski|plugin|ext)-[a-z]+-\d+")
     hits = sum(1 for row in rows if pattern.search(json.dumps(row)))
     return hits / len(rows)
+
+
+def _reject_reason_diversity(rows: list[dict]) -> int:
+    return len({row.get("reject_reason", "") for row in rows if row.get("reject_reason")})
+
+
+def _generic_final_share(rows: list[dict]) -> float:
+    if not rows:
+        return 0.0
+    generic = 0
+    for row in rows:
+        final = row["messages"][-1]["content"].lower()
+        if all(pattern in final for pattern in GENERIC_FINAL_PATTERNS):
+            generic += 1
+    return generic / len(rows)
 
 
 if __name__ == "__main__":

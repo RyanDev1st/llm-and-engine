@@ -76,16 +76,45 @@ def _audit_rejects(rows: list[dict], needed: int) -> list[dict]:
     if needed <= 0:
         return []
     rejects: list[dict] = []
+    fixtures = (
+        ("audit_fixture: undeclared_tool", _bad_undeclared_tool),
+        ("audit_fixture: final_xml", _bad_final_xml),
+        ("audit_fixture: duplicate_tool", _bad_duplicate_tool),
+        ("audit_fixture: invalid_arg", _bad_invalid_arg),
+    )
     for idx, row in enumerate(rows):
-        bad = {**row, "id": f"reject_{idx:05d}_{row['id']}", "reject_reason": "audit_fixture: undeclared_tool"}
-        bad["messages"] = row["messages"][:-1] + [
-            {"role": "assistant", "content": "<tool>undeclared_probe input=x</tool>"},
-            row["messages"][-1],
-        ]
+        reason, mutate = fixtures[idx % len(fixtures)]
+        bad = {**row, "id": f"reject_{idx:05d}_{row['id']}", "reject_reason": reason}
+        bad["messages"] = mutate(row["messages"])
         rejects.append(bad)
         if len(rejects) == needed:
             break
     return rejects
+
+
+def _bad_undeclared_tool(messages: list[dict]) -> list[dict]:
+    return messages[:-1] + [
+        {"role": "assistant", "content": "<tool>undeclared_probe input=x</tool>"},
+        messages[-1],
+    ]
+
+
+def _bad_final_xml(messages: list[dict]) -> list[dict]:
+    return messages[:-1] + [{"role": "assistant", "content": "Final leaks <tool>eval depth=15</tool>."}]
+
+
+def _bad_duplicate_tool(messages: list[dict]) -> list[dict]:
+    return [
+        {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
+        {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
+    ]
+
+
+def _bad_invalid_arg(messages: list[dict]) -> list[dict]:
+    return messages[:-1] + [
+        {"role": "assistant", "content": "<tool>load_skill name=chess-coach extra=bad</tool>"},
+        messages[-1],
+    ]
 
 
 def _write(path: Path, rows: list[dict]) -> None:
