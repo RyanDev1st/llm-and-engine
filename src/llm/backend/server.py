@@ -10,6 +10,7 @@ Run from repo root:  python -m backend.server [adapter_dir]
 from __future__ import annotations
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +27,10 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
          ".css": "text/css; charset=utf-8"}
 
 
+def bind_address() -> tuple[str, int]:
+    return os.environ.get("CHESS_HOST", "127.0.0.1"), int(os.environ.get("CHESS_PORT", "7860"))
+
+
 class App:
     def __init__(self, adapter: str | None) -> None:
         self.game = Game()
@@ -40,18 +45,20 @@ class App:
         # Prefer the Q4_0 GGUF (~3.2 GiB, light mmap) when present; only fall back
         # to bnb 4-bit + HF adapter if no GGUF exists. This avoids the Windows
         # "paging file too small" trap on 16 GB laptops.
-        from .model_gguf import DEFAULT_GGUF
+        from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
         try:
-            if DEFAULT_GGUF.exists():
-                from .model_gguf import GGUFModel
-                model = GGUFModel()
+            gguf = default_gguf_path()
+            if gguf.exists():
+                n_ctx, n_gpu_layers = gguf_runtime_config()
+                model = GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers)
                 self.loop = CoachLoop(model, self.executor)
-                print(f"model loaded (GGUF {DEFAULT_GGUF.name})", flush=True)
+                print(f"model loaded (GGUF {gguf.name})", flush=True)
                 return
-            from .model_hf import HFModel
-            model = HFModel(adapter=self._adapter)
+            from .model_ollama import OllamaModel
+            model = OllamaModel()
             self.loop = CoachLoop(model, self.executor)
-            print("model loaded (HF 4-bit + adapter)", flush=True)
+            print("model loaded (Ollama)", flush=True)
+            return
         except Exception as exc:  # board + eval still work without the model
             self.model_error = str(exc)
             print(f"model unavailable ({exc}); board/eval still work", flush=True)
@@ -72,7 +79,8 @@ class App:
         result = self.loop.respond(self.history, message)
         self.history += result["turns"]
         return {"reply": result["reply"], "tool_call": result["tool_call"],
-                "tool_result": result["tool_result"], "state": self.state()}
+                "tool_result": result["tool_result"], "tool_calls": result.get("tool_calls", []),
+                "tool_results": result.get("tool_results", []), "state": self.state()}
 
 
 APP: App
@@ -140,8 +148,9 @@ def main() -> None:
     APP = App(adapter)
     print(f"loading model (adapter={adapter}) ...", flush=True)
     APP.load_model()
-    print("open http://127.0.0.1:7860", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", 7860), Handler).serve_forever()
+    host, port = bind_address()
+    print(f"open http://{host}:{port}", flush=True)
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
 if __name__ == "__main__":

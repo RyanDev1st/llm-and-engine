@@ -7,18 +7,27 @@ on 16 GB laptops). This is the preferred runtime for `npm run dev`.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 LLM_DIR = Path(__file__).resolve().parents[1]
 REPO = LLM_DIR.parent.parent
 DEFAULT_GGUF = REPO / "runs" / "gemma4-E2B-chesscoach-Q4_0.gguf"
 
 
+def default_gguf_path() -> Path:
+    return Path(os.environ.get("CHESS_GGUF_PATH", DEFAULT_GGUF))
+
+
+def gguf_runtime_config() -> tuple[int, int]:
+    return int(os.environ.get("CHESS_N_CTX", "2048")), int(os.environ.get("CHESS_N_GPU_LAYERS", "-1"))
+
+
 class GGUFModel:
-    def __init__(self, gguf: str | Path = DEFAULT_GGUF, n_gpu_layers: int = -1,
+    def __init__(self, gguf: str | Path | None = None, n_gpu_layers: int = -1,
                  n_ctx: int = 2048, temperature: float = 0.5) -> None:
         from llama_cpp import Llama
         self.temperature = temperature
-        path = Path(gguf)
+        path = Path(gguf) if gguf is not None else default_gguf_path()
         if not path.exists():
             raise FileNotFoundError(f"GGUF not found: {path}")
         self.llm = Llama(
@@ -26,16 +35,12 @@ class GGUFModel:
             n_batch=256, verbose=False, chat_format=None)
 
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
-        # Use llama-cpp's chat completion (applies the model's chat template)
         stops = list(stop or [])
-        if "</tool>" not in stops:
-            stops = ["</tool>", *stops]
         out = self.llm.create_chat_completion(
             messages=messages, max_tokens=max_new_tokens,
             temperature=max(self.temperature, 0.0), top_p=0.9, stop=stops)
         text = out["choices"][0]["message"]["content"].strip()
         finish = out["choices"][0].get("finish_reason")
-        # llama-cpp strips the stop sequence; restore </tool> if that was the stop
-        if finish == "stop" and text.startswith("<tool>") and "</tool>" not in text:
+        if finish == "stop" and "</tool>" in stops and text.startswith("<tool>") and "</tool>" not in text:
             text += "</tool>"
         return text
