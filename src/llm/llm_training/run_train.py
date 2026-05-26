@@ -1,4 +1,4 @@
-"""CLI entry point for QLoRA fine-tuning. Wires the rebuilt v3 dataset and the
+"""CLI entry point for QLoRA fine-tuning. Wires the v1.2 dataset and the
 correct base model (gemma4_e2b) into the existing trainer.
 
 Run from repo root:
@@ -31,8 +31,8 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         warmup_ratio=0.03, optimizer="paged_adamw_8bit", eval_every=args.eval_every,
         loss_mask="assistant-only", load_in_4bit=True,
         model_path=MODEL,
-        data_path=DATA / "chess_assistant_v3_train.jsonl",
-        val_path=DATA / "chess_assistant_v3_val.jsonl",
+        data_path=DATA / "v1_2_train.jsonl",
+        val_path=DATA / "v1_2_val.jsonl",
         output_dir=REPO / "runs" / args.output,
     )
 

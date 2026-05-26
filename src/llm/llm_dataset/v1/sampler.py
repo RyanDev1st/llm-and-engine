@@ -4,12 +4,15 @@ import random
 from dataclasses import dataclass
 
 from .catalog import (
+    HUMAN_CHAT_SKILL,
     OFFICIAL_SKILL,
-    OFFICIAL_TOOLS,
+    USER_SKILL_TOOLS,
     alt_skills,
     alt_tools,
+    official_tools,
     synthetic_skill_name,
     synthetic_tool_name,
+    with_plugin,
 )
 from .positions import Position, load_default_bank, sample_position
 
@@ -27,7 +30,11 @@ UNIVERSALITY_SLICES = {
     "V1_J_no_tool_and_mixed_intent",
     "V1_K_adversarial_injection",
     "V1_L_rejects_and_audit_fixtures",
+    "V1_M_marketplace_navigation",
+    "V1_N_human_chat_skill_bridge",
 }
+
+PROMPT_STYLES = ("formal", "casual", "slang", "typo", "anxious", "beginner")
 
 CATEGORY_FOR_SLICE = {
     "A": "opening",
@@ -56,6 +63,7 @@ class Scenario:
     name_family: str
     tone: str
     length: str
+    prompt_style: str
     seed: int
 
 
@@ -82,9 +90,11 @@ def _one(slice_name: str, bank, rng: random.Random, n: int) -> Scenario:
     )
     skills_index = _skills(rng, name_family)
     tool_manifest = _tools(rng, name_family, slice_name)
+    prompt_style = PROMPT_STYLES[n % len(PROMPT_STYLES)]
     plugin_context = {
-        "installed": ["chess-official", "user-skills"],
-        "enabled": ["chess-official", "user-skills"],
+        "installed": ["chess-official", "user-skills", "market-tactics", "synthetic-pack"],
+        "enabled": ["chess-official", "user-skills", "synthetic-pack"],
+        "marketplace": ["market-openings", "market-endgames"],
     }
     intent = f"{slice_name.lower()}_{n:04d}"
     return Scenario(
@@ -97,17 +107,23 @@ def _one(slice_name: str, bank, rng: random.Random, n: int) -> Scenario:
         name_family,
         tone,
         length,
+        prompt_style,
         rng.randint(1, 10**9),
     )
 
 
 def _skills(rng: random.Random, name_family: str) -> tuple:
-    base = [OFFICIAL_SKILL] + rng.sample(alt_skills(), 4)
+    user = with_plugin(rng.sample(alt_skills(), 2), "user-skills", "user_skill")
+    market = with_plugin(rng.sample(alt_skills(), 2), "market-tactics", "marketplace_plugin")
+    base = [OFFICIAL_SKILL, HUMAN_CHAT_SKILL] + user + market
     if name_family == "synthetic":
         base += [
             {
                 "name": synthetic_skill_name(rng.randint(1, 10**6)),
                 "description": "Domain-neutral skill for the harness universality test.",
+                "plugin": "synthetic-pack",
+                "source": "synthetic_plugin",
+                "enabled": True,
             }
         ]
     rng.shuffle(base)
@@ -115,7 +131,9 @@ def _skills(rng: random.Random, name_family: str) -> tuple:
 
 
 def _tools(rng: random.Random, name_family: str, slice_name: str) -> tuple:
-    base = list(OFFICIAL_TOOLS) + rng.sample(alt_tools(), 3)
+    base = official_tools() + with_plugin(USER_SKILL_TOOLS, "user-skills", "user_skill")
+    base += with_plugin(rng.sample(alt_tools(), 2), "user-skills", "user_skill")
+    base += with_plugin(rng.sample(alt_tools(), 1), "market-tactics", "marketplace_plugin", enabled=False)
     if name_family == "synthetic" or slice_name == "V1_C_dynamic_tool_schema":
         base += [
             {
@@ -123,6 +141,9 @@ def _tools(rng: random.Random, name_family: str, slice_name: str) -> tuple:
                 "description": "Harness universality test tool. Args defined inline.",
                 "args": {"input": "required"},
                 "applies_when": "always",
+                "plugin": "synthetic-pack",
+                "source": "synthetic_plugin",
+                "enabled": True,
             }
         ]
     rng.shuffle(base)

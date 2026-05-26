@@ -28,9 +28,12 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_tool_names(calls, tools))
     violations.extend(_tool_args(calls, tools))
     violations.extend(_loop(calls))
+    violations.extend(_skill_index_order(row, calls))
+    violations.extend(_skill_body(row, calls, tools))
     violations.extend(_applies_when(row, calls))
     violations.extend(_plugin_only(row, calls))
     violations.extend(_grounding(row, calls))
+    violations.extend(_engine_grounded(row))
     violations.extend(_eval_language(row))
     violations.extend(_injection(row))
     return violations
@@ -77,8 +80,15 @@ def _tool_calls(messages: list[dict[str, str]]) -> list[tuple[str, dict[str, str
 
 
 def _skills(row: dict[str, Any]) -> list[Violation]:
-    names = {skill.get("name") for skill in row["skills_index"]}
-    out = [Violation("selected_skill_exists", name) for name in row["selected_skills"] if name not in names]
+    skills = {skill.get("name"): skill for skill in row["skills_index"]}
+    enabled = set(row.get("plugin_context", {}).get("enabled", []))
+    out = []
+    for selected in row["selected_skills"]:
+        skill = skills.get(selected)
+        if not skill:
+            out.append(Violation("selected_skill_exists", selected))
+        elif skill.get("plugin") and (not skill.get("enabled", True) or skill.get("plugin") not in enabled):
+            out.append(Violation("selected_skill_exists", selected))
     loaded = [args.get("name") for name, args, _ in _tool_calls(row["messages"]) if name == "load_skill"]
     for selected in row["selected_skills"]:
         if selected not in loaded:
@@ -125,6 +135,56 @@ def _loop(calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
     return out
 
 
+def _skill_index_order(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
+    if "skill_index_only_before_load" not in row.get("acceptance_rules", []):
+        return []
+    indexed = {skill.get("name") for skill in row.get("skills_index", [])}
+    loaded: set[str] = set()
+    out: list[Violation] = []
+    for name, args, _ in calls:
+        if name == "load_skill":
+            skill_name = args.get("name")
+            if skill_name in indexed:
+                loaded.add(skill_name)
+            continue
+        if name == "normalize_human_chat" and "hood-human-chat" in indexed and "hood-human-chat" not in loaded:
+            out.append(Violation("skill_index_only_before_load", "helper tool before helper skill load"))
+    return out
+
+
+def _skill_body(
+    row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]], tools: dict[str, Any]
+) -> list[Violation]:
+    if "skill_body_strict" not in row.get("acceptance_rules", []):
+        return []
+    out: list[Violation] = []
+    selected = set(row.get("selected_skills", []))
+    loaded: set[str] = set()
+    for name, args, _ in calls:
+        if name == "load_skill":
+            skill_name = args.get("name")
+            if skill_name not in selected:
+                out.append(Violation("skill_body_strict", f"irrelevant skill loaded: {skill_name}"))
+            if skill_name:
+                loaded.add(skill_name)
+            continue
+        tool = tools.get(name, {})
+        if name == "normalize_human_chat" and "hood-human-chat" in selected and "hood-human-chat" not in loaded:
+            out.append(Violation("skill_body_strict", "helper tool before helper skill load"))
+        if tool.get("plugin") == "user-skills" and not (loaded & selected):
+            out.append(Violation("skill_body_strict", f"tool before selected skill load: {name}"))
+    return out
+
+
+def _engine_grounded(row: dict[str, Any]) -> list[Violation]:
+    if "engine_grounded" not in row.get("acceptance_rules", []):
+        return []
+    text = "\n".join(m.get("content", "") for m in row.get("messages", [])).lower()
+    if "stockfish" not in text and "eval:" not in text and "score:" not in text:
+        return [Violation("engine_grounded", "missing engine evidence")]
+    return []
+
+
 def _grounding(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
     if "board_claim_grounded" not in row["acceptance_rules"]:
         return []
@@ -145,19 +205,35 @@ def _eval_language(row: dict[str, Any]) -> list[Violation]:
 def _applies_when(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
     tools = {tool["name"]: tool for tool in row["tool_manifest"]}
     out: list[Violation] = []
+    history = _has_move_history(row["messages"])
     for name, _, raw in calls:
         applies = tools.get(name, {}).get("applies_when", "always")
-        if applies == "has_history" and not any(
-            m.get("role") == "tool" and "success" in m.get("content", "")
-            for m in row["messages"]
-        ):
+        if applies == "has_history" and not history:
             out.append(Violation("applies_when_respected", f"{name} needs prior move"))
     return out
 
 
+def _has_move_history(messages: list[dict[str, str]]) -> bool:
+    for message in messages:
+        if message.get("role") != "tool":
+            continue
+        text = message.get("content", "").lower()
+        if ("move:" in text and "success" in text) or text.startswith("success:"):
+            return True
+    return False
+
+
 def _plugin_only(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
-    declared = {tool["name"] for tool in row["tool_manifest"]}
-    return [Violation("plugin_only_tools", name) for name, _, _ in calls if name not in declared]
+    tools = {tool["name"]: tool for tool in row["tool_manifest"]}
+    enabled = set(row.get("plugin_context", {}).get("enabled", []))
+    out = []
+    for name, _, _ in calls:
+        tool = tools.get(name)
+        if not tool:
+            out.append(Violation("plugin_only_tools", name))
+        elif tool.get("plugin") and (not tool.get("enabled", True) or tool.get("plugin") not in enabled):
+            out.append(Violation("plugin_only_tools", name))
+    return out
 
 
 def _injection(row: dict[str, Any]) -> list[Violation]:

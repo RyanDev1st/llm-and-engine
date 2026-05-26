@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 from collections import defaultdict
 from pathlib import Path
 
 from .paths import OUT
+from .profiles import profile
 from .validate import assert_valid
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -40,5 +42,9 @@ def _write(path: Path, rows: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    train, val = build()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", default="v1.1")
+    args = parser.parse_args()
+    p = profile(args.profile)
+    train, val = build(p.gold_dir, p.train_path, p.val_path)
     print(f"wrote train={train} val={val}")

@@ -18,3 +18,10 @@ def test_plan_scenarios_deterministic_with_seed():
     a = plan_scenarios(plan, seed=42)
     b = plan_scenarios(plan, seed=42)
     assert [s.intent for s in a] == [s.intent for s in b]
+
+
+def test_v1_2_scenarios_include_prompt_styles_and_plugin_sources():
+    scenarios = plan_scenarios({"V1_M_marketplace_navigation": 40}, seed=5)
+    assert {s.prompt_style for s in scenarios} >= {"casual", "slang", "typo"}
+    sources = {skill.get("source") for s in scenarios for skill in s.skills_index}
+    assert {"official_plugin", "user_skill", "marketplace_plugin", "synthetic_plugin"} <= sources

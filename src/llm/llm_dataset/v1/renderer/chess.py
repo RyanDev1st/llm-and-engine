@@ -44,10 +44,24 @@ def _user_message(scenario: Scenario) -> str:
     templates = SLICE_USER_TEMPLATES.get(scenario.slice, ("explain the position",))
     base = tone.pick(scenario.seed, templates)
     if "{san}" in base and scenario.position:
-        return base.replace("{san}", "e4")
-    if "{square}" in base:
-        return base.replace("{square}", "e2")
-    return base
+        base = base.replace("{san}", "e4")
+    elif "{square}" in base:
+        base = base.replace("{square}", "e2")
+    return _style_prompt(base, scenario)
+
+
+def _style_prompt(base: str, scenario: Scenario) -> str:
+    if scenario.prompt_style == "formal":
+        return f"Please {base}."
+    if scenario.prompt_style == "casual":
+        return base
+    if scenario.prompt_style == "slang":
+        return f"yo, {base}"
+    if scenario.prompt_style == "typo":
+        return f"{base} pls"
+    if scenario.prompt_style == "anxious":
+        return f"I'm worried here - {base}"
+    return f"I'm new to chess; {base}"
 
 
 def _emit_skill_load(messages: list[dict[str, str]], scenario: Scenario) -> None:
@@ -139,7 +153,7 @@ def _envelope(
         "kind": "harness_chess",
         "intent": scenario.intent,
         "plugin_context": scenario.plugin_context,
-        "skills_index": [{"name": s["name"], "description": s["description"]} for s in scenario.skills_index],
+        "skills_index": [dict(s) for s in scenario.skills_index],
         "selected_skills": ["chess-coach"],
         "tool_manifest": list(scenario.tool_manifest),
         "expected_tool_calls": expected,

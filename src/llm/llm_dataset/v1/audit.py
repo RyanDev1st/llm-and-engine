@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from collections import Counter, defaultdict
@@ -7,11 +8,17 @@ from pathlib import Path
 
 from .contracts import RULES, SLICES
 from .paths import OUT
+from .profiles import DatasetProfile, V1_1, profile
 from .validate import validate_row
 
 CHESS_TARGETS = {"A": 630, "B": 385, "C": 280, "D": 315, "E": 350, "F": 315, "G": 140, "H": 210, "I": 420, "J": 280, "K": 175}
+BASE_UNIVERSAL_TARGET = 70
 UNIVERSAL_MINIMUM = 60
 RULE_MINIMUMS = {"engine_grounded": 200, "skill_body_strict": 200}
+GENERALIZATION_MINIMUMS = {
+    "human-chat helper accepted coverage": 200,
+    "multi-skill composition accepted coverage": 200,
+}
 GENERIC_FINAL_MAX_SHARE = 0.02
 GENERIC_FINAL_PATTERNS = (
     "i read the index",
@@ -25,7 +32,7 @@ def load_rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def audit(gold_dir: Path = OUT) -> int:
+def audit(gold_dir: Path = OUT, audit_profile: DatasetProfile = V1_1) -> int:
     accepted = load_rows(gold_dir / "accepted.jsonl")
     rejected = load_rows(gold_dir / "rejected.jsonl")
     failures = []
@@ -45,7 +52,7 @@ def audit(gold_dir: Path = OUT) -> int:
     print(f"rejected_synthetic_share={_synthetic_share(rejected):.3f}")
     print(f"reject_reason_diversity={_reject_reason_diversity(rejected)}")
     print(f"generic_final_share={_generic_final_share(accepted):.3f}")
-    missing = _missing(accepted, rejected, by_slice, reject_by_slice, rule_counts)
+    missing = _missing(accepted, rejected, by_slice, reject_by_slice, rule_counts, audit_profile)
     for item in missing:
         print(f"MISSING: {item}")
     for row_id, rule, reason in failures:
@@ -81,13 +88,16 @@ def _print_rejects(rows: list[dict]) -> None:
 
 
 def _missing(
-    accepted: list[dict], rejected: list[dict], by_slice: Counter, reject_by_slice: Counter, rule_counts: Counter
+    accepted: list[dict], rejected: list[dict], by_slice: Counter, reject_by_slice: Counter, rule_counts: Counter,
+    audit_profile: DatasetProfile = V1_1,
 ) -> list[str]:
     out = []
-    if len(accepted) < 4000:
-        out.append("accepted < 4000")
-    if len(rejected) < 800:
-        out.append("rejected < 800")
+    if len(accepted) < audit_profile.accepted_target:
+        out.append(f"accepted < {audit_profile.accepted_target}")
+    if len(rejected) < audit_profile.rejected_min:
+        out.append(f"rejected < {audit_profile.rejected_min}")
+    if len(rejected) > audit_profile.rejected_max:
+        out.append(f"rejected > {audit_profile.rejected_max}")
     if _synthetic_share(accepted) < 0.28:
         out.append("accepted synthetic share < 28%")
     if _synthetic_share(rejected) < 0.28:
@@ -96,8 +106,11 @@ def _missing(
         threshold = UNIVERSAL_MINIMUM if slice_name.startswith("V1_") else 20
         if by_slice[slice_name] < threshold:
             out.append(f"{slice_name} accepted < {threshold}")
+    universal_targets = sum(1 for item in SLICES if item.startswith("V1_")) * BASE_UNIVERSAL_TARGET
+    target_scale = audit_profile.accepted_target / (sum(CHESS_TARGETS.values()) + universal_targets)
     for slice_name, target in CHESS_TARGETS.items():
-        if abs(by_slice[slice_name] - target) > max(20, round(target * 0.10)):
+        scaled_target = round(target * target_scale)
+        if abs(by_slice[slice_name] - scaled_target) > max(20, round(scaled_target * 0.10)):
             out.append(f"{slice_name} outside target tolerance")
     for rule in RULES:
         if rule_counts[rule] == 0:
@@ -109,6 +122,13 @@ def _missing(
         out.append("reject reason diversity < 4")
     if _generic_final_share(accepted) > GENERIC_FINAL_MAX_SHARE:
         out.append("generic final share > 2%")
+    if audit_profile.min_plugin_sources and _plugin_source_diversity(accepted) < audit_profile.min_plugin_sources:
+        out.append(f"plugin source diversity < {audit_profile.min_plugin_sources}")
+    if _user_prompt_concentration(accepted) > audit_profile.max_prompt_concentration:
+        out.append("normalized user prompt concentration too high")
+    for label, minimum in GENERALIZATION_MINIMUMS.items():
+        if _generalization_coverage(accepted, label) < minimum:
+            out.append(f"{label} < {minimum}")
     return out
 
 
@@ -124,6 +144,37 @@ def _reject_reason_diversity(rows: list[dict]) -> int:
     return len({row.get("reject_reason", "") for row in rows if row.get("reject_reason")})
 
 
+def _plugin_source_diversity(rows: list[dict]) -> int:
+    sources = set()
+    for row in rows:
+        for skill in row.get("skills_index", []):
+            if skill.get("source"):
+                sources.add(skill["source"])
+        for tool in row.get("tool_manifest", []):
+            if tool.get("source"):
+                sources.add(tool["source"])
+    return len(sources)
+
+
+def _user_prompt_concentration(rows: list[dict]) -> float:
+    prompts = Counter()
+    for row in rows:
+        users = [m.get("content", "") for m in row.get("messages", []) if m.get("role") == "user"]
+        if users:
+            prompts[_normalize_prompt(users[0])] += 1
+    if not prompts:
+        return 0.0
+    return max(prompts.values()) / sum(prompts.values())
+
+
+def _generalization_coverage(rows: list[dict], label: str) -> int:
+    return sum(1 for row in rows if label in row.get("acceptance_rules", []))
+
+
+def _normalize_prompt(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", text.lower())).strip()
+
+
 def _generic_final_share(rows: list[dict]) -> float:
     if not rows:
         return 0.0
@@ -136,4 +187,8 @@ def _generic_final_share(rows: list[dict]) -> float:
 
 
 if __name__ == "__main__":
-    raise SystemExit(audit())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", default="v1.1")
+    args = parser.parse_args()
+    p = profile(args.profile)
+    raise SystemExit(audit(p.gold_dir, p))

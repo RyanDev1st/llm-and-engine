@@ -14,6 +14,8 @@ SLICES = (
     "V1_J_no_tool_and_mixed_intent",
     "V1_K_adversarial_injection",
     "V1_L_rejects_and_audit_fixtures",
+    "V1_M_marketplace_navigation",
+    "V1_N_human_chat_skill_bridge",
 )
 
 FINAL_NO_XML = "final_no_xml"
@@ -33,6 +35,8 @@ HARNESS_RULES = (
     "plugin_only_tools",
     "skill_body_strict",
     "engine_grounded",
+    "human-chat helper accepted coverage",
+    "multi-skill composition accepted coverage",
 )
 
 ROW_KINDS = ("harness_chess", "universality")
@@ -43,7 +47,7 @@ USER_SKILLS_PLUGIN = "user-skills"
 REAL_TOOL_NAMES = (
     "move", "eval", "best_move", "review_move", "threats",
     "legal_moves", "undo", "list_pieces", "ask_chessbot",
-    "load_skill", "board_state",
+    "load_skill", "board_state", "normalize_human_chat",
 )
 
 RULES = (

@@ -6,7 +6,22 @@ from typing import Any
 OFFICIAL_SKILL = {
     "name": "chess-coach",
     "description": "Analyze chess positions, choose moves, review mistakes, inspect board state, explain plans.",
+    "plugin": "chess-official",
+    "source": "official_plugin",
+    "enabled": True,
 }
+
+HUMAN_CHAT_SKILL = {
+    "name": "hood-human-chat",
+    "description": "Normalize slang, shorthand, typo-heavy, vague, or multilingual-lite user chat like yo, watsup, idk, mb, ic before task routing.",
+    "plugin": "user-skills",
+    "source": "user_skill",
+    "enabled": True,
+}
+
+USER_SKILL_TOOLS: list[dict[str, Any]] = [
+    {"name": "normalize_human_chat", "description": "Translate slang, shorthand, typos, or vague chat into explicit task intent.", "args": {"text": "required"}, "applies_when": "always"},
+]
 
 OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "move", "description": "Play a SAN move on the live board.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
@@ -21,6 +36,15 @@ OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "load_skill", "description": "Load the full body of a selected skill.", "args": {"name": "required"}, "applies_when": "always"},
     {"name": "board_state", "description": "Snapshot the hidden live board.", "args": {"fields": ["basic", "all", "fen"]}, "applies_when": "always"},
 ]
+def official_tools() -> list[dict[str, Any]]:
+    return [
+        {**tool, "plugin": "chess-official", "source": "official_plugin", "enabled": True}
+        for tool in OFFICIAL_TOOLS
+    ]
+
+
+def with_plugin(items: list[dict[str, Any]], plugin: str, source: str, enabled: bool = True) -> list[dict[str, Any]]:
+    return [{**item, "plugin": plugin, "source": source, "enabled": enabled} for item in items]
 
 
 def alt_skills() -> list[dict[str, str]]:

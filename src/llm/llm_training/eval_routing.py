@@ -17,27 +17,33 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.model_hf import HFModel  # noqa: E402
 from backend.toolfmt import parse_call  # noqa: E402
+from llm_training.system_prompt import SYSTEM_PROMPT  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
-VAL = REPO / "data" / "sft" / "chess_assistant_v3_val.jsonl"
+VAL = REPO / "data" / "sft" / "v1_2_val.jsonl"
 
 
 def gold_tool(messages: list[dict]) -> str | None:
     """The tool the gold assistant used for the first user turn (None = direct)."""
-    a = messages[2]["content"] if len(messages) > 2 else ""
-    name, _ = parse_call(a)
-    return name
+    for message in messages:
+        if message.get("role") != "assistant":
+            continue
+        name, _ = parse_call(message.get("content", ""))
+        if name:
+            return name
+    return None
 
 
 def first_turn(messages: list[dict]) -> list[dict]:
-    return messages[:2]  # system + first user
+    first_user = next(message for message in messages if message.get("role") == "user")
+    return [{"role": "system", "content": SYSTEM_PROMPT}, first_user]
 
 
 def mode2_messages(messages: list[dict]) -> list[dict] | None:
     """system,user,assistant(tool),tool -> prompt that should yield narration."""
     for i, m in enumerate(messages):
         if m["role"] == "tool":
-            return messages[: i + 1]
+            return [{"role": "system", "content": SYSTEM_PROMPT}, *messages[: i + 1]]
     return None
 
 

@@ -114,3 +114,4 @@ When the user drives OpenSpec changes, use skills under `.claude/skills/openspec
 ## Maintaining this file
 
 Add a rule here when Claude makes the **same mistake twice** or you repeat the same correction across sessions. Remove stale rows from **Repository map** when folders are deleted. Prefer `.claude/rules/<topic>.md` with `paths:` frontmatter for file-type-specific rules instead of growing this file past 200 lines.
+

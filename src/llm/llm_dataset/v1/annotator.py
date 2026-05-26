@@ -56,7 +56,7 @@ class StockfishAnnotator:
         for move in pv[:5]:
             line_sans.append(b.san(move))
             b.push(move)
-        threats = self._threats(board, depth)
+        threats = self._threats(board, depth) if board.move_stack else None
         if score.is_mate():
             return AnnotatedPosition(
                 fen, depth, score.mate(), "mate",

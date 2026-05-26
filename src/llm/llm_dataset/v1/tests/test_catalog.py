@@ -3,6 +3,12 @@ from llm_dataset.v1.catalog import (
 )
 
 
+def test_official_catalog_has_plugin_provenance():
+    assert OFFICIAL_SKILL["plugin"] == "chess-official"
+    assert OFFICIAL_SKILL["source"] == "official_plugin"
+    assert OFFICIAL_SKILL["enabled"] is True
+
+
 def test_official_chess_tools_have_applies_when():
     names = {tool["name"] for tool in OFFICIAL_TOOLS}
     assert {"move", "eval", "best_move", "review_move", "threats",
