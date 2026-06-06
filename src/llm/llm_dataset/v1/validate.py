@@ -8,9 +8,15 @@ import chess
 
 from .contracts import MAX_TOOL_CALLS, REQUIRED_FIELDS, RULES, SLICES, VALID_ROLES
 
-_CALL = re.compile(r"^<tool>\s*([a-z_][a-z0-9_]*)(.*?)</tool>$", re.DOTALL)
+# A tool call may be preceded by a short lead-in sentence in the same assistant
+# turn (conversational shape), so we SEARCH rather than anchor.
+_CALL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)(.*?)</tool>", re.DOTALL)
 _ARG = re.compile(r"([a-z_][a-z0-9_]*)=([^\s<>]+)")
 _MOVE_SAN = re.compile(r"<tool>\s*move\s+san=([^\s<]+)")
+
+
+def _tool_matches(content: str) -> list[re.Match]:
+    return list(_CALL.finditer(content))
 
 
 @dataclass(frozen=True)
@@ -41,6 +47,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_injection(row))
     violations.extend(_move_legality(row))
     violations.extend(_board_state_turn(row))
+    violations.extend(_one_tool_per_turn(row["messages"]))
     return violations
 
 
@@ -77,11 +84,17 @@ def _tool_calls(messages: list[dict[str, str]]) -> list[tuple[str, dict[str, str
     for message in messages:
         if message.get("role") != "assistant":
             continue
-        raw = message.get("content", "").strip()
-        match = _CALL.match(raw)
-        if match:
-            calls.append((match.group(1), dict(_ARG.findall(match.group(2))), raw))
+        for match in _tool_matches(message.get("content", "")):
+            calls.append((match.group(1), dict(_ARG.findall(match.group(2))), match.group(0)))
     return calls
+
+
+def _one_tool_per_turn(messages: list[dict[str, str]]) -> list[Violation]:
+    out: list[Violation] = []
+    for message in messages:
+        if message.get("role") == "assistant" and len(_tool_matches(message.get("content", ""))) > 1:
+            out.append(Violation("one_tool_per_turn", "multiple tool calls in one assistant turn"))
+    return out
 
 
 def _skills(row: dict[str, Any]) -> list[Violation]:
@@ -102,7 +115,7 @@ def _skills(row: dict[str, Any]) -> list[Violation]:
 
 
 def _final(messages: list[dict[str, str]]) -> list[Violation]:
-    finals = [m["content"] for m in messages if m.get("role") == "assistant" and not _CALL.match(m.get("content", "").strip())]
+    finals = [m["content"] for m in messages if m.get("role") == "assistant" and not _tool_matches(m.get("content", ""))]
     if not finals:
         return [Violation("final_no_xml", "missing final assistant answer")]
     final = finals[-1]
