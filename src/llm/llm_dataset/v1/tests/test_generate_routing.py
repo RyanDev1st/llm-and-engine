@@ -3,13 +3,21 @@ routing slice needs no board, so we exercise the plan, the scenario shape, and
 the loaded-skill-diversity metric without spinning the engine."""
 from llm_dataset.v1.audit import _loaded_skill_diversity
 from llm_dataset.v1.domains import pick_domain
-from llm_dataset.v1.generate import DEFAULT_PLAN, ROUTING_SLICE
+from llm_dataset.v1.generate import DEFAULT_PLAN, ROUTING_SLICE, plan_for_profile
+from llm_dataset.v1.profiles import V1_2
 from llm_dataset.v1.renderer.skill_routing import render_skill_routing_row
 from llm_dataset.v1.sampler import plan_scenarios
 
 
 def test_routing_slice_in_default_plan():
     assert ROUTING_SLICE in DEFAULT_PLAN
+
+
+def test_plan_meets_accepted_target():
+    # Per-slice rounding once landed 10 short of 50k; the plan must clear target.
+    plan = plan_for_profile(V1_2)
+    assert sum(plan.values()) >= V1_2.accepted_target
+    assert all(v >= 60 for v in plan.values())
 
 
 def test_routing_scenarios_need_no_board():

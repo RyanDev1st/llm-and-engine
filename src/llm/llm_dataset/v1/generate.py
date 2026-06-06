@@ -46,7 +46,15 @@ def plan_for_profile(dataset_profile: DatasetProfile, tiny: bool = False) -> dic
     if dataset_profile.name == "v1.1":
         return DEFAULT_PLAN
     scale = dataset_profile.accepted_target / sum(DEFAULT_PLAN.values())
-    return {key: max(60, round(value * scale)) for key, value in DEFAULT_PLAN.items()}
+    plan = {key: max(60, round(value * scale)) for key, value in DEFAULT_PLAN.items()}
+    # Per-slice rounding can land just under the target (e.g. 49,990 < 50,000).
+    # Top up the largest slice so accepted always clears accepted_target, plus a
+    # small buffer in case a rare annotator error drops a row. Routing/universality
+    # slices have only a lower bound in audit, so the headroom is harmless.
+    shortfall = max(0, dataset_profile.accepted_target - sum(plan.values()))
+    biggest = max(plan, key=plan.get)
+    plan[biggest] += shortfall + 60
+    return plan
 
 
 def run(
