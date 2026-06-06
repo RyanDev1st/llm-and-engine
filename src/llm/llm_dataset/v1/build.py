@@ -43,7 +43,7 @@ def _write(path: Path, rows: list[dict]) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", default="v1.1")
+    parser.add_argument("--profile", default="v1.2")
     args = parser.parse_args()
     p = profile(args.profile)
     train, val = build(p.gold_dir, p.train_path, p.val_path)

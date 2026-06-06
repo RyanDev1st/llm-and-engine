@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .contracts import RULES, SLICES
 from .paths import OUT
-from .profiles import DatasetProfile, V1_1, profile
+from .profiles import DatasetProfile, V1_2, profile
 from .validate import validate_row
 
 CHESS_TARGETS = {"A": 630, "B": 385, "C": 280, "D": 315, "E": 350, "F": 315, "G": 140, "H": 210, "I": 420, "J": 280, "K": 175}
@@ -32,7 +32,7 @@ def load_rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def audit(gold_dir: Path = OUT, audit_profile: DatasetProfile = V1_1) -> int:
+def audit(gold_dir: Path = OUT, audit_profile: DatasetProfile = V1_2) -> int:
     accepted = load_rows(gold_dir / "accepted.jsonl")
     rejected = load_rows(gold_dir / "rejected.jsonl")
     failures = []
@@ -89,7 +89,7 @@ def _print_rejects(rows: list[dict]) -> None:
 
 def _missing(
     accepted: list[dict], rejected: list[dict], by_slice: Counter, reject_by_slice: Counter, rule_counts: Counter,
-    audit_profile: DatasetProfile = V1_1,
+    audit_profile: DatasetProfile = V1_2,
 ) -> list[str]:
     out = []
     if len(accepted) < audit_profile.accepted_target:
@@ -188,7 +188,7 @@ def _generic_final_share(rows: list[dict]) -> float:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", default="v1.1")
+    parser.add_argument("--profile", default="v1.2")
     args = parser.parse_args()
     p = profile(args.profile)
     raise SystemExit(audit(p.gold_dir, p))

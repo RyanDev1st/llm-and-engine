@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .paths import OUT, ROOT, TRAIN, VAL
+from .paths import ROOT
 
 
 @dataclass(frozen=True)
@@ -20,19 +20,6 @@ class DatasetProfile:
     max_prompt_concentration: float
 
 
-V1_1 = DatasetProfile(
-    name="v1.1",
-    gold_dir=OUT,
-    train_path=TRAIN,
-    val_path=VAL,
-    accepted_target=4_000,
-    rejected_target=800,
-    rejected_min=800,
-    rejected_max=10_000,
-    min_plugin_sources=0,
-    max_prompt_concentration=1.0,
-)
-
 V1_2 = DatasetProfile(
     name="v1.2",
     gold_dir=ROOT / "data" / "sft" / "v1_2",
@@ -47,9 +34,7 @@ V1_2 = DatasetProfile(
 )
 
 
-def profile(name: str = "v1.1") -> DatasetProfile:
-    if name == "v1.2":
+def profile(name: str = "v1.2") -> DatasetProfile:
+    if name in ("v1.2", "v1_2"):
         return V1_2
-    if name == "v1.1":
-        return V1_1
-    raise ValueError(f"unknown profile: {name}")
+    raise ValueError(f"unknown profile: {name} (only v1.2 is active)")

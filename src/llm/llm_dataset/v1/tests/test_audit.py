@@ -27,7 +27,7 @@ def missing_for(accepted, rejected, audit_profile=None):
         Counter(r["slice"] for r in accepted),
         Counter(r["slice"] for r in rejected),
         Counter(rule for r in accepted for rule in r["acceptance_rules"]),
-        audit_profile or profile("v1.1"),
+        audit_profile or profile("v1.2"),
     )
 
 
