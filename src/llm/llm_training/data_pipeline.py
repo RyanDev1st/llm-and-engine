@@ -11,7 +11,7 @@ IGNORE_INDEX = -100
 
 
 def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
-    from .system_prompt import SYSTEM_PROMPT
+    from .system_prompt import build_system
     records: list[list[dict]] = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -22,11 +22,15 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
             msgs = obj.get("messages")
             if not (isinstance(msgs, list) and msgs):
                 continue
-            if msgs and msgs[0].get("role") == "system":
-                msgs[0] = {"role": "system", "content": SYSTEM_PROMPT}
-            else:
-                msgs = [{"role": "system", "content": SYSTEM_PROMPT}, *msgs]
-            records.append(msgs)
+            # The harness contract is rendered per-row from the envelope so the
+            # model conditions on the exact skills/tools it is allowed to use.
+            system = build_system(
+                obj.get("skills_index", []),
+                obj.get("tool_manifest", []),
+                obj.get("plugin_context", {}),
+            )
+            body = [m for m in msgs if m.get("role") != "system"]
+            records.append([{"role": "system", "content": system}, *body])
             if len(records) >= max_examples:
                 break
     return records
