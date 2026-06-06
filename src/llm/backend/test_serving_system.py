@@ -33,3 +33,13 @@ def test_serving_system_applies_overlay():
 
 def test_serving_default_has_no_customization_block():
     assert "CUSTOMIZATION" not in build_system_prompt()
+
+
+def test_agent_overlay_reads_env_default_empty(monkeypatch):
+    from backend.server import agent_overlay
+    monkeypatch.delenv("CHESS_AGENT_OVERLAY", raising=False)
+    assert agent_overlay() == ""
+    assert "CUSTOMIZATION" not in build_system_prompt(agent_overlay())
+    monkeypatch.setenv("CHESS_AGENT_OVERLAY", "Be encouraging and brief.")
+    assert agent_overlay() == "Be encouraging and brief."
+    assert "Be encouraging and brief." in build_system_prompt(agent_overlay())

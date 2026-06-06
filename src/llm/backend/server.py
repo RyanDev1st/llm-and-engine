@@ -31,6 +31,12 @@ def bind_address() -> tuple[str, int]:
     return os.environ.get("CHESS_HOST", "127.0.0.1"), int(os.environ.get("CHESS_PORT", "7860"))
 
 
+def agent_overlay() -> str:
+    """Optional customization layer (tone/extra rules) the deployer sets. Default
+    empty → serving system text == the trained contract (no drift)."""
+    return os.environ.get("CHESS_AGENT_OVERLAY", "")
+
+
 class App:
     def __init__(self, adapter: str | None) -> None:
         self.game = Game()
@@ -51,12 +57,12 @@ class App:
             if gguf.exists():
                 n_ctx, n_gpu_layers = gguf_runtime_config()
                 model = GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers)
-                self.loop = CoachLoop(model, self.executor)
+                self.loop = CoachLoop(model, self.executor, agent_overlay())
                 print(f"model loaded (GGUF {gguf.name})", flush=True)
                 return
             from .model_ollama import OllamaModel
             model = OllamaModel()
-            self.loop = CoachLoop(model, self.executor)
+            self.loop = CoachLoop(model, self.executor, agent_overlay())
             print("model loaded (Ollama)", flush=True)
             return
         except Exception as exc:  # board + eval still work without the model
