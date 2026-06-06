@@ -1,5 +1,6 @@
-"""The 9-tool executor. Maps a `<tool>NAME args</tool>` call against the live
-python-chess board + Stockfish to the exact return strings of spec section 2.
+"""The tool executor. Maps a `<tool>NAME args</tool>` call against the live
+python-chess board + Stockfish to the exact return strings of spec section 2,
+plus load_skill (progressive disclosure — returns a skill's SKILL.md body).
 
 review_move and threats are computed here because they compose board + engine."""
 from __future__ import annotations
@@ -10,6 +11,7 @@ import chess.engine
 from . import ask_kb
 from .engine import Engine
 from .game import Game
+from .skills import load_skills
 from .toolfmt import clamp_depth, fmt_white_score, parse_call
 
 LABELS = (  # (max cp loss, label); >last -> blunder
@@ -50,6 +52,8 @@ class ToolExecutor:
             return "error: engine_unavailable"
 
     def _dispatch(self, name: str, args: dict[str, str]) -> str:
+        if name == "load_skill":
+            return self._load_skill(args.get("name", ""))
         if name == "board_state":
             return self._board_state(args.get("fields", "basic"))
         if name == "move":
@@ -75,6 +79,14 @@ class ToolExecutor:
         if name == "threats":
             return self._threats(clamp_depth(args, 12))
         return "error: invalid_syntax"
+
+    def _load_skill(self, name: str) -> str:
+        """Progressive disclosure: return the named skill's full SKILL.md body so
+        the model can follow it. Mirrors the trained contract (load_skill is a
+        tool whose result is the body)."""
+        bodies = {skill.name: skill.content for skill in load_skills()}
+        body = bodies.get(name)
+        return body if body is not None else "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board
