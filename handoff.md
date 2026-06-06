@@ -9,20 +9,27 @@ Train a Gemma-4 chess-coach **agent** (tool-router/narrator, not a chess engine)
 - Plan of record: `implementation.md`. Decision memory: `chess-agent-train-host-split`.
 - FPT/Qwen path is **abandoned** → `legacy [ignore]/archived_plans/implementation_fpt.md`.
 
+## Contract decision (2026-06-06): Option B — agentic harness
+
+`load_skill` is intended. The agent is an agentic harness: **primary** = operate the chess environment/tools; **secondary** = dynamically load any user-provided `SKILL.md`. Full audit: `docs/2026-06-06-v1.2-dataset-alignment-audit.md`. Plan of record: `implementation.md` (5 phases).
+
 ## Current blocker (do this first)
 
-The v1.2 corpus is **not trainable as-is**. QC (python-chess, 2026-06-06):
-- 59% of `move` rows are **illegal** for their `position_fen`; the `tool` turn fabricates `success: e4`.
-- Only `e4` is ever played (monoculture); 93% of val final-targets leak from train; ~40% finals carry banned persona openers.
-- Routing scaffolding is excellent (100% `load_skill`-first, 655 distinct tool sequences) — keep it.
+The v1.2 corpus is **not trainable as-is** — two layers of bugs:
 
-Root cause: `src/llm/llm_dataset/v1/renderer/chess.py` hardcodes `move san=e4` / `success: e4` / `turn=white`; `validate.py`'s `engine_grounded` never checks legality. Memory: `chess-sft-v1_2-illegal-move-bug`.
+**Contract (alignment):** both loaders inject a fixed 9-tool `SYSTEM_PROMPT` and serialize ONLY `messages`, so `skills_index`/`tool_manifest`/`plugin_context` are discarded and `load_skill`/`board_state` are undeclared (100% rows open with `load_skill`; 43% of tool calls hit non-declared tools; 65k Mode-2 chains the prompt forbids). The backend has no `load_skill` tool.
+
+**Content:** 59% illegal moves + fabricated `success: e4`; e4 monoculture; board_state turn wrong in 12.6k rows + embeds fen in "basic"; 93% val leak; 65% persona openers. Root cause: `renderer/chess.py` hardcodes; `validate.py` never checks legality.
+
+Keep: 100% `load_skill`-first structure, 653 distinct tool-sequence shapes, balanced 11-pattern reject pool.
 
 ## Plan phases (see implementation.md for full TDD tasks)
 
-1. **Phase 1 — fix the generator (BLOCKER):** FEN-grounded `board_facts.py`, rewrite `renderer/chess.py` to emit legal moves + real tool echo, add validator legality gate, flatten persona openers, dedup val finals, regenerate v1.2, QC gate (0 illegal, <1% leak, 0 banned openers).
-2. **Phase 2 — train on Kaggle T4:** add `--model` flag (E4B/E2B) to `run_train.py`, author `kaggle_e4b_qlora.ipynb`, produce LoRA adapter, run routing audit.
-3. **Phase 3 — serve locally:** `export_gguf.py` (merge adapter → q4_0 GGUF), point `CHESS_GGUF_PATH` at it, smoke the web app on the 4060.
+1. **Harness contract wiring:** shared `build_system(skills_index, tool_manifest, plugin_context)` in `system_prompt.py`; loaders compose the per-row system from the envelope; loader test that every called tool is declared.
+2. **Content correctness:** `board_facts.py` (legal moves + real echoes), rewrite `renderer/chess.py`, validator legality gate, flatten personas, de-leak split, regenerate, QC gate.
+3. **Backend harness parity:** backend `load_skill` tool + inject skills/manifest via the SAME `build_system()` (train == serve); archive dead `model_ollama.py`.
+4. **Train E4B QLoRA on Kaggle T4** → adapter → routing audit (`kaggle_e4b_qlora.ipynb` ready, `run_train --model` ready).
+5. **Serve locally:** merge adapter → q4_0 GGUF → web app smoke on the 4060.
 
 ## Live pipeline facts
 
@@ -41,4 +48,4 @@ Root cause: `src/llm/llm_dataset/v1/renderer/chess.py` hardcodes `move san=e4` /
 
 ## Next action
 
-Start Phase 1, Task 1 (`board_facts.py` + tests). Everything downstream depends on a grounded corpus.
+Start Phase 1, Task 1: add `build_system()` to `src/llm/llm_training/system_prompt.py` + test. Everything downstream depends on the shared train==serve contract renderer.
