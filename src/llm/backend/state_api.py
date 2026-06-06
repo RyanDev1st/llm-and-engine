@@ -7,13 +7,15 @@ import chess
 from .engine import Engine
 from .game import Game
 
-EVAL_DEPTH = 12
+EVAL_DEPTH = 18
 
 
 def eval_bar(engine: Engine, board: chess.Board) -> dict:
     """White-POV evaluation for the left eval bar. Returns cp and a 0-100 bar %."""
     if board.is_game_over():
         return {"kind": "over", "cp": 0, "bar": 50, "text": _result_text(board)}
+    if board.fen() == chess.STARTING_FEN:
+        return {"kind": "cp", "cp": 0, "bar": 50, "text": "0.00"}
     kind, val = engine.eval_white_cp(board, EVAL_DEPTH)
     if kind == "mate":
         side, n = val

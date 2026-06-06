@@ -8,12 +8,79 @@ from typing import Protocol
 
 from llm_training.system_prompt import SYSTEM_PROMPT
 
+from .skills import skill_prompt
 from .tools import ToolExecutor
 
+MAX_TOOL_CALLS = 6
+AGENT_PROMPT = """
+
+Prototype v0.1 agent loop:
+- You may call tools consecutively when one result shows you need another fact.
+- Maximum tool calls for this user turn: 6.
+- The board is hidden. Use board_state fields=... when board facts matter.
+- Available extra tool: board_state fields=<basic|all|turn,fen,last_move,check,legal_count,history>.
+- best_move supports top=<1-5> for candidate moves and series=<1-5> for one continuation line.
+- When you have enough evidence, answer in plain English with no XML.
+"""
 
 class ModelBackend(Protocol):
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
         ...
+
+
+def contains_tool_call(text: str) -> bool:
+    return "<tool>" in text or "</tool>" in text
+
+
+def narrate_tool_result(tool_result: str) -> str:
+    text = tool_result.strip()
+    if text.startswith("error: illegal"):
+        reason = text.partition("reason=")[2] or "that move is not legal here"
+        return f"I can't make that move: {reason}. Try a legal move from the current position."
+    if text.startswith("error: ambiguous"):
+        return "That move is ambiguous. Please include the piece or square so I can tell which move you mean."
+    if text.startswith("error: invalid_syntax"):
+        return "I couldn't read that request as a valid chess action. Try phrasing it with a move or square."
+    if text.startswith("error: engine_unavailable") or text.startswith("error: timeout"):
+        return "The chess engine is unavailable right now, so I can't analyze that position yet."
+    if text.startswith("error: duplicate_tool_call"):
+        return "I already asked for that exact tool result, so I'll answer from what I have instead."
+    if text.startswith("board_state:"):
+        return f"Current board snapshot: {text.removeprefix('board_state:').strip()}."
+    if text.startswith("best_line:"):
+        line = text.removeprefix("best_line:").strip()
+        return f"The engine's forecast is {line}. That line gives you the clearest plan from here."
+    if text.startswith("best_moves:"):
+        moves = text.removeprefix("best_moves:").strip()
+        return f"Top engine candidates: {moves}. These are Stockfish's best options from the current position."
+    if text.startswith("best:"):
+        move = text.removeprefix("best:").strip()
+        return f"The engine likes {move} best here."
+    if text.startswith("score:"):
+        score = text.removeprefix("score:").strip()
+        return f"Current evaluation: {score}. Positive favors White; negative favors Black."
+    if text.startswith("review:"):
+        return f"Move review: {text.removeprefix('review:').strip()}."
+    if text.startswith("threats:"):
+        return f"Threat check: {text.removeprefix('threats:').strip()}."
+    if text.startswith("legal_moves:"):
+        return f"Legal moves: {text.removeprefix('legal_moves:').strip()}."
+    if text.startswith("pieces:"):
+        return f"Pieces: {text.removeprefix('pieces:').strip()}."
+    if text.startswith("ok:") or text.startswith("success:"):
+        return text.partition(":")[2].strip().capitalize()
+    return text or "I ran the chess tool, but it did not return a readable result."
+
+
+def normalize_tool_call(text: str) -> str:
+    call = text.strip()
+    if call.startswith("<tool>") and not call.endswith("</tool>"):
+        call += "</tool>"
+    return call
+
+
+def build_system_prompt(user_message: str) -> str:
+    return SYSTEM_PROMPT + AGENT_PROMPT + skill_prompt(user_message)
 
 
 class CoachLoop:
@@ -24,25 +91,47 @@ class CoachLoop:
     def respond(self, history: list[dict], user_message: str) -> dict:
         """history: prior user/assistant/tool turns (no system). Returns the
         new turns plus display fields (tool_call, tool_result, reply)."""
-        convo = [{"role": "system", "content": SYSTEM_PROMPT}, *history,
+        convo = [{"role": "system", "content": build_system_prompt(user_message)}, *history,
                  {"role": "user", "content": user_message}]
-        decision = self.model.generate(convo, max_new_tokens=64, stop=["</tool>"]).strip()
+        new_turns = [{"role": "user", "content": user_message}]
+        tool_calls: list[str] = []
+        tool_results: list[str] = []
+        seen_calls: set[str] = set()
 
-        if decision.startswith("<tool>"):
-            if not decision.endswith("</tool>"):
-                decision += "</tool>"
-            tool_result = self.executor.execute(decision)
+        for _ in range(MAX_TOOL_CALLS):
+            decision = self.model.generate(convo, max_new_tokens=96, stop=["</tool>"]).strip()
+            if not decision.startswith("<tool>"):
+                reply = decision
+                new_turns.append({"role": "assistant", "content": reply})
+                return {
+                    "reply": reply,
+                    "tool_call": tool_calls[-1] if tool_calls else None,
+                    "tool_result": tool_results[-1] if tool_results else None,
+                    "tool_calls": tool_calls,
+                    "tool_results": tool_results,
+                    "turns": new_turns,
+                }
+            decision = normalize_tool_call(decision)
+            tool_result = "error: duplicate_tool_call" if decision in seen_calls else self.executor.execute(decision)
+            seen_calls.add(decision)
+            tool_calls.append(decision)
+            tool_results.append(tool_result)
             convo += [{"role": "assistant", "content": decision},
                       {"role": "tool", "content": tool_result}]
-            reply = self.model.generate(convo, max_new_tokens=160, stop=[]).strip()
-            new_turns = [
-                {"role": "user", "content": user_message},
-                {"role": "assistant", "content": decision},
-                {"role": "tool", "content": tool_result},
-                {"role": "assistant", "content": reply},
-            ]
-            return {"reply": reply, "tool_call": decision, "tool_result": tool_result, "turns": new_turns}
+            new_turns += [{"role": "assistant", "content": decision},
+                          {"role": "tool", "content": tool_result}]
+            if tool_result == "error: duplicate_tool_call":
+                break
 
-        new_turns = [{"role": "user", "content": user_message},
-                     {"role": "assistant", "content": decision}]
-        return {"reply": decision, "tool_call": None, "tool_result": None, "turns": new_turns}
+        reply = self.model.generate(convo, max_new_tokens=160, stop=[]).strip()
+        if contains_tool_call(reply):
+            reply = narrate_tool_result(tool_results[-1]) if tool_results else "I need more board context before I can answer."
+        new_turns.append({"role": "assistant", "content": reply})
+        return {
+            "reply": reply,
+            "tool_call": tool_calls[-1] if tool_calls else None,
+            "tool_result": tool_results[-1] if tool_results else None,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+            "turns": new_turns,
+        }

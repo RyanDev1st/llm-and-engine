@@ -38,14 +38,30 @@ class Engine:
         """Return (san_moves, (kind, value)) for the principal variation."""
         info = self.analyse(board, depth)
         pv = info.get("pv", [])[: max(1, series)]
-        san = board.variation_san(pv) if pv else ""
-        # strip move numbers from variation_san for the compact spec form
         sans = _plain_sans(board, pv)
         score = info["score"].white()
         if score.is_mate():
             m = score.mate()
             return sans, ("mate", ("white" if m > 0 else "black", abs(m)))
         return sans, ("cp", score.score())
+
+    def best_moves(self, board: chess.Board, depth: int, top: int):
+        """Return MultiPV candidates as (san, (kind, value)) from White POV."""
+        infos = self._ensure().analyse(
+            board, chess.engine.Limit(depth=depth, time=self.timeout), multipv=max(1, top))
+        out = []
+        for info in infos[: max(1, top)]:
+            pv = info.get("pv", [])
+            if not pv:
+                continue
+            score = info["score"].white()
+            if score.is_mate():
+                m = score.mate()
+                value = ("mate", ("white" if m > 0 else "black", abs(m)))
+            else:
+                value = ("cp", score.score())
+            out.append((board.san(pv[0]), value))
+        return out
 
     def best_for_side_to_move(self, board: chess.Board, depth: int):
         """Best move + score from the POV of the side to move (used by threats)."""
