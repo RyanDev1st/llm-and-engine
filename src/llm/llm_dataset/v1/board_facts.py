@@ -38,6 +38,18 @@ def legal_sans(fen: str) -> list[str]:
     return [b.san(m) for m in b.legal_moves]
 
 
+def legal_moves_for_square(fen: str, seed: int) -> tuple[str, list[str]]:
+    """Pick a from-square (of the side to move) that has legal moves, and the
+    SANs from it — so a `legal_moves square=<sq>` row is grounded and non-empty."""
+    b = _board(fen)
+    by_square: dict[str, list[str]] = {}
+    for m in b.legal_moves:
+        by_square.setdefault(chess.square_name(m.from_square), []).append(b.san(m))
+    squares = sorted(by_square)
+    sq = squares[seed % len(squares)]
+    return sq, by_square[sq]
+
+
 def choose_move(fen: str, seed: int, requested: str | None = None) -> str:
     """Return a legal SAN. Honor `requested` iff legal; else a deterministic legal pick."""
     b = _board(fen)

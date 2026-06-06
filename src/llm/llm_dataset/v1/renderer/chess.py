@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..annotator import AnnotatedPosition, StockfishAnnotator
-from ..board_facts import board_state_line, choose_move, legal_sans, move_echo
+from ..board_facts import board_state_line, choose_move, legal_moves_for_square, move_echo
 from ..sampler import Scenario
 from . import tone
 from .text import eval_language, score_pawns, score_text
@@ -86,8 +86,8 @@ def _emit_slice_tool(
         messages.append({"role": "assistant", "content": f"<tool>move san={move}</tool>"})
         messages.append({"role": "tool", "content": move_echo(annotated.fen, move)})
     elif scenario.slice == "B" and annotated:
-        sans = legal_sans(annotated.fen)
-        messages.append({"role": "assistant", "content": "<tool>legal_moves</tool>"})
+        sq, sans = legal_moves_for_square(annotated.fen, scenario.seed)
+        messages.append({"role": "assistant", "content": f"<tool>legal_moves square={sq}</tool>"})
         messages.append({"role": "tool", "content": f"legal: [{', '.join(sans)}]"})
     elif scenario.slice == "D" and annotated:
         messages.append({"role": "assistant", "content": "<tool>eval depth=15</tool>"})

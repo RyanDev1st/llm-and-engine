@@ -74,3 +74,16 @@ def test_board_state_turn_matches_fen_side():
 def test_played_moves_are_diverse_not_monoculture():
     moves = {_played(r) for r in _rows(25)}
     assert len(moves) > 1, f"move monoculture: {moves}"
+
+
+def test_slice_b_legal_moves_call_satisfies_required_square_arg():
+    from llm_dataset.v1.renderer.chess import render_chess_row
+    from llm_dataset.v1.validate import validate_row
+    scenarios = plan_scenarios({"B": 8}, seed=2026)
+    for s in scenarios:
+        row = render_chess_row(s, _FakeAnnotator())
+        bad = [v for v in validate_row(row) if v.rule == "args_match_schema"]
+        assert not bad, bad
+        calls = [m["content"] for m in row["messages"]
+                 if m["role"] == "assistant" and "legal_moves" in m["content"]]
+        assert calls and "square=" in calls[0]
