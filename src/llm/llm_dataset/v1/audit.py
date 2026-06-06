@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .contracts import RULES, SLICES
+from .jsonl_io import read_rows
 from .paths import OUT
 from .profiles import DatasetProfile, V1_2, profile
 from .validate import validate_row
@@ -31,7 +32,7 @@ GENERIC_FINAL_PATTERNS = (
 
 
 def load_rows(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return list(read_rows(path))
 
 
 def audit(gold_dir: Path = OUT, audit_profile: DatasetProfile = V1_2) -> int:

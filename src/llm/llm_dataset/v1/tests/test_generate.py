@@ -19,8 +19,8 @@ def test_generator_smoke_writes_accepted_and_rejected(tmp_path):
     ok, bad = run(plan, seed=99, out=tmp_path)
     assert ok >= 5
     assert bad >= 1
-    assert (tmp_path / "accepted.jsonl").exists()
-    assert (tmp_path / "rejected.jsonl").exists()
+    assert (tmp_path / "accepted.jsonl.gz").exists()  # corpus stored gzipped
+    assert (tmp_path / "rejected.jsonl.gz").exists()
 
 
 def test_audit_rejects_have_diverse_reasons():
@@ -103,10 +103,11 @@ def test_human_chat_skill_bridge_uses_style_prompt():
 
 
 def test_run_diversifies_repeated_chess_prompts(tmp_path):
+    from llm_dataset.v1.jsonl_io import read_rows
     ok, _ = run({"A": 100}, seed=99, out=tmp_path, rejected_target=0)
     prompts = Counter(
         row["messages"][0]["content"]
-        for row in __import__("json").loads(f"[{','.join((tmp_path / 'accepted.jsonl').read_text().splitlines())}]")
+        for row in read_rows(tmp_path / "accepted.jsonl")
     )
     assert ok == 100
     assert max(prompts.values()) < 20

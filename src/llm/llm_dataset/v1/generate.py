@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 from typing import Callable
@@ -9,6 +8,7 @@ from typing import Callable
 from .annotator import DEFAULT_SF, StockfishAnnotator
 from .dedup import drop_near_duplicates
 from .domains import pick_domain
+from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
@@ -129,8 +129,8 @@ def run(
         stage_progress(f"audit rejects done rejected={len(rejected)}")
     if stage_progress:
         stage_progress(f"write start out={out}")
-    _write(out / "accepted.jsonl", accepted)
-    _write(out / "rejected.jsonl", rejected)
+    write_rows(out / "accepted.jsonl", accepted)
+    write_rows(out / "rejected.jsonl", rejected)
     if stage_progress:
         stage_progress(f"write done accepted={len(accepted)} rejected={len(rejected)}")
     return len(accepted), len(rejected)
@@ -238,13 +238,6 @@ def _bad_irrelevant_skill_selected(messages: list[dict]) -> list[dict]:
         {"role": "assistant", "content": "<tool>load_skill name=cooking-helper</tool>"},
         *messages[1:],
     ]
-
-
-def _write(path: Path, rows: list[dict]) -> None:
-    path.write_text(
-        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
-        encoding="utf-8",
-    )
 
 
 def main() -> None:

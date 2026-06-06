@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 from collections import defaultdict
 from pathlib import Path
 
+from .jsonl_io import read_rows, write_rows
 from .paths import OUT, TRAIN, VAL
 from .profiles import profile
 from .validate import assert_valid
@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def load_accepted(gold_dir: Path = OUT) -> list[dict]:
-    path = gold_dir / "accepted.jsonl"
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return list(read_rows(gold_dir / "accepted.jsonl"))
 
 
 def _final(row: dict) -> str:
@@ -51,14 +50,9 @@ def build(gold_dir: Path = OUT, train_path: Path = TRAIN, val_path: Path = VAL) 
     for row in rows:
         assert_valid(row)
     train, val = split_train_val(rows)
-    _write(train_path, train)
-    _write(val_path, val)
+    write_rows(train_path, train)
+    write_rows(val_path, val)
     return len(train), len(val)
-
-
-def _write(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
 
 
 if __name__ == "__main__":

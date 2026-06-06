@@ -9,7 +9,6 @@ Run from repo root (after training):
 """
 from __future__ import annotations
 
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -50,7 +49,8 @@ def mode2_messages(messages: list[dict]) -> list[dict] | None:
 def main() -> None:
     adapter = sys.argv[1] if len(sys.argv) > 1 else None
     model = HFModel(adapter=adapter, temperature=0.0)
-    rows = [json.loads(l) for l in open(VAL, encoding="utf-8")]
+    from llm_dataset.v1.jsonl_io import read_rows
+    rows = list(read_rows(VAL))
 
     correct = defaultdict(int)
     total = defaultdict(int)

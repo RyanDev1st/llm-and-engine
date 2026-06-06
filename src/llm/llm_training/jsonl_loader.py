@@ -1,31 +1,27 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 
 def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
+    from llm_dataset.v1.jsonl_io import read_rows  # transparent .jsonl/.jsonl.gz
+
     from .system_prompt import build_system
     records: list[list[dict]] = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            msgs = obj.get("messages")
-            if not (isinstance(msgs, list) and msgs):
-                continue
-            system = build_system(
-                obj.get("skills_index", []),
-                obj.get("tool_manifest", []),
-                obj.get("plugin_context", {}),
-            )
-            body = [m for m in msgs if m.get("role") != "system"]
-            records.append([{"role": "system", "content": system}, *body])
-            if len(records) >= max_examples:
-                break
+    for obj in read_rows(path):
+        msgs = obj.get("messages")
+        if not (isinstance(msgs, list) and msgs):
+            continue
+        system = build_system(
+            obj.get("skills_index", []),
+            obj.get("tool_manifest", []),
+            obj.get("plugin_context", {}),
+        )
+        body = [m for m in msgs if m.get("role") != "system"]
+        records.append([{"role": "system", "content": system}, *body])
+        if len(records) >= max_examples:
+            break
     return records
 
 
