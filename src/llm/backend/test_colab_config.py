@@ -32,20 +32,6 @@ def test_model_gguf_runtime_accepts_env(monkeypatch):
     assert mod.gguf_runtime_config() == (4096, 60)
 
 
-def test_ollama_model_default_is_qwen(monkeypatch):
-    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
-    mod = importlib.reload(importlib.import_module("backend.model_ollama"))
-
-    assert mod.ollama_model_name() == "qwen3.6:27b-q4_K_M"
-
-
-def test_ollama_model_can_come_from_env(monkeypatch):
-    monkeypatch.setenv("OLLAMA_MODEL", "qwen3.6:27b-q4_K_M")
-    mod = importlib.reload(importlib.import_module("backend.model_ollama"))
-
-    assert mod.ollama_model_name() == "qwen3.6:27b-q4_K_M"
-
-
 def test_server_bind_defaults_to_localhost(monkeypatch):
     monkeypatch.delenv("CHESS_HOST", raising=False)
     monkeypatch.delenv("CHESS_PORT", raising=False)

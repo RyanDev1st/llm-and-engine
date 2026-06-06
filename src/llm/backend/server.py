@@ -48,9 +48,9 @@ class App:
         self._adapter = adapter
 
     def load_model(self) -> None:
-        # Prefer the Q4_0 GGUF (~3.2 GiB, light mmap) when present; only fall back
-        # to bnb 4-bit + HF adapter if no GGUF exists. This avoids the Windows
-        # "paging file too small" trap on 16 GB laptops.
+        # GGUF-only serving (q4_0, ~4.5 GiB, light mmap) per the local-host
+        # decision. No GGUF -> raise so board/eval still work but the model is
+        # marked unavailable. (Ollama path archived to legacy [ignore]/.)
         from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
         try:
             gguf = default_gguf_path()
@@ -60,11 +60,8 @@ class App:
                 self.loop = CoachLoop(model, self.executor, agent_overlay())
                 print(f"model loaded (GGUF {gguf.name})", flush=True)
                 return
-            from .model_ollama import OllamaModel
-            model = OllamaModel()
-            self.loop = CoachLoop(model, self.executor, agent_overlay())
-            print("model loaded (Ollama)", flush=True)
-            return
+            raise FileNotFoundError(
+                f"no GGUF at {gguf}; set CHESS_GGUF_PATH (serving is GGUF-only)")
         except Exception as exc:  # board + eval still work without the model
             self.model_error = str(exc)
             print(f"model unavailable ({exc}); board/eval still work", flush=True)
