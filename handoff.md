@@ -73,7 +73,7 @@ De-leak moved ~4,600 val rows into train because finals are move-parameterized t
 
 Goal: agent converses like a coding agent — lead-in narration, tool, narrate, final + guiding question. Design: `docs/2026-06-06-conversational-agent-design.md`. Decisions: **backend auto-save** (not a model tool); **one lead-in sentence before each tool**.
 
-- **Foundation DONE (committed, TDD):** `validate.py` accepts `lead-in + one <tool>` per turn (search-based), new `one_tool_per_turn` rule, final = last no-tool assistant turn; `BASE_HARNESS` documents lead-in + guiding-question finals.
+- **Foundation DONE (committed, TDD):** `validate.py` accepts `lead-in + one <tool>` per assistant message (search-based), `one_tool_per_message` rule (exactly one tool per inference step), final = last no-tool assistant turn; `BASE_HARNESS` documents lead-in + guiding-question finals.
 - **Still to do (the data shape):**
   1. `renderer/chess.py` + `renderer/universality.py`: emit a short lead-in before each tool call; coaching finals = brief grounded assessment + one guiding question; load_skill result = a real multi-line SKILL.md body; sometimes load a non-chess-coach skill (dynamic-SKILL.md objective).
   2. Regenerate v1.2 + QC gate (existing checks + new: each action turn has exactly one tool; coaching finals end with a question).
@@ -83,20 +83,23 @@ Goal: agent converses like a coding agent — lead-in narration, tool, narrate, 
 
 De-leak moved leaked rows to train (finals are templated). Leak-safe but small/biased. Recommended fix: split by intent/scenario family in `build.split_train_val`.
 
-## Final skill/tool contract (2026-06-06) — see chess-agent-skill-tool-contract memory
+## Final skill/tool contract (2026-06-06, refined 2026-06-07) — see chess-agent-skill-tool-contract memory
 
 - `load_skill` is a TOOL; skill = text/context (progressive disclosure: catalog always in context, body via load_skill, persists). No `<skill>` tag.
-- Multiple skills/tools per turn allowed (parallel). `one_tool_per_turn` removed; keep no_exact_duplicate + max_six_tool_calls. DONE (validator + BASE_HARNESS).
-- Cross-domain skill diversity required: index offers 2,737 skills but agent LOADS only 2 (chess-coach 49,638, hood-human-chat 761) → SEVERE bias, THE open fix.
+- **One tool call per inference step** (per assistant message), MANY across the agentic loop — like a coding agent (act → read result → act). `one_tool_per_message` rule in `validate.py`; `BASE_HARNESS` says "EXACTLY ONE call per step". (This REVERSED the earlier "multiple per turn" reading; keep no_exact_duplicate + max_six_tool_calls.)
+- Cross-domain skill diversity: index offered ~2,737 skills but the agent LOADED only 2. **FIXED** — see below.
 
-## THE remaining data-quality fix (highest leverage)
+## Cross-domain skill routing — DONE (code + smokes 2026-06-07), regen running
 
-Renderer only ever loads chess-coach. Engineer cross-domain skill-routing in `renderer/` (+ catalog in `catalog.py`):
-- scenarios across many domains (code-review, math, writing, cooking, novel synthetic SKILL.md); correct skill sampled ~uniformly by description match.
-- multi-skill loads in one turn where fitting; lead-in narration; guiding-question coaching finals; load_skill result = a REAL multi-line SKILL.md body (not a one-liner).
-- reject rows: wrong/irrelevant skill loaded, or acted before load.
-- regenerate v1.2 + re-audit: loaded-skill diversity 2 → hundreds; keep 0 illegal / 0 leak / 0 persona / every called tool declared.
+The renderer no longer only loads chess-coach. New capability, TDD, committed:
+- `domains.py`: 8 real domains (code/math/writing/cooking/data/fitness/travel/resume), each a real multi-line SKILL.md body + one domain tool; `synthetic_domain()` mints freshly-named skills over 20 topics so the model must route by DESCRIPTION, not names; `pick_domain()` = 40% real / 60% synthetic.
+- `renderer/skill_routing.py`: load fitting skill → read body → call its tool → guiding-question final. One tool/step; lead-in before each; `normalize=True` loads hood-human-chat first (two skills across separate steps).
+- `generate.py`: slice `V1_O_cross_domain_skill_routing` wired in (base 70). `audit.py`: `loaded_skill_diversity` metric + gate (≥50).
+- `renderer/leadins.py` + edits to `chess.py`/`universality.py`: lead-in before every tool; coaching finals end with a guiding question; envelopes now regex-based.
+- Smokes: routing-only (120 rows, diversity 80, 0 fails); mixed chess+routing (150 rows, 0 fails, 60/60 coaching finals end with "?"). Full regen + audit running → `build/regen_v1_2.log`.
 
 ## Next action
 
-Engineer renderer cross-domain skill routing + multi-skill loads + real skill bodies + guiding-question finals (TDD) → regenerate → re-audit. Then Phase 3 backend (auto-save, streaming lead-in, load_skill returning body, parallel tool results). Then Phase 4 Kaggle E4B QLoRA.
+1. Confirm full regen audit `freeze_ok=True` (watch `build/regen_v1_2.log`): loaded_skill_diversity now hundreds; keep 0 illegal / 0 leak / 0 persona / declared tools / V1_O ≥ 60 within chess tolerances. Commit regenerated `data/sft/v1_2*` (~296MB train — push later, on request).
+2. Phase 3 backend parity: `load_skill` tool returning the body; inject catalog via the SAME `build_system()`; auto-save each turn; stream lead-in → run tool on `</tool>` → continue; archive dead `backend/model_ollama.py`.
+3. Phase 4 Kaggle E4B QLoRA → adapter (`kaggle_e4b_qlora.ipynb`, `run_train --model gemma4_e4b`). Phase 5 merge → q4_0 GGUF → local serve + web smoke.

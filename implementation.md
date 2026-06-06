@@ -200,6 +200,12 @@ python -m llm_dataset.v1.build    --profile v1.2
 ```
 Re-run the alignment audit (`docs/2026-06-06-...audit.md` script). **Gate (all must hold):** 0 tool calls to non-declared tools (every called tool is in the row's `tool_manifest`); 0 illegal moves; >1 distinct move; board_state turn always matches FEN; <1% val-final leak; 0 persona openers; 100% rows still `load_skill`-first. Commit the regenerated corpus.
 
+### Task 8b: Cross-domain skill routing + conversational shape (added 2026-06-07, DONE — code)
+The renderer only ever LOADED chess-coach (loaded-skill diversity = 2 of ~2,737 offered) → the secondary objective (load *any* SKILL.md) was untrained. Added, TDD, committed:
+- `domains.py` (8 real domains + `synthetic_domain` over 20 topics, route by DESCRIPTION not name) + `renderer/skill_routing.py` (slice `V1_O_cross_domain_skill_routing`: load fitting skill → read real multi-line body → call the tool the body names → guiding-question final; `normalize=True` loads hood-human-chat first — two skills across separate steps).
+- `renderer/leadins.py` + `chess.py`/`universality.py`: one short lead-in before every tool call; coaching finals end with one guiding question; **one tool call per inference step** (`one_tool_per_message` in `validate.py`).
+- `generate.py` wires V1_O (base 70); `audit.py` gates `loaded_skill_diversity ≥ 50`. Regen+audit gate now also: V1_O ≥ 60; diversity now hundreds.
+
 ---
 
 ## PHASE 3 — Backend harness parity (so serving == training)
