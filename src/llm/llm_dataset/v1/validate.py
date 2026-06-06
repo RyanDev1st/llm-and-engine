@@ -4,10 +4,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import chess
+
 from .contracts import MAX_TOOL_CALLS, REQUIRED_FIELDS, RULES, SLICES, VALID_ROLES
 
 _CALL = re.compile(r"^<tool>\s*([a-z_][a-z0-9_]*)(.*?)</tool>$", re.DOTALL)
 _ARG = re.compile(r"([a-z_][a-z0-9_]*)=([^\s<>]+)")
+_MOVE_SAN = re.compile(r"<tool>\s*move\s+san=([^\s<]+)")
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,8 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_engine_grounded(row))
     violations.extend(_eval_language(row))
     violations.extend(_injection(row))
+    violations.extend(_move_legality(row))
+    violations.extend(_board_state_turn(row))
     return violations
 
 
@@ -233,6 +238,43 @@ def _plugin_only(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str
             out.append(Violation("plugin_only_tools", name))
         elif tool.get("plugin") and (not tool.get("enabled", True) or tool.get("plugin") not in enabled):
             out.append(Violation("plugin_only_tools", name))
+    return out
+
+
+def _move_legality(row: dict[str, Any]) -> list[Violation]:
+    """Every `move san=X` must be legal in position_fen, replayed in order."""
+    fen = row.get("position_fen")
+    if not fen:
+        return []
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return [Violation("illegal_move", "unparseable position_fen")]
+    out: list[Violation] = []
+    for message in row.get("messages", []):
+        if message.get("role") != "assistant":
+            continue
+        for san in _MOVE_SAN.findall(message.get("content", "")):
+            try:
+                board.push(board.parse_san(san))
+            except (chess.IllegalMoveError, chess.InvalidMoveError, chess.AmbiguousMoveError, ValueError):
+                out.append(Violation("illegal_move", f"{san} illegal in {board.fen()}"))
+                return out
+    return out
+
+
+def _board_state_turn(row: dict[str, Any]) -> list[Violation]:
+    fen = row.get("position_fen")
+    if not fen:
+        return []
+    side = "white" if fen.split()[1] == "w" else "black"
+    out: list[Violation] = []
+    for message in row.get("messages", []):
+        if message.get("role") != "tool":
+            continue
+        content = message.get("content", "")
+        if content.startswith("board_state:") and "turn=" in content and f"turn={side}" not in content:
+            out.append(Violation("board_state_grounded", "board_state turn != FEN side"))
     return out
 
 
