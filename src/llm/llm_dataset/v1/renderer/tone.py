@@ -2,32 +2,12 @@ from __future__ import annotations
 
 import random
 
-OPENERS_WARM = (
-    "Sure thing —",
-    "Happy to help.",
-    "Let's look at it together.",
-    "Quick read for you:",
-    "Here's what I'm seeing:",
-    "Glad you asked —",
-)
-
-OPENERS_BLUNT = (
-    "Here's what I see:",
-    "Straight read:",
-    "No fluff —",
-    "Direct answer:",
-    "Cutting to it:",
-    "Plain take:",
-)
-
-OPENERS_SOCRATIC = (
-    "Before I answer, what do you notice first?",
-    "What pieces feel underused right now?",
-    "If you had to guess, where's the pressure?",
-    "Where is your king's safety weakest?",
-    "Which piece would you trade away?",
-    "What's the most active line you can find?",
-)
+# Persona openers removed: SFT trains tool use, not tone. Finals are plain,
+# grounded sentences. Pools kept (as empty connectors) so renderer call sites
+# and `scenario.tone` selection keep working without change.
+OPENERS_WARM = ("",)
+OPENERS_BLUNT = ("",)
+OPENERS_SOCRATIC = ("",)
 
 EVAL_PHRASES = (
     "Roughly equal — neither side has a meaningful edge yet.",
