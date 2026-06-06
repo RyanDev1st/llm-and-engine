@@ -8,12 +8,16 @@ from typing import Callable
 
 from .annotator import DEFAULT_SF, StockfishAnnotator
 from .dedup import drop_near_duplicates
+from .domains import pick_domain
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
 from .sampler import CHESS_SLICES, UNIVERSALITY_SLICES, plan_scenarios
 from .validate import validate_row
+
+ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
 
 DEFAULT_PLAN: dict[str, int] = {
     "A": 632, "B": 394, "C": 292, "D": 326, "E": 360, "F": 326,
@@ -32,6 +36,7 @@ DEFAULT_PLAN: dict[str, int] = {
     "V1_L_rejects_and_audit_fixtures": 70,
     "V1_M_marketplace_navigation": 70,
     "V1_N_human_chat_skill_bridge": 70,
+    "V1_O_cross_domain_skill_routing": 70,
 }
 
 
@@ -77,6 +82,13 @@ def run(
                     if progress and _should_report(index, total):
                         progress(index, total, len(accepted), len(rejected))
                     continue
+            elif scenario.slice == ROUTING_SLICE:
+                row = render_skill_routing_row(
+                    pick_domain(scenario.seed),
+                    scenario.seed,
+                    scenario.prompt_style,
+                    normalize=scenario.seed % 4 == 0,
+                )
             elif scenario.slice in UNIVERSALITY_SLICES:
                 row = render_universality_row(scenario)
             else:
@@ -230,7 +242,7 @@ def _write(path: Path, rows: list[dict]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=20260525)
-    parser.add_argument("--profile", default="v1.1")
+    parser.add_argument("--profile", default="v1.2")
     parser.add_argument("--tiny", action="store_true")
     args = parser.parse_args()
     dataset_profile = profile(args.profile)

@@ -20,6 +20,8 @@ GENERALIZATION_MINIMUMS = {
     "multi-skill composition accepted coverage": 200,
 }
 GENERIC_FINAL_MAX_SHARE = 0.02
+LOADED_SKILL_DIVERSITY_MIN = 50
+_LOAD_SKILL = re.compile(r"<tool>\s*load_skill\s+name=([^\s<]+)")
 GENERIC_FINAL_PATTERNS = (
     "i read the index",
     "picked the right skill",
@@ -52,6 +54,7 @@ def audit(gold_dir: Path = OUT, audit_profile: DatasetProfile = V1_2) -> int:
     print(f"rejected_synthetic_share={_synthetic_share(rejected):.3f}")
     print(f"reject_reason_diversity={_reject_reason_diversity(rejected)}")
     print(f"generic_final_share={_generic_final_share(accepted):.3f}")
+    print(f"loaded_skill_diversity={_loaded_skill_diversity(accepted)}")
     missing = _missing(accepted, rejected, by_slice, reject_by_slice, rule_counts, audit_profile)
     for item in missing:
         print(f"MISSING: {item}")
@@ -122,6 +125,8 @@ def _missing(
         out.append("reject reason diversity < 4")
     if _generic_final_share(accepted) > GENERIC_FINAL_MAX_SHARE:
         out.append("generic final share > 2%")
+    if _loaded_skill_diversity(accepted) < LOADED_SKILL_DIVERSITY_MIN:
+        out.append(f"loaded skill diversity < {LOADED_SKILL_DIVERSITY_MIN}")
     if audit_profile.min_plugin_sources and _plugin_source_diversity(accepted) < audit_profile.min_plugin_sources:
         out.append(f"plugin source diversity < {audit_profile.min_plugin_sources}")
     if _user_prompt_concentration(accepted) > audit_profile.max_prompt_concentration:
@@ -138,6 +143,17 @@ def _synthetic_share(rows: list[dict]) -> float:
     pattern = re.compile(r"tool_[a-z]+_\d+|\b(skill|ski|plugin|ext)-[a-z]+-\d+")
     hits = sum(1 for row in rows if pattern.search(json.dumps(row)))
     return hits / len(rows)
+
+
+def _loaded_skill_diversity(rows: list[dict]) -> int:
+    """Distinct skills the agent actually LOADS via load_skill (was 2 before
+    cross-domain routing). Measures whether routing generalizes by description."""
+    names: set[str] = set()
+    for row in rows:
+        for message in row.get("messages", []):
+            if message.get("role") == "assistant":
+                names.update(_LOAD_SKILL.findall(message.get("content", "")))
+    return len(names)
 
 
 def _reject_reason_diversity(rows: list[dict]) -> int:
