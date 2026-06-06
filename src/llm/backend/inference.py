@@ -69,8 +69,10 @@ def narrate_tool_result(tool_result: str) -> str:
 
 
 def normalize_tool_call(text: str) -> str:
+    # The trained shape is an optional lead-in sentence then ONE <tool>; the loop
+    # stops at "</tool>", so close the tag if the stop trimmed it.
     call = text.strip()
-    if call.startswith("<tool>") and not call.endswith("</tool>"):
+    if "<tool>" in call and "</tool>" not in call:
         call += "</tool>"
     return call
 
@@ -106,7 +108,7 @@ class CoachLoop:
 
         for _ in range(MAX_TOOL_CALLS):
             decision = self.model.generate(convo, max_new_tokens=96, stop=["</tool>"]).strip()
-            if not decision.startswith("<tool>"):
+            if "<tool>" not in decision:  # a lead-in may precede the call, so search don't anchor
                 reply = decision
                 new_turns.append({"role": "assistant", "content": reply})
                 return {
