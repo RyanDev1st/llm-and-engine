@@ -1,3 +1,4 @@
+import re
 from collections import Counter
 
 from llm_dataset.v1.generate import _audit_rejects, plan_for_profile, run
@@ -60,12 +61,18 @@ def test_audit_rejects_all_fail_validation():
 def test_human_chat_skill_bridge_loads_helper_before_chess_skill():
     scenario = plan_scenarios({"V1_N_human_chat_skill_bridge": 1}, seed=12)[0]
     row = render_universality_row(scenario)
-    assistant_calls = [m["content"] for m in row["messages"] if m["role"] == "assistant" and m["content"].startswith("<tool>")]
+    # Conversational shape: a short lead-in may precede each call, so extract the
+    # <tool> span rather than anchoring on startswith.
+    calls = [
+        match.group(0)
+        for msg in row["messages"] if msg["role"] == "assistant"
+        for match in [re.search(r"<tool>[^<]*</tool>", msg["content"])] if match
+    ]
     helper_tool = next(t for t in row["tool_manifest"] if t["name"] == "normalize_human_chat")
 
     assert any(skill["name"] == "hood-human-chat" for skill in row["skills_index"])
     assert helper_tool["plugin"] == "user-skills"
-    assert assistant_calls[:3] == [
+    assert calls[:3] == [
         "<tool>load_skill name=hood-human-chat</tool>",
         "<tool>normalize_human_chat text=messy_user_chat</tool>",
         "<tool>load_skill name=chess-coach</tool>",
