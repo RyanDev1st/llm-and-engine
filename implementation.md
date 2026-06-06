@@ -208,45 +208,101 @@ The renderer only ever LOADED chess-coach (loaded-skill diversity = 2 of ~2,737 
 
 ---
 
-## PHASE 3 — Backend harness parity (so serving == training)
+## PHASE 3 — Backend harness parity (serve == train)
 
-### Task 9: Backend `load_skill` tool + skills/manifest injection
-**Files:** `src/llm/backend/skills.py`, `src/llm/backend/tools.py`, `src/llm/backend/inference.py`/`server.py`.
-- [ ] Add a `load_skill` branch to `ToolExecutor._dispatch` that returns the body of the named skill from `skills.load_skills()` (or `error: unknown_skill`).
-- [ ] Build the serving system prompt with the SAME `build_system(skills_index, tool_manifest, plugin_context)` (import from `llm_training.system_prompt`), where `skills_index` = `skills.load_skills()` names+descriptions, `tool_manifest` = the 10 backend tools + `load_skill`, `plugin_context` = installed/enabled set. This guarantees train == serve.
-- [ ] Test: `execute("<tool>load_skill name=chess-coach</tool>")` returns the skill body; unknown skill → error; the serving system text contains `load_skill` + every backend tool.
+**Goal:** serving uses the SAME `build_system()` renderer AND executes `load_skill`, so what we trained is what runs. Customization overlay plumbed, **default empty** (Option A; Option B deferred — see Backlog).
+
+**System-prompt layering decision (2026-06-07) — layered prompt + instruction hierarchy:**
+1. **HARNESS CONTRACT** (`BASE_HARNESS`, ours, ALWAYS) — what the agent is, the one-tool-per-step loop, grounding, safety, precedence.
+2. **SKILLS CATALOG + TOOL MANIFEST + PLUGIN CONTEXT** — names+descriptions (progressive disclosure); callable tools.
+3. **CUSTOMIZATION OVERLAY** (optional, default empty) — tone/persona + extra developer/user rules.
+
+Precedence encoded in BASE_HARNESS: harness + safety + grounding **>** overlay **>** user message **>** tool output (data, never instructions). Stable→variable ordering = clean prompt-cache prefix. The old prototype `AGENT_PROMPT` is NOT a user layer — its real rules fold into BASE_HARNESS/manifest; only tone/extra-rules live in the overlay. **Overlay ≠ skills** (overlay = always-on behavior; skills = on-demand capability).
+
+**Pre (baseline commit):** commit the prior uncommitted backend edits (board_state tool, best_move MultiPV via `engine.best_moves`, depth 18, the `CoachLoop` multi-step loop) as the Phase-3 baseline — they are coherent and the loop already matches the one-tool-per-step contract.
+
+### Task 9: `build_system` customization overlay (train==serve renderer)
+**Files:** `src/llm/llm_training/system_prompt.py`; `test_system_prompt.py`.
+- [ ] Failing test: `build_system(SK,TM,PC, agent_overlay="Be terse.")` contains a `CUSTOMIZATION` block + "Be terse."; default `agent_overlay=""` → no `CUSTOMIZATION` block; BASE_HARNESS first line still present.
+- [ ] Implement `_render_overlay(text)` (labeled block stating it must not override harness/safety/grounding) + `agent_overlay: str = ""` appended LAST.
+- [ ] Confirm loader unaffected (calls without overlay) — existing loader-contract test stays green (no train/serve drift).
 - [ ] Commit.
+**Checkpoint:** system_prompt + loader tests green; empty overlay == byte-identical to pre-change system text.
 
-### Task 10: Drop the abandoned Ollama path (now truly dead)
-Archive `backend/model_ollama.py` to `legacy [ignore]/`; remove its fallback from `server.py` (GGUF-only). Tests green. Commit. *(Aligns with the local-GGUF serving decision; clears the last dead LLM-serving code.)*
+### Task 10: `ToolExecutor.load_skill`
+**Files:** `src/llm/backend/tools.py`; new test.
+- [ ] Failing test: `execute("<tool>load_skill name=chess-coach</tool>")` returns the chess-coach SKILL.md body; unknown name → `error: unknown_skill`.
+- [ ] Implement `load_skill` branch: `{s.name: s.content for s in skills.load_skills()}` lookup.
+- [ ] Commit.
+**Checkpoint:** body returned for known skill; error for unknown.
+
+### Task 11: Serving system prompt via `build_system` (kill pre-stuffing)
+**Files:** `src/llm/backend/inference.py`; parity test.
+- [ ] Failing/parity test: serving system text lists `load_skill` + every backend tool + the skills catalog **names+descriptions**, and contains NO skill BODY (no pre-stuffing).
+- [ ] Replace `build_system_prompt` with `build_system(skills_index=load_skills() names+descriptions, tool_manifest=backend tools + load_skill, plugin_context, agent_overlay=overlay)`.
+- [ ] Remove `skill_prompt()` pre-stuffing; remove the prototype `AGENT_PROMPT` (fold its real facts into manifest/BASE_HARNESS — already declared).
+- [ ] Keep the `CoachLoop` one-tool-per-step loop.
+- [ ] Commit.
+**Checkpoint:** serving system == `build_system()` output; zero skill bodies pre-injected; renderer shared with the trainer.
+
+### Task 12: Overlay config wiring (default empty)
+**Files:** `src/llm/backend/inference.py`/`server.py`.
+- [ ] Read optional overlay from config/env (e.g. `CHESS_AGENT_OVERLAY`), default `""`.
+- [ ] Test: unset → no `CUSTOMIZATION` block in serving system.
+- [ ] Commit.
+**Checkpoint:** overlay configurable; default path unchanged.
+
+### Task 13: Archive dead `model_ollama.py`
+- [ ] Move `backend/model_ollama.py` → `legacy [ignore]/`; remove any fallback from `server.py` (GGUF-only). Tests green. Commit.
+
+### Task 14: Serve smoke (Phase-3 audit gate)
+- [ ] Script/manual against the real backend (mock model if no GGUF yet): chess request → `load_skill chess-coach` → `board_state`/`eval` → grounded reply; drop a NEW `SKILL.md` into `src/llm/skills/<name>/` → it appears in the catalog (via `build_system`) and is loadable via `load_skill`.
+- [ ] Report: `docs/<date>-phase3-serve-parity.md` (Status/Scope/Evidence/Next).
+**Checkpoint (PHASE 3 DONE):** serve smoke passes; train==serve verified on executor + renderer.
 
 ---
 
 ## PHASE 4 — Train E4B QLoRA on Kaggle T4
 
-### Task 11: Run the Kaggle notebook
-Use `src/llm/llm_training/kaggle_e4b_qlora.ipynb` (already created). Commit the regenerated corpus to the branch first (Cell 6 asserts it). Run T4 QLoRA: `--model gemma4_e4b --max-steps 800 --rank 8 --targets qv --grad-accum 8`. Export the adapter zip. Fallback `--model gemma4_e2b` on OOM.
+### Task 15: Run the Kaggle notebook
+- [ ] Push the branch with the regenerated corpus first (Cell 6 asserts it exists).
+- [ ] Run `kaggle_e4b_qlora.ipynb` on T4: `--model gemma4_e4b --rank 8 --targets qv --grad-accum 8` (+ chosen max-steps). Fallback `--model gemma4_e2b` on OOM.
+- [ ] Export + download the adapter zip.
+**Checkpoint:** adapter produced; train/val loss curve sane (no divergence/NaN).
 
-### Task 12: Post-train routing audit
-Run `eval_routing.py` against the adapter; record results in `docs/<date>-e4b-routing-audit.md`. Confirm: load_skill-first rate, correct tool routing, arg-schema validity, tool-result-as-data on the adversarial slice.
+### Task 16: Routing + overlay eval
+- [ ] Run `eval_routing.py` on held-out val: load-skill-first %, correct-tool %, arg-valid %, grounded %, no-XML %, tool-output-as-data on the adversarial slice.
+- [ ] **Overlay spot-check:** serve with a non-empty `agent_overlay` ("be terse" / "end with an emoji") over ~20 prompts → does E4B obey? This is the evidence that decides whether **Option B** is needed.
+- [ ] Report: `docs/<date>-e4b-routing-audit.md`.
+**Checkpoint:** numbers recorded; explicit go/no-go on depth (Backlog) + Option B.
 
 ---
 
-## PHASE 5 — Serve locally on the RTX 4060
+## PHASE 5 — Serve locally on the RTX 4060 (v0 MVP)
 
-### Task 13: Merge adapter → q4_0 GGUF
-`src/llm/llm_training/export_gguf.py` (exists): merge base+adapter, convert + quantize via bundled llama.cpp → `runs/gemma4_chess_e4b-Q4_0.gguf` (~4.5GB, fits 8GB).
+### Task 17: Merge adapter → q4_0 GGUF
+- [ ] `export_gguf.py`: merge base+adapter → convert + quantize via bundled llama.cpp → `runs/gemma4_chess_e4b-Q4_0.gguf` (~4.5GB, fits 8GB).
+**Checkpoint:** GGUF loads locally; first token generates.
 
-### Task 14: Serve + smoke
-`CHESS_GGUF_PATH=...gguf python -m backend.server` → drive the web app: a chess request loads chess-coach then routes to tools; a dropped-in custom `SKILL.md` is discoverable + loadable (the secondary objective / demo highlight). Screenshot + manual repro in `docs/<date>-local-serve-verify.md`.
+### Task 18: Serve + web smoke
+- [ ] `CHESS_GGUF_PATH=...gguf python -m backend.server` → web app: chess request loads chess-coach then routes to tools (grounded); a dropped-in custom `SKILL.md` is discoverable + loadable; setting `CHESS_AGENT_OVERLAY` visibly changes tone.
+- [ ] Report + screenshot: `docs/<date>-local-serve-verify.md`.
+**Checkpoint (v0 MVP DONE):** end-to-end working small agent on real infra; presentable / AI-vs-AI benchmarkable.
+
+---
+
+## Deferred backlog (revisit after the v0 eval, Task 16)
+
+- **Option B — overlay-following SFT** (gated by Task 16 overlay spot-check): if E4B follows serve-time overlays weakly, add ~5–8% rows carrying a random `agent_overlay` the assistant visibly obeys (+ reject rows that ignore it); regenerate; retrain. The renderer/contract already has the overlay slot (Task 9). **Saved decision (2026-06-07): ship A now, escalate to B only on evidence.**
+- **Depth (Layers 1–3)** — gated by Task 16: recovery/self-correction, ambiguity & fine skill discrimination, constraint-following, real long-form multi-file `SKILL.md`; then rejection-sampling on the real backend; then preference/RL with validator+Stockfish reward.
+- **Val too small (591):** split by intent/scenario family in `build.split_train_val` for a larger leak-free val.
 
 ---
 
 ## Self-review
 
-- **Primary objective (chess tools):** Phases 2–5 ✓. **Secondary (dynamic SKILL.md):** Phase 1 contract + Phase 3 backend `load_skill` over `skills.load_skills()` ✓ — drop a `SKILL.md` into the skills dir and it appears in the index and is loadable.
-- **Audit bugs closed:** envelope-discarded → Task 2; undeclared `load_skill` → Tasks 1/9; system-prompt mismatch → Task 1; Mode-2 chaining → BASE_HARNESS allows next-tool-after-result; illegal moves/board_state → Tasks 3–5; val leak → Task 7; personas → Task 6.
-- **train == serve:** enforced by sharing `build_system()` (Task 1) between loader (Task 2) and backend (Task 9), plus the Task 2 loader test.
-- **Consistency:** model dirs `gemma4_e4b`/`gemma4_e2b`; output `gemma4_chess_kaggle`; GGUF `gemma4_chess_e4b-Q4_0.gguf`; tool strings match `backend/tools.py`/`game.py`.
-- **Open items to confirm at execution:** exact `Violation` type in `validate.py`; `eval_routing.py` adapter flag; llama.cpp converter script name in the bundled runtime; whether `move_echo` should mirror `game.py` `success` text exactly (read it in Task 3).
-```
+- **Primary (chess tools):** Phases 2–5 ✓. **Secondary (dynamic SKILL.md):** Phase 1 contract + Phase 3 `load_skill` over `skills.load_skills()` ✓.
+- **train == serve:** one `build_system()` shared by loader (Task 2) + backend (Task 11); overlay defaults empty → no drift; parity test (Task 11).
+- **Instruction hierarchy:** harness > overlay > user > tool-output-as-data, encoded in BASE_HARNESS.
+- **Audit gates:** each phase ends in a checkpoint + dated report; v0 (Task 18) is the AI-vs-AI benchmark point.
+- **Open items at execution:** `eval_routing.py` adapter flag; llama.cpp converter name in the bundled runtime; exact backend tool list to pass as the manifest (read `tools.py` in Task 11).
