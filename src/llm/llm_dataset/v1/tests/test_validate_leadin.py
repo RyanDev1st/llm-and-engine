@@ -48,16 +48,30 @@ def test_leadin_then_tool_turn_validates_clean():
     assert v == [], v
 
 
-def test_multiple_tools_in_one_turn_allowed():
-    # Flexibility: a turn may carry several calls (e.g. load two skills at once).
+def test_two_tools_in_one_inference_message_rejected():
+    # One tool per inference step: two <tool> in a SINGLE assistant message is invalid.
     msgs = [m.copy() for m in LEADIN_OK]
     msgs[1] = {"role": "assistant",
-               "content": "Loading both coaching skills.\n"
-                          "<tool>load_skill name=chess-coach</tool>\n<tool>load_skill name=hood-human-chat</tool>"}
-    # hood-human-chat must exist in the index for selected/known checks
+               "content": "Two at once.\n<tool>load_skill name=chess-coach</tool>\n<tool>board_state fields=basic</tool>"}
+    v = validate_row(_row(msgs))
+    assert any(x.rule == "one_tool_per_message" for x in v), v
+
+
+def test_multiple_skills_across_messages_allowed():
+    # Many calls across the agentic loop is fine — one per step.
+    msgs = [
+        {"role": "user", "content": "yo idk how's my game"},
+        {"role": "assistant", "content": "Let me clean up the message.\n<tool>load_skill name=hood-human-chat</tool>"},
+        {"role": "tool", "content": "Normalize messy chat. Ground in Stockfish output."},
+        {"role": "assistant", "content": "Now the coaching skill.\n<tool>load_skill name=chess-coach</tool>"},
+        {"role": "tool", "content": "Use board tools before claims."},
+        {"role": "assistant", "content": "The position.\n<tool>board_state fields=basic</tool>"},
+        {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},
+        {"role": "assistant", "content": "You're set. Want the plan or threats first?"},
+    ]
     row = _row(msgs)
     row["skills_index"] = SK + [{"name": "hood-human-chat", "description": "Normalize chat.",
                                  "plugin": "user-skills", "source": "user_skill", "enabled": True}]
-    row["tool_manifest"] = TM  # load_skill already declared
-    v = [x for x in validate_row(row) if x.rule == "one_tool_per_turn"]
-    assert v == [], f"multiple tools per turn should be allowed, got {v}"
+    row["selected_skills"] = ["hood-human-chat", "chess-coach"]
+    v = [x for x in validate_row(row) if x.rule == "one_tool_per_message"]
+    assert v == [], f"one-per-step across messages should be fine, got {v}"

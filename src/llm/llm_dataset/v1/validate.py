@@ -47,6 +47,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_injection(row))
     violations.extend(_move_legality(row))
     violations.extend(_board_state_turn(row))
+    violations.extend(_one_tool_per_message(row["messages"]))
     return violations
 
 
@@ -279,6 +280,19 @@ def _board_state_turn(row: dict[str, Any]) -> list[Violation]:
         content = message.get("content", "")
         if content.startswith("board_state:") and "turn=" in content and f"turn={side}" not in content:
             out.append(Violation("board_state_grounded", "board_state turn != FEN side"))
+    return out
+
+
+def _one_tool_per_message(messages: list[dict[str, str]]) -> list[Violation]:
+    """One tool call per inference step: each assistant message holds at most one
+    `<tool>` call (a lead-in sentence may precede it). Many calls across the loop
+    are fine — they live in separate assistant messages."""
+    out: list[Violation] = []
+    for message in messages:
+        if message.get("role") != "assistant":
+            continue
+        if len(_tool_matches(message.get("content", ""))) > 1:
+            out.append(Violation("one_tool_per_message", "multiple tool calls in one inference step"))
     return out
 
 
