@@ -99,8 +99,16 @@ The renderer no longer only loads chess-coach. New capability, TDD, committed:
 - Smokes: routing-only (120 rows, diversity 80, 0 fails); mixed chess+routing (150 rows, 0 fails, 60/60 coaching finals end with "?").
 - **REGEN LANDED (2026-06-07, committed `8572d7ed`):** full regen seed 20260525 → build → audit `freeze_ok=True`, **0 failures**. `loaded_skill_diversity = 447` (was 2). accepted 50,060 / rejected 7,500; train 49,469 / val 591. synthetic_share 0.326, generic_final 0.000, reject diversity 11, V1_O = 749. (One earlier near-miss — accepted 49,990 < 50k from rounding — fixed in `plan_for_profile` top-up, `3b5b904b`.)
 
+## Phase 3 — DONE (2026-06-07, committed)
+
+Serve == train. Report: `docs/2026-06-07-phase3-serve-parity.md`. Tasks 9–14:
+- `build_system` overlay param (default empty → no train/serve drift); `ToolExecutor.load_skill` returns the SKILL.md body; serving system rendered by the SAME `build_system()` (catalog by name+description, NO body pre-stuffing — killed `skill_prompt`); `CHESS_AGENT_OVERLAY` config; GGUF-only (Ollama archived to `legacy [ignore]/dead_backend/`).
+- Parity fix: `CoachLoop` now detects the tool by search (handles trained lead-in + `<tool>`), was anchored on `startswith`. Serve smoke (no GGUF/Stockfish) green; backend suite 15 passed.
+- NOT done in Phase 3 (deferred, optional): auto-save each turn; SSE streaming of the lead-in. Loop already executes lead-in+tool correctly; streaming/persistence are serving polish, not contract.
+
 ## Next action
 
-1. **Phase 3 backend parity** (do first; NOTE: backend files engine.py/inference.py/state_api.py/tools.py have UNCOMMITTED working-tree edits from a prior session + untracked `backend/skills.py` — review/triage those before editing). `ToolExecutor._dispatch` has NO `load_skill` branch (unknown→`error: invalid_syntax`); `skills.py` (`load_skills`/`select_skills`) exists but isn't wired into the executor or the serving system prompt. Add `load_skill` returning the body; build the serving system via the SAME `build_system(skills_index, tool_manifest, plugin_context)`; auto-save each turn; stream lead-in → run tool on `</tool>` → continue; archive dead `backend/model_ollama.py`.
-2. Phase 4 Kaggle E4B QLoRA → adapter (`kaggle_e4b_qlora.ipynb`, `run_train --model gemma4_e4b`). Phase 5 merge → q4_0 GGUF → local serve + web smoke.
-3. Optional: val is small (591) — de-leak drops templated-final collisions. Split by intent/scenario family in `build.split_train_val` for a larger leak-free val.
+1. **Phase 4 (Task 15):** push the corpus branch, run `kaggle_e4b_qlora.ipynb` on T4 (`--model gemma4_e4b`, E2B fallback), export adapter.
+2. **Phase 4 (Task 16):** `eval_routing.py` on held-out + **overlay spot-check** → decide Option B (overlay-following SFT; saved in `chess-agent-prompt-layering` memory + Deferred backlog).
+3. **Phase 5:** merge → q4_0 GGUF → serve on the 4060; web smoke (chess routing, drop-in SKILL.md, overlay tone).
+4. Optional: val small (591) — split by intent/scenario family in `build.split_train_val`.
