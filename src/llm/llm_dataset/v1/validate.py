@@ -47,7 +47,6 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_injection(row))
     violations.extend(_move_legality(row))
     violations.extend(_board_state_turn(row))
-    violations.extend(_one_tool_per_turn(row["messages"]))
     return violations
 
 
@@ -87,14 +86,6 @@ def _tool_calls(messages: list[dict[str, str]]) -> list[tuple[str, dict[str, str
         for match in _tool_matches(message.get("content", "")):
             calls.append((match.group(1), dict(_ARG.findall(match.group(2))), match.group(0)))
     return calls
-
-
-def _one_tool_per_turn(messages: list[dict[str, str]]) -> list[Violation]:
-    out: list[Violation] = []
-    for message in messages:
-        if message.get("role") == "assistant" and len(_tool_matches(message.get("content", ""))) > 1:
-            out.append(Violation("one_tool_per_turn", "multiple tool calls in one assistant turn"))
-    return out
 
 
 def _skills(row: dict[str, Any]) -> list[Violation]:

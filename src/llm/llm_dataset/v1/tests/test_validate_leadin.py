@@ -48,9 +48,16 @@ def test_leadin_then_tool_turn_validates_clean():
     assert v == [], v
 
 
-def test_two_tools_in_one_turn_is_rejected():
+def test_multiple_tools_in_one_turn_allowed():
+    # Flexibility: a turn may carry several calls (e.g. load two skills at once).
     msgs = [m.copy() for m in LEADIN_OK]
     msgs[1] = {"role": "assistant",
-               "content": "Doing two at once.\n<tool>load_skill name=chess-coach</tool> <tool>board_state fields=basic</tool>"}
-    v = validate_row(_row(msgs))
-    assert any(x.rule == "one_tool_per_turn" for x in v), v
+               "content": "Loading both coaching skills.\n"
+                          "<tool>load_skill name=chess-coach</tool>\n<tool>load_skill name=hood-human-chat</tool>"}
+    # hood-human-chat must exist in the index for selected/known checks
+    row = _row(msgs)
+    row["skills_index"] = SK + [{"name": "hood-human-chat", "description": "Normalize chat.",
+                                 "plugin": "user-skills", "source": "user_skill", "enabled": True}]
+    row["tool_manifest"] = TM  # load_skill already declared
+    v = [x for x in validate_row(row) if x.rule == "one_tool_per_turn"]
+    assert v == [], f"multiple tools per turn should be allowed, got {v}"
