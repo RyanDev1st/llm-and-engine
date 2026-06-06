@@ -43,3 +43,22 @@ def test_empty_envelope_falls_back_to_base_only():
     assert BASE_HARNESS.strip().splitlines()[0] in s
     assert "AVAILABLE SKILLS" not in s
     assert "AVAILABLE TOOLS" not in s
+
+
+def test_customization_overlay_renders_when_present():
+    s = build_system(SK, TM, PC, agent_overlay="Be terse and end with a fact.")
+    assert "CUSTOMIZATION" in s
+    assert "Be terse and end with a fact." in s
+    # overlay comes AFTER the harness/catalog (instruction hierarchy + cache prefix)
+    assert s.index("CUSTOMIZATION") > s.index("AVAILABLE TOOLS")
+
+
+def test_customization_overlay_absent_by_default():
+    assert "CUSTOMIZATION" not in build_system(SK, TM, PC)
+
+
+def test_empty_overlay_is_byte_identical_to_no_overlay():
+    # Option A: default-empty overlay must not change the trained system text
+    # (no train/serve drift). Train-time loader calls build_system without it.
+    assert build_system(SK, TM, PC, agent_overlay="") == build_system(SK, TM, PC)
+    assert build_system(SK, TM, PC, agent_overlay="   ") == build_system(SK, TM, PC)
