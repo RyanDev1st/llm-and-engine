@@ -40,23 +40,3 @@ def load_skills(root: Path = SKILLS_DIR) -> list[Skill]:
         if description:
             skills.append(Skill(name=name, description=description, content=text))
     return skills
-
-
-def select_skills(user_message: str, limit: int = 2) -> list[Skill]:
-    words = {w.strip(".,!?;:()[]{}\"'").lower() for w in user_message.split()}
-    ranked: list[tuple[int, Skill]] = []
-    for skill in load_skills():
-        hay = f"{skill.name} {skill.description}".lower()
-        score = sum(1 for word in words if len(word) > 2 and word in hay)
-        if score:
-            ranked.append((score, skill))
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    return [skill for _, skill in ranked[:limit]]
-
-
-def skill_prompt(user_message: str) -> str:
-    selected = select_skills(user_message)
-    if not selected:
-        return ""
-    body = "\n\n".join(skill.content.strip() for skill in selected)
-    return f"\n\nLoaded skills:\n{body}"

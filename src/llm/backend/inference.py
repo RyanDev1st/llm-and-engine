@@ -6,22 +6,18 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from llm_training.system_prompt import SYSTEM_PROMPT
+from llm_dataset.v1.catalog import official_tools
+from llm_training.system_prompt import build_system
 
-from .skills import skill_prompt
+from .skills import load_skills
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 6
-AGENT_PROMPT = """
+# Serve == train: the catalog of installed skills + the official tool manifest are
+# rendered by the SAME build_system() the loader uses. Skills appear by name +
+# description only (progressive disclosure); load_skill pulls the body on demand.
+PLUGIN_CONTEXT = {"installed": ["chess-official"], "enabled": ["chess-official"], "marketplace": []}
 
-Prototype v0.1 agent loop:
-- You may call tools consecutively when one result shows you need another fact.
-- Maximum tool calls for this user turn: 6.
-- The board is hidden. Use board_state fields=... when board facts matter.
-- Available extra tool: board_state fields=<basic|all|turn,fen,last_move,check,legal_count,history>.
-- best_move supports top=<1-5> for candidate moves and series=<1-5> for one continuation line.
-- When you have enough evidence, answer in plain English with no XML.
-"""
 
 class ModelBackend(Protocol):
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
@@ -79,19 +75,29 @@ def normalize_tool_call(text: str) -> str:
     return call
 
 
-def build_system_prompt(user_message: str) -> str:
-    return SYSTEM_PROMPT + AGENT_PROMPT + skill_prompt(user_message)
+def serving_skills_index() -> list[dict]:
+    """All installed SKILL.md as catalog entries (name + description only)."""
+    return [
+        {"name": skill.name, "description": skill.description,
+         "plugin": "chess-official", "source": "official_plugin", "enabled": True}
+        for skill in load_skills()
+    ]
+
+
+def build_system_prompt(agent_overlay: str = "") -> str:
+    return build_system(serving_skills_index(), official_tools(), PLUGIN_CONTEXT, agent_overlay)
 
 
 class CoachLoop:
-    def __init__(self, model: ModelBackend, executor: ToolExecutor) -> None:
+    def __init__(self, model: ModelBackend, executor: ToolExecutor, agent_overlay: str = "") -> None:
         self.model = model
         self.executor = executor
+        self.agent_overlay = agent_overlay
 
     def respond(self, history: list[dict], user_message: str) -> dict:
         """history: prior user/assistant/tool turns (no system). Returns the
         new turns plus display fields (tool_call, tool_result, reply)."""
-        convo = [{"role": "system", "content": build_system_prompt(user_message)}, *history,
+        convo = [{"role": "system", "content": build_system_prompt(self.agent_overlay)}, *history,
                  {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []
