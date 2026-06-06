@@ -46,6 +46,21 @@ Keep: 100% `load_skill`-first structure, 653 distinct tool-sequence shapes, bala
 - `*.gguf` / `*.safetensors` are gitignored — commit code, not weights.
 - Watch long-running shells; clean GPU memory between heavy runs.
 
+## Progress (2026-06-06) — data quality first
+
+- **Phase 1 DONE** (harness contract wiring), TDD, committed:
+  - `system_prompt.build_system(skills_index, tool_manifest, plugin_context)` — shared train==serve renderer; `BASE_HARNESS` allows skill-first multi-step.
+  - Both loaders compose the per-row system from the envelope; loader-contract test asserts every called tool is declared.
+- **Phase 2 DONE (code), regen running:** all committed, TDD:
+  - T3 `board_facts.py` (FEN→legal move, real echoes mirroring `backend/game.py`/`tools.py`).
+  - T4 `renderer/chess.py` grounded — legal+diverse moves, real tool results, correct side-to-move.
+  - T5 `validate.py` legality gate (`illegal_move` + `board_state_grounded`).
+  - T6 `tone.py` persona openers removed (tools not tone).
+  - T7 `build.split_train_val()` de-leak (no val final in train).
+  - Fix: slice B `legal_moves square=<sq>` grounded (manifest requires square).
+  - **Real-Stockfish smoke: 66 rows across all slices → 0 validate violations, 0 illegal, diverse moves, 0 personas.**
+- **T8 IN PROGRESS:** full regen running in background → `data/sft/v1_2/{accepted,rejected}.jsonl` + `build` split. Log: `build/regen_v1_2.log` (Stockfish present at `src/llm/runtime/stockfish/...`). Overwrites the old broken corpus (recoverable in git history).
+
 ## Next action
 
-Start Phase 1, Task 1: add `build_system()` to `src/llm/llm_training/system_prompt.py` + test. Everything downstream depends on the shared train==serve contract renderer.
+When regen finishes: run the QC gate (audit script in `docs/2026-06-06-...audit.md`) on the new corpus — expect 0 non-declared tool calls, 0 illegal moves, >1 distinct move, board_state turn always correct, <1% val leak, 0 persona openers. If green, commit the corpus. Then Phase 3 (backend `load_skill` parity) → Phase 4 (Kaggle train).
