@@ -16,6 +16,7 @@ SLICES = (
     "V1_L_rejects_and_audit_fixtures",
     "V1_M_marketplace_navigation",
     "V1_N_human_chat_skill_bridge",
+    "V1_O_cross_domain_skill_routing",
 )
 
 FINAL_NO_XML = "final_no_xml"
@@ -39,7 +40,7 @@ HARNESS_RULES = (
     "multi-skill composition accepted coverage",
 )
 
-ROW_KINDS = ("harness_chess", "universality")
+ROW_KINDS = ("harness_chess", "universality", "skill_routing")
 
 OFFICIAL_PLUGIN = "chess-official"
 USER_SKILLS_PLUGIN = "user-skills"
