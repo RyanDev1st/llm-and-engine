@@ -1,9 +1,0 @@
-CHESS_REPO_URL=https://github.com/RyanDev1st/llm-and-engine.git
-CHESS_BRANCH=feat/chess-coach-sft
-OLLAMA_MODEL=qwen3.6:27b-q4_K_M
-CHESS_HOST=127.0.0.1
-CHESS_PORT=7860
-CHESS_N_CTX=4096
-CHESS_N_GPU_LAYERS=-1
-# manual only:
-# OLLAMA_HOST=http://127.0.0.1:11434

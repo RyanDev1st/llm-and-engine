@@ -2,7 +2,7 @@
 
 Project memory for Claude Code and other agents. Loaded every session. Keep **under 200 lines**, signal-dense, and verifiable. Update this file when layout, commands, or rules change. 
 
-! Do not touch ./legacy/ ignore it.
+! Archive bin is `./legacy [ignore]/` — gitignored. Never edit, import, or reference it from live code; only move dead files INTO it.
 <!-- Maintainer: add path-scoped rules under .claude/rules/ when this file grows. -->
 
 ## Mission
@@ -16,47 +16,50 @@ Ship **working software** for reliable **LLM tool use**: tool selection, JSON sc
 
 ## Repository map
 
+### What we train: the agent (LLM harness)
+
+The product is a **chess-coach agent** = an LLM that **routes user intent to tools and narrates tool results** (see `src/llm/llm_training/system_prompt.py`). It does **not** compute chess — the engine/backend does. Active plan files at root: `implementation_fpt.md` (PRIMARY: FPT H100 + Qwen), `implementation.md` (FALLBACK: Kaggle T4x2 + Gemma), `handoff.md`.
+
 | Path | Purpose |
 | --- | --- |
 | `CLAUDE.md` | Team agent instructions (this file) |
-| `docs/` | Durable project documentation |
-| `src/llm/` | Chess-coach product: dataset build, QLoRA trainer, Stockfish backend, web app (see `src/llm/README.md`) |
-| `data/sft/` | SFT dataset: human slices + assembled `chess_assistant_v3_{train,val}.jsonl` |
-| `legacy/` | Active product code, eval, tests, findings, plans |
-| `legacy/superpowers/plans/` | Dated implementation plans |
-| `legacy/findings/` | Evidence-backed status and experiment write-ups |
-| `legacy/product_demo/` | Demo and training scripts |
-| `legacy/tests/` | Pytest suite (`python -m pytest …`) |
-| `openspec/` | OpenSpec config (`openspec/config.yaml`) |
-| `.claude/skills/openspec-*` | OpenSpec propose / apply / explore / archive flows (committed) |
-| `.claude/settings.local.json` | Personal permissions/overrides — **gitignored**, never commit |
-| `.claude/scheduled_tasks.lock` | Scheduler lock — **gitignored**, ephemeral per machine/session |
-| `.claude/worktrees/` | Agent worktrees — **gitignored**; do not edit unless the task names a path |
+| `src/llm/llm_dataset/v1/` | **ACTIVE** SFT generator. Spec = `contracts.py`; `profiles.py` writes the v1_2 corpus. Source of truth for harness behavior |
+| `data/sft/v1_2_train.jsonl`, `data/sft/v1_2_val.jsonl`, `data/sft/v1_2/` | **ACTIVE** SFT corpus (split + accepted/rejected). The ONLY corpus trainers read |
+| `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py` |
+| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server |
+| `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
+| `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |
+| `src/engine/research/` | Standalone custom chess engine (alt backend) |
+| `docs/` | Durable docs + dated reports |
+| `legacy [ignore]/` | **Archive bin** for superseded plans/code/data — gitignored, never imported by live code |
+| `.claude/settings.local.json` | Personal permissions — **gitignored**, never commit |
+| `.claude/scheduled_tasks.lock` | Scheduler lock — **gitignored**, ephemeral |
+| `.claude/worktrees/` | Agent worktrees — **gitignored**; do not edit unless task names a path |
 
-**Root policy:** only `CLAUDE.md`, `.gitignore`, and documented config files at repo root. All other artifacts live under `docs/`, `legacy/<feature>/`, or `openspec/`.
-
-## Default workflow
-
-Follow Anthropic’s **explore → plan → implement → verify** loop. Skip planning only when the change is one file and one obvious edit.
-
-1. **Explore (read-only):** read relevant paths; state assumptions if anything is ambiguous.
-2. **Plan:** list files to touch, verification commands, and risks. Confirm scope with the user when requirements are unclear.
-3. **Implement:** minimal diff; match existing naming and patterns.
-4. **Verify:** run commands in **Verification**; report pass/fail with command output summarized.
-5. **Report:** update or create a report per **Reports** when the task produces findings, plans, or milestone status.
+**Root policy:** only `CLAUDE.md`, `.gitignore`, the three plan files above, and documented config at repo root. Everything else lives under `src/`, `data/`, `docs/`, or `legacy [ignore]/`.
 
 ## Product principles
 
 ### File size (hard cap)
 
 - No code source file may exceed **200 lines** (imports and blank lines count). Meaning all other files can exceed this. 
-- If a change would exceed 200 lines: split into additional files in the **same feature folder** (next section). Never bypass the cap with comments or string concatenation.
+- If a change would exceed 200 lines: split into additional files under the **same feature folder** (next section), create and put it in a logcal hierarchy. Never bypass the cap with comments or string concatenation.
 
 ### Feature folders (colocation)
 
-- One capability → **one directory** under `legacy/` with a short domain name (≤3 words, `snake_case` or `kebab-case`), e.g. `legacy/lm_router/`, `legacy/tool_schema/`.
+- One capability → **one directory** under `src/llm/` (or `src/engine/`) with a short domain name (≤3 words, `snake_case`), e.g. `src/llm/llm_dataset/`, `src/llm/backend/`, `src/llm/llm_training/`.
 - All code for that capability stays in that folder. New capability → new folder. Extending a capability → existing folder only.
-- Do not scatter the same feature across repo root, `docs/`, and unrelated `legacy/` siblings.
+- Do not scatter the same feature across repo root, `docs/`, and unrelated `src/` siblings.
+
+### Legacy archival (keep the workspace legible)
+
+The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay legible:
+
+1. **One active plan set:** `implementation_fpt.md`, `implementation.md`, `handoff.md`. Any other root plan (e.g. `IMPLEMENTATION_PLAN.md`, `*_spec_v3.md`, dead-path runbooks) → move to `legacy [ignore]/`.
+2. **One active corpus:** `v1_2`. Older corpora (`v1_train/val`, `v1_gold/`, `chess_assistant_v3_*`, `slice/`, `slices/`) and their build scripts (`src/llm/llm_dataset/build/`) → move to `legacy [ignore]/`.
+3. **Archive = move, never delete.** Never leave a live import or test pointing into `legacy [ignore]/`. If moving breaks a reference, the referencing code is dead too — move it as well.
+4. **Supersede in the same change:** before adding a new plan/dataset/spec version, move the prior one to the archive in the same commit.
+5. **Coherence check (do this when asked to clean up):** the three live plans must agree on model (Gemma E2B local / E4B remote), path priority (FPT first → Kaggle fallback), and active corpus (v1_2). Fix drift in place; do not spawn parallel plans.
 
 ### Workspace hygiene (required before “done”)
 
@@ -68,7 +71,7 @@ Follow Anthropic’s **explore → plan → implement → verify** loop. Skip pl
 ### Reports (required layout)
 
 - Path: `<scope-dir>/YYYY-MM-DD-<topic>-<artifact>.md`
-- Allowed `<scope-dir>`: `docs/`, `legacy/findings/`, `legacy/superpowers/plans/`.
+- Allowed `<scope-dir>`: `docs/` (default). Superseded reports → `legacy [ignore]/`.
 - Line 1: `Parent: <relative-path>` or `Parent: none`
 - Sections in order: **Status**, **Scope**, **Evidence** (commands + outcomes), **Next** (numbered list)
 - Same topic + same calendar date → append to the existing file **or** supersede as `…-v2.md` with a link to the prior file. Do not create a parallel sibling for the same topic.
@@ -79,7 +82,7 @@ Claude performs best with explicit success criteria. Before claiming completion:
 
 | Check | Command / rule |
 | --- | --- |
-| Tests (when `legacy/tests/` applies) | `python -m pytest legacy/tests/ -q` or the path named in the task |
+| Tests | `python -m pytest src/llm/llm_dataset/v1/tests -q` and `python -m pytest src/llm/llm_training -q`, or the path named in the task |
 | Lint / typecheck | Use project-standard commands when present; do not invent new tooling |
 | Behavior | State expected output; if tests do not exist, give a manual repro the user can run |
 | UI (if applicable) | Screenshot or browser snapshot compare against stated expectation |
@@ -89,7 +92,7 @@ If verification fails, fix or report the failure with the failing command and er
 ## Engineering
 
 - **Secrets:** never paste keys, cookies, tokens, or private URLs. Before any commit, confirm `.gitignore` covers `.env`, `*.pem`, `.claude/settings.local.json`, `.claude/scheduled_tasks.lock`, and `.claude/worktrees/`.
-- **Dependencies:** prefer existing stack in `legacy/`; justify new dependencies in the PR or report.
+- **Dependencies:** prefer existing stack in `src/llm/`; justify new dependencies in the PR or report.
 - **Tool-calling product code:** validate tool inputs against schemas; surface tool errors to the model loop; log failures without leaking secrets.
 - **Real backends:** integrations must hit real services or documented local runtimes—not silent mocks—in production paths.
 

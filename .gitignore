@@ -6,6 +6,9 @@
 .claude/settings.local.json
 .claude/worktrees/
 
+# Archive bin (superseded plans/code/data) — brackets escaped (glob char class)
+/legacy \[ignore\]/
+
 # Secrets and local runtime
 .env
 .env.*
