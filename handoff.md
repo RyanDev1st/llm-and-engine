@@ -96,10 +96,11 @@ The renderer no longer only loads chess-coach. New capability, TDD, committed:
 - `renderer/skill_routing.py`: load fitting skill → read body → call its tool → guiding-question final. One tool/step; lead-in before each; `normalize=True` loads hood-human-chat first (two skills across separate steps).
 - `generate.py`: slice `V1_O_cross_domain_skill_routing` wired in (base 70). `audit.py`: `loaded_skill_diversity` metric + gate (≥50).
 - `renderer/leadins.py` + edits to `chess.py`/`universality.py`: lead-in before every tool; coaching finals end with a guiding question; envelopes now regex-based.
-- Smokes: routing-only (120 rows, diversity 80, 0 fails); mixed chess+routing (150 rows, 0 fails, 60/60 coaching finals end with "?"). Full regen + audit running → `build/regen_v1_2.log`.
+- Smokes: routing-only (120 rows, diversity 80, 0 fails); mixed chess+routing (150 rows, 0 fails, 60/60 coaching finals end with "?").
+- **REGEN LANDED (2026-06-07, committed `8572d7ed`):** full regen seed 20260525 → build → audit `freeze_ok=True`, **0 failures**. `loaded_skill_diversity = 447` (was 2). accepted 50,060 / rejected 7,500; train 49,469 / val 591. synthetic_share 0.326, generic_final 0.000, reject diversity 11, V1_O = 749. (One earlier near-miss — accepted 49,990 < 50k from rounding — fixed in `plan_for_profile` top-up, `3b5b904b`.)
 
 ## Next action
 
-1. Confirm full regen audit `freeze_ok=True` (watch `build/regen_v1_2.log`): loaded_skill_diversity now hundreds; keep 0 illegal / 0 leak / 0 persona / declared tools / V1_O ≥ 60 within chess tolerances. Commit regenerated `data/sft/v1_2*` (~296MB train — push later, on request).
-2. Phase 3 backend parity: `load_skill` tool returning the body; inject catalog via the SAME `build_system()`; auto-save each turn; stream lead-in → run tool on `</tool>` → continue; archive dead `backend/model_ollama.py`.
-3. Phase 4 Kaggle E4B QLoRA → adapter (`kaggle_e4b_qlora.ipynb`, `run_train --model gemma4_e4b`). Phase 5 merge → q4_0 GGUF → local serve + web smoke.
+1. **Phase 3 backend parity** (do first; NOTE: backend files engine.py/inference.py/state_api.py/tools.py have UNCOMMITTED working-tree edits from a prior session + untracked `backend/skills.py` — review/triage those before editing). `ToolExecutor._dispatch` has NO `load_skill` branch (unknown→`error: invalid_syntax`); `skills.py` (`load_skills`/`select_skills`) exists but isn't wired into the executor or the serving system prompt. Add `load_skill` returning the body; build the serving system via the SAME `build_system(skills_index, tool_manifest, plugin_context)`; auto-save each turn; stream lead-in → run tool on `</tool>` → continue; archive dead `backend/model_ollama.py`.
+2. Phase 4 Kaggle E4B QLoRA → adapter (`kaggle_e4b_qlora.ipynb`, `run_train --model gemma4_e4b`). Phase 5 merge → q4_0 GGUF → local serve + web smoke.
+3. Optional: val is small (591) — de-leak drops templated-final collisions. Split by intent/scenario family in `build.split_train_val` for a larger leak-free val.
