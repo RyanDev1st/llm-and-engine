@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..annotator import AnnotatedPosition, StockfishAnnotator
+from ..board_facts import board_state_line, choose_move, legal_sans, move_echo
 from ..sampler import Scenario
 from . import tone
 from .text import eval_language, score_pawns, score_text
@@ -26,25 +27,28 @@ INTERNAL_LESSON = "Use board tools before claims. Ground evaluation in Stockfish
 
 def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[str, Any]:
     annotated = annotator.annotate(scenario.position.fen, depth=12) if scenario.position else None
-    user = _user_message(scenario)
+    # A legal move to execute for the move-playing slices (A plays a requested
+    # move, F plays then reviews). Chosen from the real position so it is legal.
+    move = choose_move(annotated.fen, scenario.seed) if (annotated and scenario.slice in {"A", "F"}) else None
+    user = _user_message(scenario, move)
     messages: list[dict[str, str]] = [{"role": "user", "content": user}]
     _emit_skill_load(messages, scenario)
-    if scenario.slice == "F":
-        messages.append({"role": "assistant", "content": "<tool>move san=e4</tool>"})
-        messages.append({"role": "tool", "content": "success: e4"})
+    if scenario.slice == "F" and annotated:
+        messages.append({"role": "assistant", "content": f"<tool>move san={move}</tool>"})
+        messages.append({"role": "tool", "content": move_echo(annotated.fen, move)})
     if scenario.slice in {"A", "B", "C", "D", "E", "F", "G", "H"}:
         messages.append({"role": "assistant", "content": "<tool>board_state fields=basic</tool>"})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
-    _emit_slice_tool(messages, scenario, annotated)
-    messages.append({"role": "assistant", "content": _final(scenario, annotated)})
+    _emit_slice_tool(messages, scenario, annotated, move)
+    messages.append({"role": "assistant", "content": _final(scenario, annotated, move)})
     return _envelope(scenario, messages, annotated)
 
 
-def _user_message(scenario: Scenario) -> str:
+def _user_message(scenario: Scenario, move: str | None) -> str:
     templates = SLICE_USER_TEMPLATES.get(scenario.slice, ("explain the position",))
     base = tone.pick(scenario.seed, templates)
-    if "{san}" in base and scenario.position:
-        base = base.replace("{san}", "e4")
+    if "{san}" in base:
+        base = base.replace("{san}", move or "e4")
     elif "{square}" in base:
         base = base.replace("{square}", "e2")
     return _style_prompt(base, scenario)
@@ -71,19 +75,20 @@ def _emit_skill_load(messages: list[dict[str, str]], scenario: Scenario) -> None
 
 def _board_state_text(annotated: AnnotatedPosition | None) -> str:
     if annotated is None:
-        return "board_state: turn=white, check=no, legal_count=20"
-    return f"board_state: turn=white, fen={annotated.fen}, check=no, legal_count=20"
+        return "board_state: turn=white, last_move=none, check=no, legal_count=20"
+    return board_state_line(annotated.fen)
 
 
 def _emit_slice_tool(
-    messages: list[dict[str, str]], scenario: Scenario, annotated: AnnotatedPosition | None
+    messages: list[dict[str, str]], scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None
 ) -> None:
-    if scenario.slice == "A":
-        messages.append({"role": "assistant", "content": "<tool>move san=e4</tool>"})
-        messages.append({"role": "tool", "content": "success: e4"})
-    elif scenario.slice == "B":
-        messages.append({"role": "assistant", "content": "<tool>legal_moves square=e2</tool>"})
-        messages.append({"role": "tool", "content": "legal: e4, e3"})
+    if scenario.slice == "A" and annotated:
+        messages.append({"role": "assistant", "content": f"<tool>move san={move}</tool>"})
+        messages.append({"role": "tool", "content": move_echo(annotated.fen, move)})
+    elif scenario.slice == "B" and annotated:
+        sans = legal_sans(annotated.fen)
+        messages.append({"role": "assistant", "content": "<tool>legal_moves</tool>"})
+        messages.append({"role": "tool", "content": f"legal: [{', '.join(sans)}]"})
     elif scenario.slice == "D" and annotated:
         messages.append({"role": "assistant", "content": "<tool>eval depth=15</tool>"})
         messages.append({"role": "tool", "content": score_text(annotated)})
@@ -91,52 +96,70 @@ def _emit_slice_tool(
         messages.append({"role": "assistant", "content": "<tool>best_move depth=15 series=3</tool>"})
         line = " ".join(annotated.best_line_sans)
         messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
-    elif scenario.slice == "F":
+    elif scenario.slice == "F" and annotated:
         messages.append({"role": "assistant", "content": "<tool>review_move depth=12</tool>"})
-        messages.append({"role": "tool", "content": "review: e4, label=good, delta=+0.05 pawns, best_was=e4"})
+        messages.append({"role": "tool", "content": f"review: {move}, label=good, delta=+0.05 pawns, best_was={annotated.best_san}"})
     elif scenario.slice == "G" and annotated:
         threat = annotated.threats_san or "none"
         messages.append({"role": "assistant", "content": "<tool>threats depth=12</tool>"})
         messages.append({"role": "tool", "content": f"threats: opponent's best is {threat}, score for them: {score_pawns(annotated)}"})
-    elif scenario.slice == "H":
+    elif scenario.slice == "H" and annotated:
         messages.append({"role": "assistant", "content": "<tool>list_pieces color=mine</tool>"})
-        messages.append({"role": "tool", "content": "pieces: K=e1, Q=d1, R=a1, R=h1, B=c1, B=f1, N=b1, N=g1"})
+        messages.append({"role": "tool", "content": _list_pieces_text(annotated.fen)})
     elif scenario.slice == "I":
         messages.append({"role": "assistant", "content": "<tool>ask_chessbot query=sicilian</tool>"})
         messages.append({"role": "tool", "content": "Sicilian: Black answers 1.e4 with 1...c5 to fight for d4 asymmetrically."})
 
 
-def _final(scenario: Scenario, annotated: AnnotatedPosition | None) -> str:
+def _list_pieces_text(fen: str) -> str:
+    import chess
+    b = chess.Board(fen)
+    col = b.turn
+    majors, pawns = [], []
+    for sq, piece in sorted(b.piece_map().items()):
+        if piece.color != col:
+            continue
+        name = chess.square_name(sq)
+        if piece.piece_type == chess.PAWN:
+            pawns.append(name)
+        else:
+            majors.append(f"{piece.symbol().upper()}={name}")
+    parts = majors + ([f"pawns={','.join(pawns)}"] if pawns else [])
+    return "pieces: " + ", ".join(parts)
+
+
+def _final(scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None) -> str:
     if scenario.tone == "warm":
         opener = tone.pick(scenario.seed, tone.OPENERS_WARM)
     elif scenario.tone == "blunt":
         opener = tone.pick(scenario.seed, tone.OPENERS_BLUNT)
     else:
         opener = tone.pick(scenario.seed, tone.OPENERS_SOCRATIC)
+    sep = " " if opener else ""
     if scenario.slice == "A":
-        return f"{opener} Played e4 — central, opens lines for the bishop and queen."
+        return f"{opener}{sep}Played {move}. The board updated and it is now the opponent's turn."
     if scenario.slice == "B":
-        return f"{opener} I checked legal moves first. Both e4 and e3 are legal, so choose based on plan."
+        return f"{opener}{sep}I listed the legal moves first, then chose based on the plan rather than guessing."
     if scenario.slice == "C":
-        return f"{opener} I will not execute that without a legal move result; board_state alone is not enough."
+        return f"{opener}{sep}I will not execute that without a legal move result; board_state alone is not enough."
     if scenario.slice == "D" and annotated:
-        return f"{opener} {eval_language(annotated)}"
+        return f"{opener}{sep}{eval_language(annotated)}"
     if scenario.slice == "E" and annotated:
-        return f"{opener} Engine likes {annotated.best_san}; the plan continues {' '.join(annotated.best_line_sans[1:3])}."
-    if scenario.slice == "F":
-        return f"{opener} That last move was solid. Engine still likes the same continuation."
+        return f"{opener}{sep}Engine likes {annotated.best_san}; the plan continues {' '.join(annotated.best_line_sans[1:3])}."
+    if scenario.slice == "F" and annotated:
+        return f"{opener}{sep}{move} checks out; the engine's top choice was {annotated.best_san}."
     if scenario.slice == "G" and annotated:
         threat = annotated.threats_san or "nothing forcing"
-        return f"{opener} Watch for {threat} from your opponent."
+        return f"{opener}{sep}Watch for {threat} from your opponent."
     if scenario.slice == "H":
-        return f"{opener} You still have full material on the back rank — eight pieces ready."
+        return f"{opener}{sep}I listed your pieces from the board tool rather than guessing."
     if scenario.slice == "I":
-        return f"{opener} It's a sharp counter to 1.e4 that fights for the centre asymmetrically."
+        return f"{opener}{sep}It's a sharp counter to 1.e4 that fights for the centre asymmetrically."
     if scenario.slice == "J":
-        return f"{opener} Glad you're here. Ask me anything about the position or how you played."
+        return f"{opener}{sep}Hi. Ask me to read the board, suggest a move, or explain a chess idea."
     if scenario.slice == "K":
-        return f"{opener} A knight is worth about three pawns in most positions, but context matters more than the number."
-    return f"{opener} I read the position and the tools, then answered without inventing facts."
+        return f"{opener}{sep}A knight is worth about three pawns in most positions, but context matters more than the number."
+    return f"{opener}{sep}I read the position and the tools, then answered without inventing facts."
 
 
 def _envelope(
