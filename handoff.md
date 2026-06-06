@@ -83,6 +83,20 @@ Goal: agent converses like a coding agent — lead-in narration, tool, narrate, 
 
 De-leak moved leaked rows to train (finals are templated). Leak-safe but small/biased. Recommended fix: split by intent/scenario family in `build.split_train_val`.
 
+## Final skill/tool contract (2026-06-06) — see chess-agent-skill-tool-contract memory
+
+- `load_skill` is a TOOL; skill = text/context (progressive disclosure: catalog always in context, body via load_skill, persists). No `<skill>` tag.
+- Multiple skills/tools per turn allowed (parallel). `one_tool_per_turn` removed; keep no_exact_duplicate + max_six_tool_calls. DONE (validator + BASE_HARNESS).
+- Cross-domain skill diversity required: index offers 2,737 skills but agent LOADS only 2 (chess-coach 49,638, hood-human-chat 761) → SEVERE bias, THE open fix.
+
+## THE remaining data-quality fix (highest leverage)
+
+Renderer only ever loads chess-coach. Engineer cross-domain skill-routing in `renderer/` (+ catalog in `catalog.py`):
+- scenarios across many domains (code-review, math, writing, cooking, novel synthetic SKILL.md); correct skill sampled ~uniformly by description match.
+- multi-skill loads in one turn where fitting; lead-in narration; guiding-question coaching finals; load_skill result = a REAL multi-line SKILL.md body (not a one-liner).
+- reject rows: wrong/irrelevant skill loaded, or acted before load.
+- regenerate v1.2 + re-audit: loaded-skill diversity 2 → hundreds; keep 0 illegal / 0 leak / 0 persona / every called tool declared.
+
 ## Next action
 
-Implement renderer lead-ins + guiding-question finals + real skill bodies (TDD), then regenerate + QC. Then Phase 3 backend (auto-save, streaming, load_skill). Then Phase 4 Kaggle train.
+Engineer renderer cross-domain skill routing + multi-skill loads + real skill bodies + guiding-question finals (TDD) → regenerate → re-audit. Then Phase 3 backend (auto-save, streaming lead-in, load_skill returning body, parallel tool results). Then Phase 4 Kaggle E4B QLoRA.
