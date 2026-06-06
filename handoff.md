@@ -1,97 +1,44 @@
-# Handoff: two-path remote model plan
+# Handoff: chess-coach agent — Kaggle-train / local-host
 
-## Current strategy
+## The goal (single path)
 
-We now have two active paths:
+Train a Gemma-4 chess-coach **agent** (tool-router/narrator, not a chess engine) as a **LoRA adapter** via QLoRA on **Kaggle T4**, then serve it **locally as q4_0 GGUF on the RTX 4060 (8GB)**.
 
-1. **Primary path: FPT H100 + Qwen**
-   - Use FPT subscription/free credit first.
-   - Target model: `qwen3.6:27b-q4_K_M` through Ollama.
-   - Target hardware: FPT H100, preferably VM; AI Notebook acceptable if VM capacity is unavailable.
-   - Source of truth: `implementation_fpt.md`.
+- **Model:** Gemma 4 **E4B** preferred; **E2B** fallback only if E4B QLoRA OOMs on T4 or local E4B serving is too slow.
+- **Why this split:** training holds weights+grads+optimizer+activations (~2–3× inference). E4B QLoRA (~9–12GB) fits a T4's 16GB but NOT the local 8GB. E4B q4_0 inference (~4.5GB, measured) DOES fit the 4060.
+- Plan of record: `implementation.md`. Decision memory: `chess-agent-train-host-split`.
+- FPT/Qwen path is **abandoned** → `legacy [ignore]/archived_plans/implementation_fpt.md`.
 
-2. **Fallback path: Kaggle T4 x2 + smaller Gemma**
-   - Use only if FPT path fails or wastes time.
-   - Target model: existing Gemma training path.
-   - Target hardware: Kaggle Notebook with dual T4.
-   - Source of truth: `implementation.md`.
+## Current blocker (do this first)
 
-## Decision rule
+The v1.2 corpus is **not trainable as-is**. QC (python-chess, 2026-06-06):
+- 59% of `move` rows are **illegal** for their `position_fen`; the `tool` turn fabricates `success: e4`.
+- Only `e4` is ever played (monoculture); 93% of val final-targets leak from train; ~40% finals carry banned persona openers.
+- Routing scaffolding is excellent (100% `load_skill`-first, 655 distinct tool sequences) — keep it.
 
-Try FPT first because subscription credit should be used before switching platforms. If FPT works, continue Qwen path. If FPT fails due to capacity, runtime instability, missing GPU, Ollama/Qwen pull issues, notebook state loss, or backend startup blockers, switch to Kaggle and train smaller Gemma.
+Root cause: `src/llm/llm_dataset/v1/renderer/chess.py` hardcodes `move san=e4` / `success: e4` / `turn=white`; `validate.py`'s `engine_grounded` never checks legality. Memory: `chess-sft-v1_2-illegal-move-bug`.
 
-## FPT path success criteria
+## Plan phases (see implementation.md for full TDD tasks)
 
-FPT path is accepted only if all checks pass:
+1. **Phase 1 — fix the generator (BLOCKER):** FEN-grounded `board_facts.py`, rewrite `renderer/chess.py` to emit legal moves + real tool echo, add validator legality gate, flatten persona openers, dedup val finals, regenerate v1.2, QC gate (0 illegal, <1% leak, 0 banned openers).
+2. **Phase 2 — train on Kaggle T4:** add `--model` flag (E4B/E2B) to `run_train.py`, author `kaggle_e4b_qlora.ipynb`, produce LoRA adapter, run routing audit.
+3. **Phase 3 — serve locally:** `export_gguf.py` (merge adapter → q4_0 GGUF), point `CHESS_GGUF_PATH` at it, smoke the web app on the 4060.
 
-- H100 visible through `nvidia-smi` or `torch.cuda.is_available()`.
-- Ollama installs and serves without `$HOME is not defined` panic.
-- `qwen3.6:27b-q4_K_M` pulls successfully.
-- Repo source is available in runtime.
-- Backend starts with Ollama model.
-- `/api/state` returns JSON.
-- Latency is usable enough for chess-coach testing.
-- No secrets/tokens printed.
+## Live pipeline facts
 
-## FPT path failure triggers
-
-Switch to Kaggle if any of these persist after one focused fix cycle:
-
-- no GPU or wrong runtime,
-- FPT VM/Notebook capacity unavailable,
-- Qwen pull fails or restarts repeatedly,
-- Ollama cannot run reliably,
-- notebook kernel state keeps breaking cells,
-- backend cannot start,
-- time/cost burn exceeds likely value.
-
-## Kaggle fallback command
-
-First bounded Gemma run:
-
-```bash
-python -m llm_training.run_train \
-  --max-steps 500 \
-  --rank 4 \
-  --targets qv \
-  --grad-accum 1 \
-  --output gemma4_chess_kaggle_t4x2
-```
-
-Artifact export after training:
-
-```bash
-cd /kaggle/working/llm-and-engine
-zip -r /kaggle/working/gemma4_chess_kaggle_t4x2.zip runs/gemma4_chess_kaggle_t4x2
-```
-
-## Current repo facts
-
-- `implementation_fpt.md` now defines FPT/Qwen-first plan.
-- `implementation.md` defines v1.2 SFT + Kaggle/Gemma fallback plan.
-- `src/llm/backend/model_ollama.py` supports Ollama model backend.
-- `src/llm/backend/server.py` can use Ollama fallback if GGUF path missing.
-- `src/llm/llm_training/fpt_qwen_scout_v2.ipynb` contains FPT scout cells with `HOME` and branch fallback fixes.
-- `scripts/fpt_qwen_vm_bootstrap.sh` exists for VM path if capacity opens.
-- `src/llm/llm_training/run_train.py` supports bounded non-smoke training.
-- `src/llm/llm_training/test_training_defaults.py` covers bounded training config.
-
-## Immediate next action
-
-Continue FPT H100 attempt first. Run FPT preflight, Ollama startup, Qwen pull, repo setup, backend smoke. If FPT hard-fails, stop and build Kaggle Gemma notebook.
+- Generator: `python -m llm_dataset.v1.generate --profile v1.2` → `data/sft/v1_2/{accepted,rejected}.jsonl`; then `python -m llm_dataset.v1.build --profile v1.2` → `data/sft/v1_2_{train,val}.jsonl`.
+- Trainer: `python -m llm_training.run_train` (reads v1_2_train/val; base currently hardcoded `gemma4_e2b` → Task 7 parametrizes).
+- Backend serving already supports `CHESS_GGUF_PATH` (`src/llm/backend/model_gguf.py`).
+- Stress tests this session: `src/llm/llm_training/stress_test_gemma4.py` (HF/nf4) and `stress_test_gemma4_gguf.py` (llama.cpp). Note: local `llama_cpp` 0.3.23 is a **CPU build** (GPU offload needs a CUDA rebuild).
 
 ## Constraints
 
-- Never touch `legacy/`.
-- Do not commit secrets, tokens, `.env`, Kaggle credentials, Hugging Face tokens, or model weights.
-- Stage intended files only; do not use `git add -A`.
-- Watch long-running shell/cell output.
-- Strategically clean GPU memory when needed.
-- Do not confuse FPT/Qwen hosting success with v1.2 SFT training success.
+- Never edit/import `legacy [ignore]/` (now gitignored).
+- No secrets in code/logs/commits; Kaggle HF token via Kaggle Secrets.
+- Stage intended files only; no `git add -A`.
+- `*.gguf` / `*.safetensors` are gitignored — commit code, not weights.
+- Watch long-running shells; clean GPU memory between heavy runs.
 
-## Pending tasks
+## Next action
 
-- Launch real v1.2 training: now depends on path decision.
-  - FPT success: continue Qwen path and decide if training/eval happens there.
-  - FPT failure: Kaggle Gemma bounded training.
-- Run post-training routing audit after a real artifact exists.
+Start Phase 1, Task 1 (`board_facts.py` + tests). Everything downstream depends on a grounded corpus.

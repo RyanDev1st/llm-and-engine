@@ -18,7 +18,7 @@ Ship **working software** for reliable **LLM tool use**: tool selection, JSON sc
 
 ### What we train: the agent (LLM harness)
 
-The product is a **chess-coach agent** = an LLM that **routes user intent to tools and narrates tool results** (see `src/llm/llm_training/system_prompt.py`). It does **not** compute chess — the engine/backend does. Active plan files at root: `implementation_fpt.md` (PRIMARY: FPT H100 + Qwen), `implementation.md` (FALLBACK: Kaggle T4x2 + Gemma), `handoff.md`.
+The product is a **chess-coach agent** = an LLM that **routes user intent to tools and narrates tool results** (see `src/llm/llm_training/system_prompt.py`). It does **not** compute chess — the engine/backend does. Goal: train Gemma 4 **E4B** QLoRA on **Kaggle T4** → LoRA adapter → serve **q4_0 GGUF locally on the RTX 4060** (E2B fallback). Active plan files at root: `implementation.md` (the plan, 3 phases) and `handoff.md`.
 
 | Path | Purpose |
 | --- | --- |
@@ -55,11 +55,11 @@ The product is a **chess-coach agent** = an LLM that **routes user intent to too
 
 The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay legible:
 
-1. **One active plan set:** `implementation_fpt.md`, `implementation.md`, `handoff.md`. Any other root plan (e.g. `IMPLEMENTATION_PLAN.md`, `*_spec_v3.md`, dead-path runbooks) → move to `legacy [ignore]/`.
+1. **One active plan set:** `implementation.md` (the plan) + `handoff.md`. Any other root plan (e.g. `IMPLEMENTATION_PLAN.md`, `*_spec_v3.md`, `implementation_fpt.md`, dead-path runbooks) → move to `legacy [ignore]/`.
 2. **One active corpus:** `v1_2`. Older corpora (`v1_train/val`, `v1_gold/`, `chess_assistant_v3_*`, `slice/`, `slices/`) and their build scripts (`src/llm/llm_dataset/build/`) → move to `legacy [ignore]/`.
 3. **Archive = move, never delete.** Never leave a live import or test pointing into `legacy [ignore]/`. If moving breaks a reference, the referencing code is dead too — move it as well.
 4. **Supersede in the same change:** before adding a new plan/dataset/spec version, move the prior one to the archive in the same commit.
-5. **Coherence check (do this when asked to clean up):** the three live plans must agree on model (Gemma E2B local / E4B remote), path priority (FPT first → Kaggle fallback), and active corpus (v1_2). Fix drift in place; do not spawn parallel plans.
+5. **Coherence check (do this when asked to clean up):** `implementation.md` + `handoff.md` must agree on model (Gemma 4 E4B preferred, E2B fallback), infra (train Kaggle T4 → serve local GGUF on 4060), and active corpus (v1_2). Fix drift in place; do not spawn parallel plans.
 
 ### Workspace hygiene (required before “done”)
 
