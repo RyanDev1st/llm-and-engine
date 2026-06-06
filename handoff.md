@@ -61,6 +61,14 @@ Keep: 100% `load_skill`-first structure, 653 distinct tool-sequence shapes, bala
   - **Real-Stockfish smoke: 66 rows across all slices → 0 validate violations, 0 illegal, diverse moves, 0 personas.**
 - **T8 IN PROGRESS:** full regen running in background → `data/sft/v1_2/{accepted,rejected}.jsonl` + `build` split. Log: `build/regen_v1_2.log` (Stockfish present at `src/llm/runtime/stockfish/...`). Overwrites the old broken corpus (recoverable in git history).
 
+## Phase 2 DONE — corpus regenerated + QC green (committed)
+
+Regenerated `data/sft/v1_2`; QC gate all green: 0 illegal moves (was 59%), 582 distinct moves (was 1), 0 board_state turn mismatch (was 12,621), 0 undeclared tool calls (was 47k), 0.0% val leak (was 93%), 0 persona openers (was 65%), 100% load_skill-first. Build ran `assert_valid` on all 50,002 accepted rows. Counts: 49,638 train / 364 val; 39,053 harness_chess + 10,585 universality. NOTE: `v1_2_train.jsonl` is ~283MB (manifest repeated per row) — mind GitHub push limits.
+
+## Open quality nuance — val is small (364)
+
+De-leak moved ~4,600 val rows into train because finals are move-parameterized templates that collide (e.g. "Played g5..." x175). Leak-safe but val is small/biased. **Recommended fix:** split by intent/scenario family (hold out whole scenarios ~10%) in `build.split_train_val` instead of dropping colliding finals.
+
 ## Next action
 
-When regen finishes: run the QC gate (audit script in `docs/2026-06-06-...audit.md`) on the new corpus — expect 0 non-declared tool calls, 0 illegal moves, >1 distinct move, board_state turn always correct, <1% val leak, 0 persona openers. If green, commit the corpus. Then Phase 3 (backend `load_skill` parity) → Phase 4 (Kaggle train).
+Decide: (A) improve val split (intent-family holdout, TDD) for a proper ~10% leak-free val, then (B) Phase 3 backend `load_skill` parity (so serving == training), then Phase 4 Kaggle train. Data quality gate is otherwise met.
