@@ -69,6 +69,20 @@ Regenerated `data/sft/v1_2`; QC gate all green: 0 illegal moves (was 59%), 582 d
 
 De-leak moved ~4,600 val rows into train because finals are move-parameterized templates that collide (e.g. "Played g5..." x175). Leak-safe but val is small/biased. **Recommended fix:** split by intent/scenario family (hold out whole scenarios ~10%) in `build.split_train_val` instead of dropping colliding finals.
 
+## Conversational-agent enrichment (design approved 2026-06-06)
+
+Goal: agent converses like a coding agent — lead-in narration, tool, narrate, final + guiding question. Design: `docs/2026-06-06-conversational-agent-design.md`. Decisions: **backend auto-save** (not a model tool); **one lead-in sentence before each tool**.
+
+- **Foundation DONE (committed, TDD):** `validate.py` accepts `lead-in + one <tool>` per turn (search-based), new `one_tool_per_turn` rule, final = last no-tool assistant turn; `BASE_HARNESS` documents lead-in + guiding-question finals.
+- **Still to do (the data shape):**
+  1. `renderer/chess.py` + `renderer/universality.py`: emit a short lead-in before each tool call; coaching finals = brief grounded assessment + one guiding question; load_skill result = a real multi-line SKILL.md body; sometimes load a non-chess-coach skill (dynamic-SKILL.md objective).
+  2. Regenerate v1.2 + QC gate (existing checks + new: each action turn has exactly one tool; coaching finals end with a question).
+  3. Backend (Phase 3): serving loop streams lead-in → runs tool on `</tool>` → continues; auto-save each turn to disk; implement `load_skill` returning the body.
+
+## Open quality nuance — val is small (364)
+
+De-leak moved leaked rows to train (finals are templated). Leak-safe but small/biased. Recommended fix: split by intent/scenario family in `build.split_train_val`.
+
 ## Next action
 
-Decide: (A) improve val split (intent-family holdout, TDD) for a proper ~10% leak-free val, then (B) Phase 3 backend `load_skill` parity (so serving == training), then Phase 4 Kaggle train. Data quality gate is otherwise met.
+Implement renderer lead-ins + guiding-question finals + real skill bodies (TDD), then regenerate + QC. Then Phase 3 backend (auto-save, streaming, load_skill). Then Phase 4 Kaggle train.
