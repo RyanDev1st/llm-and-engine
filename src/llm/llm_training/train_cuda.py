@@ -20,7 +20,7 @@ def _real_training(config: TrainConfig) -> dict:
     torch.manual_seed(config.seed)
 
     quant_config = _build_quant_config(config)
-    device_map = _device_map(config, quant_config is not None)
+    device_map = _device_map(config)
     max_memory = _max_memory(device_map)
     print(f"Loading model 4bit={quant_config is not None} device_map={device_map} max_memory={max_memory}", flush=True)
 
@@ -65,9 +65,8 @@ def _real_training(config: TrainConfig) -> dict:
 
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
     scheduler = build_scheduler(optimizer, warmup, total_updates)
-    # Under device_map="auto" the input embedding may live on any GPU (not
-    # necessarily cuda:0); inputs must start there or the first index_select
-    # mismatches. accelerate's hooks move activations across GPUs after that.
+    # Single-GPU load: the input embedding lives on cuda:0; inputs must start
+    # there or the first index_select mismatches.
     if config.device == "cuda":
         try:
             target_device = model.get_input_embeddings().weight.device
@@ -111,8 +110,7 @@ def fused_masked_loss(model: Any, batch: dict, labels: torch.Tensor) -> torch.Te
         hidden = out.logits
     finally:
         holder.lm_head = real_head
-    # Under model sharding (device_map="auto") hidden lands on the last GPU; move
-    # labels there so masking/indexing/CE stay on one device.
+    # Keep labels on the same device as hidden (no-op on single GPU; cheap guard).
     labels = labels.to(hidden.device)
     shift_hidden = hidden[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
@@ -192,25 +190,22 @@ def _build_quant_config(config: TrainConfig):
     )
 
 
-def _device_map(config: TrainConfig, is_4bit: bool):
+def _device_map(config: TrainConfig):
     if config.device == "cpu":
         return {"": "cpu"}
-    # Only shard the big 4-bit model across multiple GPUs (E4B on 2x T4). For a
-    # single GPU, or unquantized/E2B that fits one card, keep everything on GPU 0
-    # and push the unused multimodal towers to CPU (text-only training).
-    if torch.cuda.is_available() and torch.cuda.device_count() > 1 and is_4bit:
-        return "auto"
+    # Always load the LM on ONE GPU; offload the unused multimodal towers to CPU
+    # (text-only training). We deliberately do NOT use device_map="auto": naive
+    # sharding across 2x T4 put the back half of the model + lm_head on GPU 1 and
+    # filled it, so the cross-entropy over Gemma's ~262k vocab had no room to
+    # allocate (OOM on GPU 1, even for tiny E2B-4bit). E2B fits a single 16GB T4
+    # with the towers on CPU — 4-bit ~2.5GB weights, bf16 ~10GB.
     return {"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"}
 
 
 def _max_memory(device_map):
-    """When sharding ("auto"), cap each GPU below its 16GB so accelerate balances
-    the 4-bit LM across GPUs, leaves headroom for activations + bnb dequant
-    temporaries, and spills the big unused bf16 vision/audio towers to CPU."""
-    if device_map != "auto" or not torch.cuda.is_available():
-        return None
-    n = torch.cuda.device_count()
-    return {**{i: "11GiB" for i in range(n)}, "cpu": "48GiB"}
+    """Single-GPU load (we never use device_map='auto'), so accelerate needs no
+    per-device cap. Sharding was the source of the GPU-1 OOM; it's gone."""
+    return None
 
 
 def _save(model, tokenizer, config: TrainConfig, suffix: str = "") -> None:
