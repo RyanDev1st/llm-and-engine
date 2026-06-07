@@ -293,7 +293,16 @@ Precedence encoded in BASE_HARNESS: harness + safety + grounding **>** overlay *
 
 ## Deferred backlog (revisit after the v0 eval, Task 16)
 
-- **Option B — overlay-following SFT** (gated by Task 16 overlay spot-check): if E4B follows serve-time overlays weakly, add ~5–8% rows carrying a random `agent_overlay` the assistant visibly obeys (+ reject rows that ignore it); regenerate; retrain. The renderer/contract already has the overlay slot (Task 9). **Saved decision (2026-06-07): ship A now, escalate to B only on evidence.**
+- **Option B — overlay-following SFT** (gated by Task 16 overlay spot-check): if E4B/E2B follows serve-time overlays weakly, add rows carrying a random `agent_overlay` the assistant visibly obeys (+ reject rows that ignore it); regenerate; retrain. The renderer/contract already has the overlay slot (Task 9). **Saved decision (2026-06-07): ship A now, escalate to B only on evidence.**
+
+  **Tone-switching spec (decided 2026-06-08 — user wants switchable tone as a presentation feature).** Today `scenario.tone` (warm/blunt/socratic in `tone.py`) is randomized and *unconditioned*, so tone is **noise**, not signal — the served model can't be steered. Fix: make tone **signal** by conditioning it on the overlay.
+  - **Tones (menu):** Warm & encouraging, Socratic, Blunt & direct, Playful & casual. Serve via **both** a preset dropdown AND a free-form box.
+  - **Data plan (next regen):** for ~15–20% of chess (A–K) + skill rows, set `agent_overlay` to a tone directive and make the assistant **narration** turns obey that voice. **Tool routing, tool calls, and board grounding stay byte-identical across tones** — tone changes voice (+ light shape: Socratic ends on a question, Concise → one sentence), never the routing. Keep the majority neutral/empty-overlay (preserves Option A).
+  - **Generalize to free-form:** vary the overlay phrasing per row (paraphrase bank per tone, same trick as skill-routing-by-description) and mix in a few off-menu tones (formal, concise, pirate…) so free-form overlays work, not just the 4 presets.
+  - **Reject signal:** add an `overlay_obeyed` acceptance rule in `validate.py` (lightweight per-tone heuristic) and reject narrations that ignore the overlay.
+  - **Serve:** web UI tone dropdown + advanced free-form box → per-request overlay (extend `CoachLoop`/`server` to take overlay per request, not only `CHESS_AGENT_OVERLAY`); `build_system` already injects it.
+  - **Verify:** same prompt × {neutral, 4 presets, 2 free-form} → (a) tool-call sequence identical across tones, (b) narration voice measurably differs. This is the evidence that a 2B model follows the overlay; if weak, raise the tone-row fraction or add a small DPO pass (voice pairs).
+  - **Reuse:** `tone.py` already has WARM/BLUNT/SOCRATIC openers; add a PLAYFUL bank. **Gate:** execute at the next regen, after this SFT's routing eval (Task 16) passes. Do NOT touch the frozen corpus now.
 - **Depth (Layers 1–3)** — gated by Task 16: recovery/self-correction, ambiguity & fine skill discrimination, constraint-following, real long-form multi-file `SKILL.md`; then rejection-sampling on the real backend; then preference/RL with validator+Stockfish reward.
 - **Val too small (591):** split by intent/scenario family in `build.split_train_val` for a larger leak-free val.
 
