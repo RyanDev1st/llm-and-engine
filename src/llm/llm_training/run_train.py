@@ -38,7 +38,7 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         max_seq_len=args.max_seq, lora_rank=rank, lora_alpha=2 * rank,
         lora_dropout=0.05, lora_targets=targets, learning_rate=args.lr,
         warmup_ratio=0.03, optimizer="paged_adamw_8bit", eval_every=args.eval_every,
-        loss_mask="assistant-only", load_in_4bit=True,
+        loss_mask="assistant-only", load_in_4bit=not getattr(args, "no_4bit", False),
         model_path=MODELS / model,
         data_path=DATA / "v1_2_train.jsonl",
         val_path=DATA / "v1_2_val.jsonl",
@@ -60,6 +60,8 @@ def main() -> None:
     ap.add_argument("--output", default="gemma4_chess")
     ap.add_argument("--model", default=DEFAULT_MODEL,
                     help="base model dir under src/llm/models (e.g. gemma4_e4b, gemma4_e2b)")
+    ap.add_argument("--no-4bit", action="store_true", dest="no_4bit",
+                    help="train in bf16 (no bitsandbytes 4-bit) — fits E2B on one T4 at full seq")
     args = ap.parse_args()
     if args.smoke:
         args.output = "gemma4_chess_smoke"

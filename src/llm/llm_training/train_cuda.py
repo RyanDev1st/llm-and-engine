@@ -34,11 +34,12 @@ def _real_training(config: TrainConfig) -> dict:
         torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, quantization_config=quant_config,
     )
 
-    if quant_config is not None:
-        model.config.use_cache = False
-        for p in model.parameters():
-            p.requires_grad = False
-        model.enable_input_require_grads()
+    # Freeze the base + enable input grads for LoRA + gradient checkpointing —
+    # needed for both 4-bit and bf16 (unquantized) bases.
+    model.config.use_cache = False
+    for p in model.parameters():
+        p.requires_grad = False
+    model.enable_input_require_grads()
 
     lora = LoraConfig(
         task_type=TaskType.CAUSAL_LM, r=config.lora_rank, lora_alpha=config.lora_alpha,
@@ -194,14 +195,12 @@ def _build_quant_config(config: TrainConfig):
 def _device_map(config: TrainConfig, is_4bit: bool):
     if config.device == "cpu":
         return {"": "cpu"}
-    # Multi-GPU (e.g. Kaggle 2x T4 = 32GB): shard the model across all GPUs so a
-    # model too big for one 16GB card (E4B) fits. accelerate splits layers across
-    # devices and moves activations between them.
-    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+    # Only shard the big 4-bit model across multiple GPUs (E4B on 2x T4). For a
+    # single GPU, or unquantized/E2B that fits one card, keep everything on GPU 0
+    # and push the unused multimodal towers to CPU (text-only training).
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1 and is_4bit:
         return "auto"
-    if is_4bit:
-        return {"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"}
-    return {"": 0}
+    return {"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"}
 
 
 def _max_memory(device_map):
