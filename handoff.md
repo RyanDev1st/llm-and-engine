@@ -106,9 +106,16 @@ Serve == train. Report: `docs/2026-06-07-phase3-serve-parity.md`. Tasks 9–14:
 - Parity fix: `CoachLoop` now detects the tool by search (handles trained lead-in + `<tool>`), was anchored on `startswith`. Serve smoke (no GGUF/Stockfish) green; backend suite 15 passed.
 - NOT done in Phase 3 (deferred, optional): auto-save each turn; SSE streaming of the lead-in. Loop already executes lead-in+tool correctly; streaming/persistence are serving polish, not contract.
 
+## Corpus storage + history purge (2026-06-07) — branch now pushable
+
+- Corpus stored **gzipped** (`data/sft/*.jsonl.gz`) via transparent `jsonl_io` (writers emit `.gz`; readers prefer `.gz`, still accept plain). train 285MB→8MB, accepted 288MB→9MB — all under GitHub's 100MB limit. Audit on `.gz`: freeze_ok=True, diversity 447. Commit `2059f832`.
+- **History purged** (surgical `git filter-branch` over `master..HEAD`): dropped `data/sft/*.jsonl` + the tracked `legacy/` dir (3× 942MB router safetensors + old 286MB corpus versions). HEAD now has **no blob >50MB**; 102 commits + messages preserved (new SHAs). Backup ref `backup/pre-purge-feat-2026-06-07` + `refs/original/` retain the old objects → `.git` is still ~33GB locally until reclaimed.
+- **To reclaim disk later** (optional): delete `backup/pre-purge-feat-2026-06-07`, `git update-ref -d refs/original/refs/heads/feat/chess-coach-sft`, `git reflog expire --expire=now --all`, `git gc --prune=now --aggressive`.
+- Prior-session uncommitted edits (`train_cuda.py`, `gemma_chat_site/*`) were stashed across the rewrite and popped back — still uncommitted, untouched.
+
 ## Next action
 
-1. **Phase 4 (Task 15):** push the corpus branch, run `kaggle_e4b_qlora.ipynb` on T4 (`--model gemma4_e4b`, E2B fallback), export adapter.
+1. **Phase 4 (Task 15):** PUSH the branch (NOT yet pushed; origin has no `feat/chess-coach-sft` — first push, not a force-push). Awaiting explicit OK. Then run `kaggle_e4b_qlora.ipynb` on T4 (`--model gemma4_e4b`, E2B fallback) — Cell 3 clones the branch, Cell 6 reads `*.jsonl.gz` — export adapter.
 2. **Phase 4 (Task 16):** `eval_routing.py` on held-out + **overlay spot-check** → decide Option B (overlay-following SFT; saved in `chess-agent-prompt-layering` memory + Deferred backlog).
 3. **Phase 5:** merge → q4_0 GGUF → serve on the 4060; web smoke (chess routing, drop-in SKILL.md, overlay tone).
 4. Optional: val small (591) — split by intent/scenario family in `build.split_train_val`.
