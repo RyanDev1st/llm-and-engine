@@ -63,7 +63,16 @@ def _real_training(config: TrainConfig) -> dict:
 
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
     scheduler = build_scheduler(optimizer, warmup, total_updates)
-    target_device = torch.device("cuda:0") if config.device == "cuda" else torch.device("cpu")
+    # Under device_map="auto" the input embedding may live on any GPU (not
+    # necessarily cuda:0); inputs must start there or the first index_select
+    # mismatches. accelerate's hooks move activations across GPUs after that.
+    if config.device == "cuda":
+        try:
+            target_device = model.get_input_embeddings().weight.device
+        except Exception:
+            target_device = torch.device("cuda:0")
+    else:
+        target_device = torch.device("cpu")
 
     losses, val_history = _train_loop(
         model, train_examples, val_batches, optimizer, scheduler, target_device,
