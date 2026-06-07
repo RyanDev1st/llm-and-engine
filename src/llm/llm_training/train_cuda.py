@@ -21,7 +21,8 @@ def _real_training(config: TrainConfig) -> dict:
 
     quant_config = _build_quant_config(config)
     device_map = _device_map(config, quant_config is not None)
-    print(f"Loading model 4bit={quant_config is not None} device_map={device_map}", flush=True)
+    max_memory = _max_memory(device_map)
+    print(f"Loading model 4bit={quant_config is not None} device_map={device_map} max_memory={max_memory}", flush=True)
 
     tokenizer = _load_tokenizer(config.model_path)
     if tokenizer.pad_token is None:
@@ -29,7 +30,7 @@ def _real_training(config: TrainConfig) -> dict:
     _strip_compressed_tensors_config(config.model_path)
 
     model = AutoModelForImageTextToText.from_pretrained(
-        config.model_path, local_files_only=True, device_map=device_map,
+        config.model_path, local_files_only=True, device_map=device_map, max_memory=max_memory,
         torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, quantization_config=quant_config,
     )
 
@@ -201,6 +202,16 @@ def _device_map(config: TrainConfig, is_4bit: bool):
     if is_4bit:
         return {"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"}
     return {"": 0}
+
+
+def _max_memory(device_map):
+    """When sharding ("auto"), cap each GPU below its 16GB so accelerate balances
+    the 4-bit LM across GPUs, leaves headroom for activations + bnb dequant
+    temporaries, and spills the big unused bf16 vision/audio towers to CPU."""
+    if device_map != "auto" or not torch.cuda.is_available():
+        return None
+    n = torch.cuda.device_count()
+    return {**{i: "11GiB" for i in range(n)}, "cpu": "48GiB"}
 
 
 def _save(model, tokenizer, config: TrainConfig, suffix: str = "") -> None:
