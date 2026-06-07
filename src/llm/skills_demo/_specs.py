@@ -125,7 +125,7 @@ SKILLS: list[tuple[str, str, str, tuple[str, str, str], str]] = [
     ("material-counter",
      "Use when the user asks who is up material or what the material balance is.",
      "the user asks about the material count or who is ahead in material.",
-     ("Call list_pieces color=mine and color=theirs.",
+     ("Call list_pieces color=white and color=black.",
       "Sum the standard piece values for each side.",
       "Report the net material difference."),
      "count only pieces on the board right now."),
