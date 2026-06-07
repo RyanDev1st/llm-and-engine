@@ -34,27 +34,30 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
 
 
 def tokenize_with_assistant_mask(messages: list[dict], tokenizer: Any, max_len: int) -> tuple[list[int], list[int]]:
+    # Render each cumulative prefix to TEXT (cheap) and tokenize only the new
+    # delta text once per turn. The old version re-tokenized the whole growing
+    # prefix — incl. the large progressive-disclosure system prompt — on every
+    # message, which is O(n^2) tokens per row and hangs on big corpora.
     input_ids: list[int] = []
     labels: list[int] = []
-    prev: list[int] = []
+    prev_text = ""
     for i, msg in enumerate(messages):
         try:
-            out = tokenizer.apply_chat_template(messages[: i + 1], tokenize=True, add_generation_prompt=False)
-            cur = out["input_ids"] if hasattr(out, "keys") else list(out)
+            text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False, add_generation_prompt=False)
         except Exception:
-            cur = tokenizer(_fallback_render(messages[: i + 1]), add_special_tokens=False)["input_ids"]
-        delta = list(cur[len(prev):])
-        prev = list(cur)
+            text = _fallback_render(messages[: i + 1])
+        delta_text = text[len(prev_text):]
+        prev_text = text
+        delta = tokenizer(delta_text, add_special_tokens=False)["input_ids"]
         if msg.get("role") == "assistant":
             input_ids.extend(delta)
             labels.extend(delta)
         else:
             input_ids.extend(delta)
             labels.extend([IGNORE_INDEX] * len(delta))
-    if len(input_ids) > max_len:
-        input_ids = input_ids[:max_len]
-        labels = labels[:max_len]
-    return input_ids, labels
+        if len(input_ids) >= max_len:
+            break
+    return input_ids[:max_len], labels[:max_len]
 
 
 def _fallback_render(messages: list[dict]) -> str:
@@ -63,11 +66,13 @@ def _fallback_render(messages: list[dict]) -> str:
 
 def build_examples(records: list[list[dict]], tokenizer: Any, max_len: int) -> list[dict]:
     out: list[dict] = []
-    for msgs in records:
+    total = len(records)
+    for i, msgs in enumerate(records):
         ids, labs = tokenize_with_assistant_mask(msgs, tokenizer, max_len)
-        if not any(lab != IGNORE_INDEX for lab in labs):
-            continue
-        out.append({"input_ids": ids, "labels": labs})
+        if any(lab != IGNORE_INDEX for lab in labs):
+            out.append({"input_ids": ids, "labels": labs})
+        if (i + 1) % 2000 == 0:
+            print(f"  tokenized {i + 1}/{total} -> {len(out)} kept", flush=True)
     return out
 
 

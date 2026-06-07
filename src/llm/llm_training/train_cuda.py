@@ -174,6 +174,7 @@ def _materialize(path: Path | None, config: TrainConfig, tokenizer: Any, label: 
     if path is None:
         return []
     records = load_jsonl_chat(path, config.max_examples)
+    print(f"{label}: read {len(records)} records, tokenizing...", flush=True)
     examples = build_examples(records, tokenizer, config.max_seq_len)
     print(f"{label}: loaded {len(records)} records -> {len(examples)} examples (after mask filter)", flush=True)
     return examples
