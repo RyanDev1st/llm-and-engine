@@ -100,6 +100,9 @@ def fused_masked_loss(model: Any, batch: dict, labels: torch.Tensor) -> torch.Te
         hidden = out.logits
     finally:
         holder.lm_head = real_head
+    # Under model sharding (device_map="auto") hidden lands on the last GPU; move
+    # labels there so masking/indexing/CE stay on one device.
+    labels = labels.to(hidden.device)
     shift_hidden = hidden[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
     flat_hidden = shift_hidden.view(-1, shift_hidden.size(-1))
@@ -130,7 +133,7 @@ def _train_loop(model, train_examples, val_batches, optimizer, scheduler, target
             for raw in chunk:
                 batch = {k: v.to(target_device) for k, v in raw.items()}
                 labels = batch.pop("labels")
-                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+                with sdpa_kernel([SDPBackend.MATH]):
                     loss = fused_masked_loss(model, batch, labels) / len(chunk)
                 loss.backward()
                 accum_loss += loss.item()
@@ -181,6 +184,11 @@ def _build_quant_config(config: TrainConfig):
 def _device_map(config: TrainConfig, is_4bit: bool):
     if config.device == "cpu":
         return {"": "cpu"}
+    # Multi-GPU (e.g. Kaggle 2x T4 = 32GB): shard the model across all GPUs so a
+    # model too big for one 16GB card (E4B) fits. accelerate splits layers across
+    # devices and moves activations between them.
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+        return "auto"
     if is_4bit:
         return {"": 0, "model.vision_tower": "cpu", "model.audio_tower": "cpu"}
     return {"": 0}
