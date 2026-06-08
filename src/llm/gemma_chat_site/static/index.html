@@ -64,9 +64,12 @@
   </details>
 
   <style>
-    .skillpanel{margin:14px 18px;border:1px solid #2a2f3a;border-radius:10px;background:#161922;color:#cfd6e4}
-    .skillpanel>summary{cursor:pointer;padding:10px 14px;font-weight:600;user-select:none}
-    .skillgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:6px 14px 14px}
+    .skillpanel{position:fixed;right:16px;bottom:16px;z-index:9999;width:560px;max-width:92vw;
+      max-height:82vh;overflow:auto;border:1px solid #2a2f3a;border-radius:10px;background:#161922;
+      color:#cfd6e4;box-shadow:0 14px 48px rgba(0,0,0,.6)}
+    .skillpanel>summary{cursor:pointer;padding:11px 14px;font-weight:600;user-select:none;
+      position:sticky;top:0;background:#1b1f2a;border-radius:10px 10px 0 0}
+    .skillgrid{display:grid;grid-template-columns:1fr;gap:14px;padding:8px 14px 16px}
     .skillpanel h4{margin:10px 0 6px;font-size:13px;color:#9fb0c8}
     .skillpanel input,.skillpanel textarea{width:100%;box-sizing:border-box;margin:3px 0;padding:7px 9px;
       background:#0e1118;border:1px solid #2a2f3a;border-radius:6px;color:#e6ebf3;font:inherit}
