@@ -168,6 +168,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", TYPES.get(p.suffix, "application/octet-stream"))
         self.send_header("content-length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")  # dev: always fresh
         self.end_headers()
         self.wfile.write(data)
 
