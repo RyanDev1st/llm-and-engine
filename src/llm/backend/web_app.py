@@ -38,7 +38,9 @@ class App:
         if adapter:
             try:
                 from .model_hf import HFModel
-                model = HFModel(adapter=adapter, temperature=0.6)
+                # greedy (temp 0) — faithful to the tool number and reproducible
+                # for the demo; sampling let it drift off the engine's eval.
+                model = HFModel(adapter=adapter, temperature=0.0)
                 ov, pc = agent_overlay(), self.plugin_context
                 self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
                 self.loop_base = CoachLoop(AdapterView(model, False), self.executor, ov, pc)
