@@ -24,6 +24,18 @@ class ModelBackend(Protocol):
         ...
 
 
+class AdapterView:
+    """Wraps an HFModel so a CoachLoop runs it with the LoRA adapter on (our SFT)
+    or off (the untrained base) — same weights, for the side-by-side demo."""
+
+    def __init__(self, model, use_adapter: bool) -> None:
+        self.model = model
+        self.use_adapter = use_adapter
+
+    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
+        return self.model.generate(messages, max_new_tokens, stop, use_adapter=self.use_adapter)
+
+
 def contains_tool_call(text: str) -> bool:
     return "<tool>" in text or "</tool>" in text
 

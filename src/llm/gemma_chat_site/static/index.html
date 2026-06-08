@@ -27,16 +27,24 @@
         <span id="movelist" class="movelist"></span></div>
     </section>
 
-    <!-- RIGHT: chat -->
-    <section class="chatcol" aria-label="Coach chat">
-      <div class="chathead">Coach</div>
+    <!-- RIGHT: our SFT chat (+ compare toggle) -->
+    <section class="chatcol" id="sftcol" aria-label="SFT coach chat">
+      <div class="chathead">Our SFT Gemma <span class="tag sft">adapter ON</span>
+        <label class="cmp"><input type="checkbox" id="cmptoggle" /> Compare vs base</label>
+      </div>
       <div id="messages" class="messages"></div>
-      <div id="typing" class="typing hidden">Coach is thinking…</div>
       <form id="chatform" class="composer">
         <input id="chatinput" class="chatinput" autocomplete="off"
-               placeholder="Ask your coach… (e.g. how's my position?)" />
+               placeholder="Ask the coach… (sent to both models in compare mode)" />
         <button class="btn send" type="submit">Send</button>
       </form>
+    </section>
+
+    <!-- RIGHT: untrained base chat (compare mode only) -->
+    <section class="chatcol" id="basecol" aria-label="Untrained base chat" hidden>
+      <div class="chathead">Base Gemma <span class="tag base">no training</span></div>
+      <div id="messages-base" class="messages"></div>
+      <div class="basehint">same harness · same skills · LoRA OFF</div>
     </section>
   </main>
 
@@ -81,6 +89,12 @@
     .skilllist li .rt{color:#7fd1a0;font-size:11px;margin-left:6px}
     .skilllist li .del{float:right;cursor:pointer;color:#e07a7a;border:none;background:none;font-size:13px}
     .skcount{color:#7f8aa0;font-weight:400}
+    .chathead .tag{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:8px;vertical-align:middle}
+    .chathead .tag.sft{background:#1f7a4d;color:#dffae9}
+    .chathead .tag.base{background:#7a3b1f;color:#ffe6d6}
+    .chathead .cmp{float:right;font-size:12px;font-weight:500;color:#9fb0c8;cursor:pointer;display:flex;align-items:center;gap:5px}
+    .basehint{padding:8px 14px;font-size:11.5px;color:#7f8aa0;border-top:1px solid var(--line)}
+    #basecol{opacity:.97}
   </style>
 
   <script src="/static/board.js"></script>

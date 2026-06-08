@@ -5,11 +5,14 @@ const evalText = document.getElementById("evaltext");
 const turnPill = document.getElementById("turnpill");
 const moveList = document.getElementById("movelist");
 const messages = document.getElementById("messages");
-const typing = document.getElementById("typing");
+const messagesBase = document.getElementById("messages-base");
+const basecol = document.getElementById("basecol");
+const cmptoggle = document.getElementById("cmptoggle");
 const form = document.getElementById("chatform");
 const input = document.getElementById("chatinput");
 const sendBtn = form.querySelector(".send");
 let chatBusy = false;
+let compareMode = false;
 
 async function api(path, body) {
   const opt = body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
@@ -37,23 +40,31 @@ function pairMoves(sans) {
   return out.trim();
 }
 
-function addMsg(text, cls) {
+function addMsgTo(container, text, cls) {
   const d = document.createElement("div");
   d.className = "msg " + cls; d.textContent = text;
-  messages.appendChild(d); messages.scrollTop = messages.scrollHeight;
+  container.appendChild(d); container.scrollTop = container.scrollHeight;
   return d;
 }
 
-function addLoadingMsg() {
+function addLoadingTo(container) {
   const d = document.createElement("div");
   d.className = "msg bot loading";
   d.innerHTML = `<div class="skeleton">
-    <span class="skel-line"></span>
-    <span class="skel-line"></span>
-    <span class="skel-line short"></span>
+    <span class="skel-line"></span><span class="skel-line"></span><span class="skel-line short"></span>
   </div>`;
-  messages.appendChild(d); messages.scrollTop = messages.scrollHeight;
+  container.appendChild(d); container.scrollTop = container.scrollHeight;
   return d;
+}
+
+const addMsg = (text, cls) => addMsgTo(messages, text, cls);
+
+function renderReply(container, payload, loadingEl) {
+  if (loadingEl) loadingEl.remove();
+  const calls = payload.tool_calls || (payload.tool_call ? [payload.tool_call] : []);
+  const results = payload.tool_results || (payload.tool_result ? [payload.tool_result] : []);
+  calls.forEach((c, i) => addMsgTo(container, `🔧 ${c}  →  ${results[i] || ""}`, "tool"));
+  addMsgTo(container, payload.reply || "(no reply)", "bot");
 }
 
 function setBusy(busy) {
@@ -61,7 +72,6 @@ function setBusy(busy) {
   input.disabled = busy;
   sendBtn.disabled = busy;
   form.classList.toggle("busy", busy);
-  typing.classList.add("hidden");
 }
 
 async function refresh() { renderState(await api("/api/state")); }
@@ -74,19 +84,23 @@ async function onMove(uci) {
 async function sendChat(message) {
   if (chatBusy) return;
   setBusy(true);
-  addMsg(message, "user");
-  const loading = addLoadingMsg();
+  addMsgTo(messages, message, "user");
+  const loadSft = addLoadingTo(messages);
+  let loadBase = null;
+  if (compareMode) { addMsgTo(messagesBase, message, "user"); loadBase = addLoadingTo(messagesBase); }
   try {
-    const res = await api("/api/chat", { message });
-    loading.remove();
-    const calls = res.tool_calls || (res.tool_call ? [res.tool_call] : []);
-    const results = res.tool_results || (res.tool_result ? [res.tool_result] : []);
-    calls.forEach((call, i) => addMsg(`🔧 ${call}  →  ${results[i] || ""}`, "tool"));
-    addMsg(res.reply || "(no reply)", "bot");
+    const res = await api("/api/chat", { message, variant: compareMode ? "both" : "sft" });
+    if (compareMode && res.sft) {
+      renderReply(messages, res.sft, loadSft);
+      renderReply(messagesBase, res.base, loadBase);
+    } else {
+      renderReply(messages, res, loadSft);
+    }
     if (res.state) renderState(res.state);
   } catch (e) {
-    loading.remove();
-    addMsg("Sorry, something went wrong reaching the coach.", "bot");
+    if (loadSft) loadSft.remove();
+    if (loadBase) loadBase.remove();
+    addMsgTo(messages, "Sorry, something went wrong reaching the coach.", "bot");
   } finally {
     setBusy(false);
     input.focus();
@@ -106,8 +120,17 @@ form.addEventListener("submit", (e) => {
 document.getElementById("reset").addEventListener("click", async () => {
   const res = await api("/api/reset", {});
   messages.innerHTML = "";
+  messagesBase.innerHTML = "";
   addMsg("New game started. Make a move on the board or ask me anything!", "bot");
+  if (compareMode) addMsgTo(messagesBase, "Base model ready (no training).", "bot");
   renderState(res.state);
+});
+
+cmptoggle.addEventListener("change", () => {
+  compareMode = cmptoggle.checked;
+  basecol.hidden = !compareMode;
+  if (compareMode && !messagesBase.childElementCount)
+    addMsgTo(messagesBase, "Base Gemma — same harness + skills, no SFT. Ask anything to compare.", "bot");
 });
 
 // ---- Skills & plugins panel ------------------------------------------------
