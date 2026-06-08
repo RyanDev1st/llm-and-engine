@@ -55,7 +55,13 @@ def _real_training(config: TrainConfig) -> dict:
     val_examples = _materialize(config.val_path, config, tokenizer, label="val") if config.val_path else []
     if not train_examples:
         raise ValueError("no training examples produced; check --data-path")
-    val_batches = make_batches(val_examples, config.batch_size, tokenizer.pad_token_id, shuffle=False, seed=config.seed) if val_examples else []
+    # In-loop eval only needs a signal, not all of val — full val at seq 1280 cost
+    # ~27 min/eval and ate a third of the wall-clock. Cap it; final quality is
+    # judged by eval_routing.py, not this loss.
+    eval_subset = val_examples[: config.max_val_examples] if val_examples else []
+    val_batches = make_batches(eval_subset, config.batch_size, tokenizer.pad_token_id, shuffle=False, seed=config.seed) if eval_subset else []
+    if val_examples:
+        print(f"val: using {len(eval_subset)}/{len(val_examples)} examples for in-loop eval", flush=True)
 
     micro_per_epoch = math.ceil(len(train_examples) / config.batch_size)
     updates_per_epoch = math.ceil(micro_per_epoch / config.grad_accum_steps)
@@ -142,7 +148,10 @@ def _train_loop(model, train_examples, val_batches, optimizer, scheduler, target
             for raw in chunk:
                 batch = {k: v.to(target_device) for k, v in raw.items()}
                 labels = batch.pop("labels")
-                with sdpa_kernel([SDPBackend.MATH]):
+                # Prefer the mem-efficient kernel (supported on T4/sm_75 and far
+                # faster than MATH at seq 1280); MATH stays in the allow-list as an
+                # automatic per-op fallback, so this can speed up without crashing.
+                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
                     loss = fused_masked_loss(model, batch, labels) / len(chunk)
                 loss.backward()
                 accum_loss += loss.item()

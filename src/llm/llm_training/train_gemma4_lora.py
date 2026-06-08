@@ -32,6 +32,7 @@ class TrainConfig:
     grad_clip: float = 1.0
     optimizer: str = "paged_adamw_8bit"
     eval_every: int = 50
+    max_val_examples: int = 128
     shuffle: bool = True
     loss_mask: str = "assistant-only"
     model_path: Path = Path("src/models/gemma4")

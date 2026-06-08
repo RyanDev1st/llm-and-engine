@@ -38,6 +38,7 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         max_seq_len=args.max_seq, lora_rank=rank, lora_alpha=2 * rank,
         lora_dropout=0.05, lora_targets=targets, learning_rate=args.lr,
         warmup_ratio=0.03, optimizer="paged_adamw_8bit", eval_every=args.eval_every,
+        max_val_examples=args.max_val,
         loss_mask="assistant-only", load_in_4bit=not getattr(args, "no_4bit", False),
         model_path=MODELS / model,
         data_path=DATA / "v1_2_train.jsonl",
@@ -57,6 +58,8 @@ def main() -> None:
     ap.add_argument("--grad-accum", type=int, default=16, dest="grad_accum")
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--eval-every", type=int, default=50, dest="eval_every")
+    ap.add_argument("--max-val", type=int, default=128, dest="max_val",
+                    help="cap val examples for in-loop eval (full val at seq 1280 is ~27 min/eval)")
     ap.add_argument("--output", default="gemma4_chess")
     ap.add_argument("--model", default=DEFAULT_MODEL,
                     help="base model dir under src/llm/models (e.g. gemma4_e4b, gemma4_e2b)")
