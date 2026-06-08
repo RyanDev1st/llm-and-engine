@@ -48,9 +48,22 @@ class App:
         self._adapter = adapter
 
     def load_model(self) -> None:
-        # GGUF-only serving (q4_0, ~4.5 GiB, light mmap) per the local-host
-        # decision. No GGUF -> raise so board/eval still work but the model is
-        # marked unavailable. (Ollama path archived to legacy [ignore]/.)
+        # If a LoRA adapter dir is given (arg or CHESS_HF_ADAPTER), serve the HF
+        # 4-bit base + that adapter directly — lets you chat with a freshly
+        # trained adapter before it is merged/exported to GGUF.
+        adapter = self._adapter or os.environ.get("CHESS_HF_ADAPTER", "")
+        if adapter:
+            try:
+                from .model_hf import HFModel
+                model = HFModel(adapter=adapter, temperature=0.6)
+                self.loop = CoachLoop(model, self.executor, agent_overlay())
+                print(f"model loaded (HF 4-bit base + adapter {adapter})", flush=True)
+                return
+            except Exception as exc:
+                self.model_error = str(exc)
+                print(f"HF adapter load failed ({exc}); falling back to GGUF", flush=True)
+        # GGUF serving (q4_0, ~4.5 GiB, light mmap) — the shipped artifact path.
+        # No GGUF -> board/eval still work but the model is marked unavailable.
         from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
         try:
             gguf = default_gguf_path()
