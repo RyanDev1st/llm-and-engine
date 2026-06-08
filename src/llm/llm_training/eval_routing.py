@@ -16,7 +16,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.model_hf import HFModel  # noqa: E402
 from backend.toolfmt import parse_call  # noqa: E402
-from llm_training.system_prompt import SYSTEM_PROMPT  # noqa: E402
+from llm_training.system_prompt import build_system  # noqa: E402
+
+
+def _system(row: dict) -> str:
+    """Rebuild the SAME per-row system prompt the model trained on (skills
+    catalog + tool manifest + plugin context). Evaluating with an empty catalog
+    would be out-of-distribution and unfairly tank routing."""
+    return build_system(row.get("skills_index", []), row.get("tool_manifest", []),
+                        row.get("plugin_context", {}))
 
 REPO = Path(__file__).resolve().parents[3]
 VAL = REPO / "data" / "sft" / "v1_2_val.jsonl"
@@ -33,16 +41,18 @@ def gold_tool(messages: list[dict]) -> str | None:
     return None
 
 
-def first_turn(messages: list[dict]) -> list[dict]:
+def first_turn(row: dict) -> list[dict]:
+    messages = row["messages"]
     first_user = next(message for message in messages if message.get("role") == "user")
-    return [{"role": "system", "content": SYSTEM_PROMPT}, first_user]
+    return [{"role": "system", "content": _system(row)}, first_user]
 
 
-def mode2_messages(messages: list[dict]) -> list[dict] | None:
+def mode2_messages(row: dict) -> list[dict] | None:
     """system,user,assistant(tool),tool -> prompt that should yield narration."""
+    messages = row["messages"]
     for i, m in enumerate(messages):
         if m["role"] == "tool":
-            return [{"role": "system", "content": SYSTEM_PROMPT}, *messages[: i + 1]]
+            return [{"role": "system", "content": _system(row)}, *messages[: i + 1]]
     return None
 
 
@@ -60,9 +70,11 @@ def main() -> None:
     for r in rows:
         sl = r["slice"]
         msgs = r["messages"]
-        pred_raw = model.generate(first_turn(msgs), max_new_tokens=48, stop=["</tool>"]).strip()
-        if pred_raw.startswith("<tool>"):
-            if not pred_raw.endswith("</tool>"):
+        pred_raw = model.generate(first_turn(r), max_new_tokens=48, stop=["</tool>"]).strip()
+        # The trained shape is an optional lead-in sentence then ONE <tool>, so
+        # search for the tag rather than anchoring on the start of the string.
+        if "<tool>" in pred_raw:
+            if not pred_raw.rstrip().endswith("</tool>"):
                 pred_raw += "</tool>"
             pred, _ = parse_call(pred_raw)
         else:
@@ -74,7 +86,7 @@ def main() -> None:
         else:
             confusion[f"{sl}: gold={gold} pred={pred}"] += 1
 
-        m2 = mode2_messages(msgs)
+        m2 = mode2_messages(r)
         if m2:
             mode2_total += 1
             narr = model.generate(m2, max_new_tokens=64, stop=[])
