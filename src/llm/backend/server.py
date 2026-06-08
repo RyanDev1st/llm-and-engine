@@ -18,8 +18,8 @@ from urllib.parse import urlparse
 
 from .engine import Engine
 from .game import Game
-from .inference import CoachLoop
-from . import state_api
+from .inference import CoachLoop, PLUGIN_CONTEXT
+from . import skill_admin, state_api
 from .tools import ToolExecutor
 
 WEB = Path(__file__).resolve().parents[1] / "gemma_chat_site" / "static"
@@ -46,6 +46,8 @@ class App:
         self.loop: CoachLoop | None = None
         self.model_error: str | None = None
         self._adapter = adapter
+        # live plugin envelope (copy so /api/plugin edits don't mutate the const)
+        self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
 
     def load_model(self) -> None:
         # If a LoRA adapter dir is given (arg or CHESS_HF_ADAPTER), serve the HF
@@ -56,7 +58,7 @@ class App:
             try:
                 from .model_hf import HFModel
                 model = HFModel(adapter=adapter, temperature=0.6)
-                self.loop = CoachLoop(model, self.executor, agent_overlay())
+                self.loop = CoachLoop(model, self.executor, agent_overlay(), self.plugin_context)
                 print(f"model loaded (HF 4-bit base + adapter {adapter})", flush=True)
                 return
             except Exception as exc:
@@ -70,7 +72,7 @@ class App:
             if gguf.exists():
                 n_ctx, n_gpu_layers = gguf_runtime_config()
                 model = GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers)
-                self.loop = CoachLoop(model, self.executor, agent_overlay())
+                self.loop = CoachLoop(model, self.executor, agent_overlay(), self.plugin_context)
                 print(f"model loaded (GGUF {gguf.name})", flush=True)
                 return
             raise FileNotFoundError(
@@ -98,6 +100,9 @@ class App:
                 "tool_result": result["tool_result"], "tool_calls": result.get("tool_calls", []),
                 "tool_results": result.get("tool_results", []), "state": self.state()}
 
+    def skills_payload(self) -> dict:
+        return skill_admin.catalog_payload(self.plugin_context)
+
 
 APP: App
 
@@ -107,6 +112,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/state":
             return self._json(APP.state())
+        if path == "/api/skills":
+            return self._json(APP.skills_payload())
         if path in ("/", "/index.html"):
             return self._file(WEB / "index.html")
         if path.startswith("/static/"):
@@ -127,6 +134,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not msg:
                     raise ValueError("empty message")
                 return self._json({"ok": True, **APP.chat(msg)})
+            if path == "/api/skill":
+                skill_admin.add_skill(str(body.get("name", "")), str(body.get("description", "")),
+                                      str(body.get("body", "")))
+                return self._json({"ok": True, **APP.skills_payload()})
+            if path == "/api/skill/delete":
+                skill_admin.delete_skill(str(body.get("name", "")))
+                return self._json({"ok": True, **APP.skills_payload()})
+            if path == "/api/plugin":
+                skill_admin.apply_plugin(APP.plugin_context, body)
+                return self._json({"ok": True, **APP.skills_payload()})
             self.send_error(404)
         except Exception as exc:
             self._json({"ok": False, "error": str(exc)}, 500)
@@ -160,6 +177,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     global APP
+    skill_admin.register()  # runtime skills dir on CHESS_SKILLS_DIRS, wiped fresh
     adapter = sys.argv[1] if len(sys.argv) > 1 else None
     APP = App(adapter)
     print(f"loading model (adapter={adapter}) ...", flush=True)

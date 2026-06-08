@@ -86,20 +86,23 @@ def serving_skills_index() -> list[dict]:
     ]
 
 
-def build_system_prompt(agent_overlay: str = "") -> str:
-    return build_system(serving_skills_index(), official_tools(), PLUGIN_CONTEXT, agent_overlay)
+def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None) -> str:
+    return build_system(serving_skills_index(), official_tools(),
+                        plugin_context or PLUGIN_CONTEXT, agent_overlay)
 
 
 class CoachLoop:
-    def __init__(self, model: ModelBackend, executor: ToolExecutor, agent_overlay: str = "") -> None:
+    def __init__(self, model: ModelBackend, executor: ToolExecutor, agent_overlay: str = "",
+                 plugin_context: dict | None = None) -> None:
         self.model = model
         self.executor = executor
         self.agent_overlay = agent_overlay
+        self.plugin_context = plugin_context
 
     def respond(self, history: list[dict], user_message: str) -> dict:
         """history: prior user/assistant/tool turns (no system). Returns the
         new turns plus display fields (tool_call, tool_result, reply)."""
-        convo = [{"role": "system", "content": build_system_prompt(self.agent_overlay)}, *history,
+        convo = [{"role": "system", "content": build_system_prompt(self.agent_overlay, self.plugin_context)}, *history,
                  {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []

@@ -6,6 +6,10 @@ const turnPill = document.getElementById("turnpill");
 const moveList = document.getElementById("movelist");
 const messages = document.getElementById("messages");
 const typing = document.getElementById("typing");
+const form = document.getElementById("chatform");
+const input = document.getElementById("chatinput");
+const sendBtn = form.querySelector(".send");
+let chatBusy = false;
 
 async function api(path, body) {
   const opt = body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
@@ -40,6 +44,26 @@ function addMsg(text, cls) {
   return d;
 }
 
+function addLoadingMsg() {
+  const d = document.createElement("div");
+  d.className = "msg bot loading";
+  d.innerHTML = `<div class="skeleton">
+    <span class="skel-line"></span>
+    <span class="skel-line"></span>
+    <span class="skel-line short"></span>
+  </div>`;
+  messages.appendChild(d); messages.scrollTop = messages.scrollHeight;
+  return d;
+}
+
+function setBusy(busy) {
+  chatBusy = busy;
+  input.disabled = busy;
+  sendBtn.disabled = busy;
+  form.classList.toggle("busy", busy);
+  typing.classList.add("hidden");
+}
+
 async function refresh() { renderState(await api("/api/state")); }
 
 async function onMove(uci) {
@@ -48,27 +72,33 @@ async function onMove(uci) {
 }
 
 async function sendChat(message) {
+  if (chatBusy) return;
+  setBusy(true);
   addMsg(message, "user");
-  typing.classList.remove("hidden");
+  const loading = addLoadingMsg();
   try {
     const res = await api("/api/chat", { message });
-    if (res.tool_call) addMsg(`🔧 ${res.tool_call}  →  ${res.tool_result}`, "tool");
+    loading.remove();
+    const calls = res.tool_calls || (res.tool_call ? [res.tool_call] : []);
+    const results = res.tool_results || (res.tool_result ? [res.tool_result] : []);
+    calls.forEach((call, i) => addMsg(`🔧 ${call}  →  ${results[i] || ""}`, "tool"));
     addMsg(res.reply || "(no reply)", "bot");
     if (res.state) renderState(res.state);
   } catch (e) {
+    loading.remove();
     addMsg("Sorry, something went wrong reaching the coach.", "bot");
   } finally {
-    typing.classList.add("hidden");
+    setBusy(false);
+    input.focus();
   }
 }
 
 Board.init(boardEl, onMove);
 
-document.getElementById("chatform").addEventListener("submit", (e) => {
+form.addEventListener("submit", (e) => {
   e.preventDefault();
-  const input = document.getElementById("chatinput");
   const msg = input.value.trim();
-  if (!msg) return;
+  if (!msg || chatBusy) return;
   input.value = "";
   sendChat(msg);
 });
@@ -80,5 +110,59 @@ document.getElementById("reset").addEventListener("click", async () => {
   renderState(res.state);
 });
 
+// ---- Skills & plugins panel ------------------------------------------------
+const skItems = document.getElementById("sk-items");
+const skCount = document.getElementById("sk-count");
+const skMsg = document.getElementById("sk-msg");
+
+function renderCatalog(payload) {
+  const skills = payload.skills || [];
+  skCount.textContent = `(${skills.length})`;
+  skItems.innerHTML = "";
+  skills.forEach((s) => {
+    const li = document.createElement("li");
+    const del = s.runtime ? `<button class="del" data-name="${s.name}" title="remove">✕</button>` : "";
+    li.innerHTML = `${del}<span class="nm">${s.name}</span>${s.runtime ? '<span class="rt">runtime</span>' : ""}<br>${s.description}`;
+    skItems.appendChild(li);
+  });
+  skItems.querySelectorAll(".del").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await api("/api/skill/delete", { name: b.dataset.name });
+      loadCatalog();
+    }));
+  const pc = payload.plugin_context || {};
+  document.getElementById("pl-installed").value = (pc.installed || []).join(", ");
+  document.getElementById("pl-enabled").value = (pc.enabled || []).join(", ");
+  document.getElementById("pl-market").value = (pc.marketplace || []).join(", ");
+}
+
+async function loadCatalog() { renderCatalog(await api("/api/skills")); }
+
+document.getElementById("sk-add").addEventListener("click", async () => {
+  const name = document.getElementById("sk-name").value.trim();
+  const description = document.getElementById("sk-desc").value.trim();
+  const body = document.getElementById("sk-body").value;
+  if (!name || !description) { skMsg.textContent = "name + description required"; skMsg.style.color = "#e07a7a"; return; }
+  const res = await api("/api/skill", { name, description, body });
+  if (res.ok) {
+    skMsg.textContent = `added — now ask something it should route to, and watch for load_skill`;
+    skMsg.style.color = "#7fd1a0";
+    document.getElementById("sk-name").value = "";
+    document.getElementById("sk-desc").value = "";
+    document.getElementById("sk-body").value = "";
+    renderCatalog(res);
+  } else { skMsg.textContent = res.error || "failed"; skMsg.style.color = "#e07a7a"; }
+});
+
+document.getElementById("pl-apply").addEventListener("click", async () => {
+  const res = await api("/api/plugin", {
+    installed: document.getElementById("pl-installed").value,
+    enabled: document.getElementById("pl-enabled").value,
+    marketplace: document.getElementById("pl-market").value,
+  });
+  if (res.ok) { skMsg.textContent = "plugin context updated"; skMsg.style.color = "#7fd1a0"; renderCatalog(res); }
+});
+
 addMsg("Hi! I'm your chess coach. Drag pieces to play, or ask me things like \"how's my position?\" or \"what should I play?\"", "bot");
 refresh();
+loadCatalog();

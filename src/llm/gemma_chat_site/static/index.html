@@ -40,6 +40,46 @@
     </section>
   </main>
 
+  <details class="skillpanel">
+    <summary>🧩 Skills &amp; plugins — test how it follows injected instructions</summary>
+    <div class="skillgrid">
+      <div class="skilladd">
+        <h4>Add a SKILL.md (loadable at runtime)</h4>
+        <input id="sk-name" placeholder="name → load id (e.g. endgame-drills)" />
+        <input id="sk-desc" placeholder="description — the routing trigger ('Use when …')" />
+        <textarea id="sk-body" rows="5" placeholder="body: When to use / Steps (reference tools: eval, best_move, threats…) / Constraint"></textarea>
+        <button id="sk-add" class="btn">Add skill</button>
+        <div id="sk-msg" class="skmsg"></div>
+        <h4>Plugin context</h4>
+        <input id="pl-installed" placeholder="installed (comma-separated)" />
+        <input id="pl-enabled" placeholder="enabled (comma-separated)" />
+        <input id="pl-market" placeholder="marketplace (comma-separated)" />
+        <button id="pl-apply" class="btn">Apply plugins</button>
+      </div>
+      <div class="skilllist">
+        <h4>Catalog the model sees <span id="sk-count" class="skcount"></span></h4>
+        <ul id="sk-items"></ul>
+      </div>
+    </div>
+  </details>
+
+  <style>
+    .skillpanel{margin:14px 18px;border:1px solid #2a2f3a;border-radius:10px;background:#161922;color:#cfd6e4}
+    .skillpanel>summary{cursor:pointer;padding:10px 14px;font-weight:600;user-select:none}
+    .skillgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:6px 14px 14px}
+    .skillpanel h4{margin:10px 0 6px;font-size:13px;color:#9fb0c8}
+    .skillpanel input,.skillpanel textarea{width:100%;box-sizing:border-box;margin:3px 0;padding:7px 9px;
+      background:#0e1118;border:1px solid #2a2f3a;border-radius:6px;color:#e6ebf3;font:inherit}
+    .skillpanel .btn{margin-top:6px}
+    .skmsg{font-size:12px;margin:6px 0;min-height:14px}
+    .skilllist ul{list-style:none;margin:0;padding:0;max-height:320px;overflow:auto}
+    .skilllist li{padding:7px 9px;border:1px solid #232836;border-radius:6px;margin:5px 0;background:#0e1118;font-size:12.5px}
+    .skilllist li .nm{font-weight:600;color:#e6ebf3}
+    .skilllist li .rt{color:#7fd1a0;font-size:11px;margin-left:6px}
+    .skilllist li .del{float:right;cursor:pointer;color:#e07a7a;border:none;background:none;font-size:13px}
+    .skcount{color:#7f8aa0;font-weight:400}
+  </style>
+
   <script src="/static/board.js"></script>
   <script src="/static/app.js"></script>
 </body>
