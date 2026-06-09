@@ -23,7 +23,7 @@ def _real_training(config: TrainConfig) -> dict:
     accelerator = Accelerator()
     main_proc = accelerator.is_main_process
     quant_config = _build_quant_config(config)
-    device_map = _device_map(config, accelerator.local_process_index)
+    device_map = _device_map(config, accelerator.local_process_index, accelerator.num_processes > 1)
     max_memory = _max_memory(device_map)
     if main_proc:
         print(f"Loading model 4bit={quant_config is not None} device_map={device_map} procs={accelerator.num_processes}", flush=True)
@@ -227,9 +227,14 @@ def _build_quant_config(config: TrainConfig):
     )
 
 
-def _device_map(config: TrainConfig, local_index: int = 0):
+def _device_map(config: TrainConfig, local_index: int = 0, distributed: bool = False):
     if config.device == "cpu":
         return {"": "cpu"}
+    if distributed:
+        # accelerate refuses to DDP-prepare a model loaded with a cpu-offload /
+        # multi-device map. Put the WHOLE model (incl. frozen vision/audio towers)
+        # on this rank's GPU — E2B 4-bit fits a T4 that way (proven by ddp_probe.py).
+        return {"": local_index}
     # Always load the LM on ONE GPU; offload the unused multimodal towers to CPU
     # (text-only training). We deliberately do NOT use device_map="auto": naive
     # sharding across 2x T4 put the back half of the model + lm_head on GPU 1 and
