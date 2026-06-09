@@ -38,6 +38,11 @@ def _real_training(config: TrainConfig) -> dict:
         torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, quantization_config=quant_config,
     )
 
+    if accelerator.num_processes > 1:
+        freed = _drop_towers(model)
+        if main_proc:
+            print(f"DDP: freed unused towers {freed} to fit the T4", flush=True)
+
     # Freeze the base + enable input grads for LoRA + gradient checkpointing —
     # needed for both 4-bit and bf16 (unquantized) bases.
     model.config.use_cache = False
@@ -225,6 +230,23 @@ def _build_quant_config(config: TrainConfig):
         bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
         llm_int8_enable_fp32_cpu_offload=True,
     )
+
+
+def _drop_towers(model: Any) -> list[str]:
+    """Free the vision/audio towers — unused in text-only training. Under DDP we
+    can't offload them to CPU (accelerate forbids a multi-device map) and the full
+    model + seq-1280 activations OOM a T4, so reclaim that memory by dropping them.
+    Safe: the text-only forward routes straight to language_model, never the towers."""
+    freed: list[str] = []
+    for holder in (getattr(model, "model", None), model):
+        if holder is None:
+            continue
+        for attr in ("vision_tower", "audio_tower"):
+            if getattr(holder, attr, None) is not None:
+                setattr(holder, attr, None)
+                freed.append(attr)
+    torch.cuda.empty_cache()
+    return freed
 
 
 def _device_map(config: TrainConfig, local_index: int = 0, distributed: bool = False):
