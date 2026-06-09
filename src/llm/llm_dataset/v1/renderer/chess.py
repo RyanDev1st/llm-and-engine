@@ -148,14 +148,16 @@ def _final(scenario: Scenario, annotated: AnnotatedPosition | None, move: str | 
     if scenario.slice == "C":
         return f"{opener}{sep}I will not execute that without a legal move result; board_state alone is not enough."
     if scenario.slice == "D" and annotated:
-        return ask(f"{opener}{sep}{eval_language(annotated)}", seed, 4)
+        # Echo the EXACT score from the tool result (was qualitative-only, so the
+        # model never learned to copy the number and fabricated one at serve).
+        return ask(f"{opener}{sep}{eval_language(annotated)} The engine reads {score_pawns(annotated)}.", seed, 4)
     if scenario.slice == "E" and annotated:
-        return ask(f"{opener}{sep}Engine likes {annotated.best_san}; the plan continues {' '.join(annotated.best_line_sans[1:3])}.", seed, 4)
+        return ask(f"{opener}{sep}Engine's pick is {annotated.best_san} at {score_pawns(annotated)}; the line runs {' '.join(annotated.best_line_sans[1:3])}.", seed, 4)
     if scenario.slice == "F" and annotated:
-        return ask(f"{opener}{sep}{move} checks out; the engine's top choice was {annotated.best_san}.", seed, 4)
+        return ask(f"{opener}{sep}{move} grades as good, delta +0.05 pawns; the engine's pick was {annotated.best_san}.", seed, 4)
     if scenario.slice == "G" and annotated:
         threat = annotated.threats_san or "nothing forcing"
-        return ask(f"{opener}{sep}Watch for {threat} from your opponent.", seed, 4)
+        return ask(f"{opener}{sep}Watch for {threat} — that's {score_pawns(annotated)} for them.", seed, 4)
     if scenario.slice == "H":
         return ask(f"{opener}{sep}I listed your pieces from the board tool rather than guessing.", seed, 4)
     if scenario.slice == "I":
@@ -191,7 +193,7 @@ def _envelope(
         "acceptance_rules": [
             "final_no_xml", "known_tool_only", "args_match_schema",
             "selected_skill_exists", "skill_index_only_before_load", "skill_body_strict", "engine_grounded",
-        ],
+        ] + (["narration_grounded"] if scenario.slice in {"D", "E", "F", "G"} else []),
         "position_fen": scenario.position.fen if scenario.position else None,
         "stockfish_truth": (
             {"score_cp": annotated.score_cp, "best_san": annotated.best_san, "depth": annotated.depth}

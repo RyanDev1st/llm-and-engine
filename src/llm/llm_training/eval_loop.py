@@ -16,6 +16,7 @@ def evaluate(model: Any, batches: list[dict], target_device: torch.device) -> fl
         for raw in batches:
             batch = {k: v.to(target_device) for k, v in raw.items()}
             labels = batch.pop("labels")
+            batch.pop("weights", None)  # val loss stays unweighted for comparability
             loss = fused_masked_loss(model, batch, labels)
             n = int((labels != -100).sum().item())
             total_loss += loss.item() * n

@@ -2,12 +2,29 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
 import torch
 
 IGNORE_INDEX = -100
+GROUND_WEIGHT = 5.0  # loss multiplier on "fact" tokens (eval numbers + SAN moves)
+# These are the tokens the model must COPY from the tool result, not invent.
+# Up-weighting them stops fabrication being ~free (a wrong move is 1-2 tokens of
+# a ~30-token narration, so plain mean loss barely penalizes it).
+_FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
+
+
+def _fact_spans(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _FACT.finditer(text)]
+
+
+def _overlaps(offset: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
+    s, e = offset
+    if e <= s:  # special/empty token has no surface span
+        return False
+    return any(s < se and ss < e for ss, se in spans)
 
 
 def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
@@ -33,13 +50,16 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
     return records
 
 
-def tokenize_with_assistant_mask(messages: list[dict], tokenizer: Any, max_len: int) -> tuple[list[int], list[int]]:
+def tokenize_with_assistant_mask(
+    messages: list[dict], tokenizer: Any, max_len: int
+) -> tuple[list[int], list[int], list[float]]:
     # Render each cumulative prefix to TEXT (cheap) and tokenize only the new
-    # delta text once per turn. The old version re-tokenized the whole growing
-    # prefix — incl. the large progressive-disclosure system prompt — on every
-    # message, which is O(n^2) tokens per row and hangs on big corpora.
+    # delta once per turn (O(n) vs the old O(n^2) full re-tokenize). Also emit a
+    # per-token loss weight: fact tokens (eval numbers, SAN moves) in assistant
+    # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
     input_ids: list[int] = []
     labels: list[int] = []
+    weights: list[float] = []
     prev_text = ""
     for i, msg in enumerate(messages):
         try:
@@ -48,16 +68,26 @@ def tokenize_with_assistant_mask(messages: list[dict], tokenizer: Any, max_len: 
             text = _fallback_render(messages[: i + 1])
         delta_text = text[len(prev_text):]
         prev_text = text
-        delta = tokenizer(delta_text, add_special_tokens=False)["input_ids"]
-        if msg.get("role") == "assistant":
-            input_ids.extend(delta)
-            labels.extend(delta)
-        else:
-            input_ids.extend(delta)
-            labels.extend([IGNORE_INDEX] * len(delta))
+        assistant = msg.get("role") == "assistant"
+        try:
+            enc = tokenizer(delta_text, add_special_tokens=False, return_offsets_mapping=True)
+            offsets = enc["offset_mapping"]
+        except Exception:  # slow tokenizer / no offsets -> fall back to weight 1.0
+            enc = tokenizer(delta_text, add_special_tokens=False)
+            offsets = None
+        delta = enc["input_ids"]
+        spans = _fact_spans(delta_text) if (assistant and offsets) else []
+        for j, tid in enumerate(delta):
+            input_ids.append(tid)
+            if assistant:
+                labels.append(tid)
+                weights.append(GROUND_WEIGHT if (offsets and _overlaps(offsets[j], spans)) else 1.0)
+            else:
+                labels.append(IGNORE_INDEX)
+                weights.append(0.0)
         if len(input_ids) >= max_len:
             break
-    return input_ids[:max_len], labels[:max_len]
+    return input_ids[:max_len], labels[:max_len], weights[:max_len]
 
 
 def _fallback_render(messages: list[dict]) -> str:
@@ -68,9 +98,9 @@ def build_examples(records: list[list[dict]], tokenizer: Any, max_len: int) -> l
     out: list[dict] = []
     total = len(records)
     for i, msgs in enumerate(records):
-        ids, labs = tokenize_with_assistant_mask(msgs, tokenizer, max_len)
+        ids, labs, wts = tokenize_with_assistant_mask(msgs, tokenizer, max_len)
         if any(lab != IGNORE_INDEX for lab in labs):
-            out.append({"input_ids": ids, "labels": labs})
+            out.append({"input_ids": ids, "labels": labs, "weights": wts})
         if (i + 1) % 2000 == 0:
             print(f"  tokenized {i + 1}/{total} -> {len(out)} kept", flush=True)
     return out
@@ -80,13 +110,15 @@ def collate_batch(items: list[dict], pad_token_id: int) -> dict:
     max_len = max(len(x["input_ids"]) for x in items)
     input_ids = torch.full((len(items), max_len), pad_token_id, dtype=torch.long)
     labels = torch.full((len(items), max_len), IGNORE_INDEX, dtype=torch.long)
+    weights = torch.zeros((len(items), max_len), dtype=torch.float)
     attention_mask = torch.zeros((len(items), max_len), dtype=torch.long)
     for i, x in enumerate(items):
         n = len(x["input_ids"])
         input_ids[i, :n] = torch.tensor(x["input_ids"], dtype=torch.long)
         labels[i, :n] = torch.tensor(x["labels"], dtype=torch.long)
+        weights[i, :n] = torch.tensor(x.get("weights", [1.0] * n), dtype=torch.float)
         attention_mask[i, :n] = 1
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels, "weights": weights}
 
 
 def make_batches(examples: list[dict], batch_size: int, pad_token_id: int, shuffle: bool, seed: int) -> list[dict]:

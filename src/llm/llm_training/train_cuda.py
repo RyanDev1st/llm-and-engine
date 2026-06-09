@@ -107,7 +107,14 @@ def _find_lm_head(model: Any):
     raise AttributeError("lm_head not found")
 
 
-def fused_masked_loss(model: Any, batch: dict, labels: torch.Tensor) -> torch.Tensor:
+def _weighted_ce(logits: torch.Tensor, labels: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    """Per-token weighted cross-entropy. All-ones weights == standard mean CE."""
+    losses = torch.nn.functional.cross_entropy(logits, labels, reduction="none")
+    return (losses * weights).sum() / weights.sum().clamp(min=1.0)
+
+
+def fused_masked_loss(model: Any, batch: dict, labels: torch.Tensor,
+                      weights: torch.Tensor | None = None) -> torch.Tensor:
     holder = _find_lm_head(model)
     real_head = holder.lm_head
     holder.lm_head = torch.nn.Identity()
@@ -118,17 +125,18 @@ def fused_masked_loss(model: Any, batch: dict, labels: torch.Tensor) -> torch.Te
         holder.lm_head = real_head
     # Keep labels on the same device as hidden (no-op on single GPU; cheap guard).
     labels = labels.to(hidden.device)
-    shift_hidden = hidden[..., :-1, :].contiguous()
     shift_labels = labels[..., 1:].contiguous()
-    flat_hidden = shift_hidden.view(-1, shift_hidden.size(-1))
+    flat_hidden = hidden[..., :-1, :].contiguous().view(-1, hidden.size(-1))
     flat_labels = shift_labels.view(-1)
     sel = flat_labels != -100
     if not sel.any():
         return hidden.sum() * 0.0
-    sel_hidden = flat_hidden[sel]
+    sel_logits = real_head(flat_hidden[sel]).float()
     sel_labels = flat_labels[sel]
-    sel_logits = real_head(sel_hidden).float()
-    return torch.nn.functional.cross_entropy(sel_logits, sel_labels)
+    if weights is None:
+        return torch.nn.functional.cross_entropy(sel_logits, sel_labels)
+    sel_weights = weights.to(hidden.device)[..., 1:].contiguous().view(-1)[sel]
+    return _weighted_ce(sel_logits, sel_labels, sel_weights)
 
 
 def _train_loop(model, train_examples, val_batches, optimizer, scheduler, target_device, pad_id, config, total_updates, evaluate):
@@ -148,11 +156,12 @@ def _train_loop(model, train_examples, val_batches, optimizer, scheduler, target
             for raw in chunk:
                 batch = {k: v.to(target_device) for k, v in raw.items()}
                 labels = batch.pop("labels")
+                weights = batch.pop("weights", None)
                 # Prefer the mem-efficient kernel (supported on T4/sm_75 and far
                 # faster than MATH at seq 1280); MATH stays in the allow-list as an
                 # automatic per-op fallback, so this can speed up without crashing.
                 with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
-                    loss = fused_masked_loss(model, batch, labels) / len(chunk)
+                    loss = fused_masked_loss(model, batch, labels, weights) / len(chunk)
                 loss.backward()
                 accum_loss += loss.item()
             torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)

@@ -13,6 +13,10 @@ from .contracts import MAX_TOOL_CALLS, REQUIRED_FIELDS, RULES, SLICES, VALID_ROL
 _CALL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)(.*?)</tool>", re.DOTALL)
 _ARG = re.compile(r"([a-z_][a-z0-9_]*)=([^\s<>]+)")
 _MOVE_SAN = re.compile(r"<tool>\s*move\s+san=([^\s<]+)")
+# "Facts" the narration must copy from the tool result: eval/delta numbers and
+# SAN moves. Used by the narration-grounding check (and mirrors the loss-weight
+# target on the training side).
+_FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
 
 def _tool_matches(content: str) -> list[re.Match]:
@@ -44,6 +48,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_grounding(row, calls))
     violations.extend(_engine_grounded(row))
     violations.extend(_eval_language(row))
+    violations.extend(_narration_grounded(row))
     violations.extend(_injection(row))
     violations.extend(_move_legality(row))
     violations.extend(_board_state_turn(row))
@@ -210,6 +215,27 @@ def _eval_language(row: dict[str, Any]) -> list[Violation]:
     if "close_eval_equal_language" in row["acceptance_rules"] and "slightly better" in text:
         return [Violation("close_eval_equal_language", "overstates close eval")]
     return []
+
+
+def _narration_grounded(row: dict[str, Any]) -> list[Violation]:
+    """The final narration must cite a value (move/eval) that appears in a tool
+    result — so the model learns to COPY the engine output, not invent it. Only
+    enforced where a numeric/move result exists (eval/best_move/review/threats)."""
+    if "narration_grounded" not in row.get("acceptance_rules", []):
+        return []
+    messages = row["messages"]
+    tool_facts: set[str] = set()
+    for m in messages:
+        if m.get("role") == "tool":
+            tool_facts |= set(_FACT.findall(m.get("content", "")))
+    if not tool_facts:
+        return []
+    finals = [m["content"] for m in messages
+              if m.get("role") == "assistant" and not _tool_matches(m.get("content", ""))]
+    final_facts = set(_FACT.findall(finals[-1])) if finals else set()
+    if final_facts & tool_facts:
+        return []
+    return [Violation("narration_grounded", "final narration cites no value from the tool results")]
 
 
 def _applies_when(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
