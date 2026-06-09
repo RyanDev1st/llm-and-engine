@@ -134,9 +134,14 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     from .train_cuda import _materialize
     from .optim_sched import build_optimizer, build_scheduler
 
-    model, tokenizer = FastModel.from_pretrained(
+    model, processor = FastModel.from_pretrained(
         model_name=str(config.model_path), max_seq_length=config.max_seq_len,
         load_in_4bit=config.load_in_4bit, dtype=None)
+    # Gemma4 is multimodal -> FastModel returns a PROCESSOR whose patched __call__
+    # treats the first positional arg as `images` (text= is keyword-only). Our
+    # text-only pipeline calls tokenizer(delta_text, return_offsets_mapping=True),
+    # so unwrap to the raw text tokenizer which has the normal (text, ...) call.
+    tokenizer = getattr(processor, "tokenizer", None) or processor
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     flags = _TARGET_FLAGS.get(config.lora_targets, _TARGET_FLAGS["attn-only"])
@@ -166,7 +171,7 @@ def run_unsloth_training(config: TrainConfig) -> dict:
                                 device, tokenizer.pad_token_id, config, total_updates)
 
     model.save_pretrained(str(config.output_dir))
-    tokenizer.save_pretrained(str(config.output_dir))
+    processor.save_pretrained(str(config.output_dir))
     result = {"engine": "unsloth", "total_updates": total_updates, "training_completed": True,
               "final_train_loss": losses[-1] if losses else None, "train_losses": losses,
               "val_losses": val_history, "output_dir": str(config.output_dir)}
