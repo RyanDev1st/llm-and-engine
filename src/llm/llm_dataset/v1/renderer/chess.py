@@ -29,6 +29,17 @@ SLICE_USER_TEMPLATES = {
 INTERNAL_LESSON = "Use board tools before claims. Ground evaluation in Stockfish output."
 
 
+def _e_top_form(scenario: Scenario, annotated: AnnotatedPosition | None) -> bool:
+    """Half of best-move rows use the top=N (best_moves) result the model emits
+    at serve — so it learns to read/narrate that shape, not just best_line."""
+    return bool(annotated and len(annotated.top_moves) >= 2 and scenario.seed % 2 == 0)
+
+
+def _best_moves_result(top_moves: tuple) -> str:
+    # mirrors the live backend best_moves format exactly (tools._best_move)
+    return "best_moves: " + "; ".join(f"{i}. {san} ({cp / 100:+.2f})" for i, (san, cp) in enumerate(top_moves, 1))
+
+
 def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[str, Any]:
     annotated = annotator.annotate(scenario.position.fen, depth=12) if scenario.position else None
     # A legal move to execute for the move-playing slices (A plays a requested
@@ -97,9 +108,13 @@ def _emit_slice_tool(
         messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'eval', 3)}\n<tool>eval depth=15</tool>"})
         messages.append({"role": "tool", "content": score_text(annotated)})
     elif scenario.slice == "E" and annotated:
-        messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'best_move', 3)}\n<tool>best_move depth=15 series=3</tool>"})
-        line = " ".join(annotated.best_line_sans)
-        messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
+        if _e_top_form(scenario, annotated):
+            messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'best_move', 3)}\n<tool>best_move depth=15 top=3</tool>"})
+            messages.append({"role": "tool", "content": _best_moves_result(annotated.top_moves)})
+        else:
+            messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'best_move', 3)}\n<tool>best_move depth=15 series=3</tool>"})
+            line = " ".join(annotated.best_line_sans)
+            messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
     elif scenario.slice == "F" and annotated:
         messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'review_move', 3)}\n<tool>review_move depth=12</tool>"})
         messages.append({"role": "tool", "content": f"review: {move}, label=good, delta=+0.05 pawns, best_was={annotated.best_san}"})
@@ -152,6 +167,10 @@ def _final(scenario: Scenario, annotated: AnnotatedPosition | None, move: str | 
         # model never learned to copy the number and fabricated one at serve).
         return ask(f"{opener}{sep}{eval_language(annotated)} The engine reads {score_pawns(annotated)}.", seed, 4)
     if scenario.slice == "E" and annotated:
+        if _e_top_form(scenario, annotated):
+            tm = annotated.top_moves
+            rest = ", ".join(san for san, _ in tm[1:3]) or "the alternatives"
+            return ask(f"{opener}{sep}Engine's top pick is {tm[0][0]} at {tm[0][1] / 100:+.2f}; next come {rest}.", seed, 4)
         return ask(f"{opener}{sep}Engine's pick is {annotated.best_san} at {score_pawns(annotated)}; the line runs {' '.join(annotated.best_line_sans[1:3])}.", seed, 4)
     if scenario.slice == "F" and annotated:
         return ask(f"{opener}{sep}{move} grades as good, delta +0.05 pawns; the engine's pick was {annotated.best_san}.", seed, 4)

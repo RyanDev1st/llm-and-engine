@@ -12,9 +12,10 @@ class FakeEngine:
     def __init__(self):
         self.calls = []
 
-    def analyse(self, board, limit):
+    def analyse(self, board, limit, multipv=None):
         self.calls.append(board.fen())
-        return {"score": FakeScore(), "pv": []}
+        info = {"score": FakeScore(), "pv": []}
+        return [info] * multipv if multipv else info  # multipv -> list (real engine contract)
 
 
 class FakeScore:
@@ -24,7 +25,7 @@ class FakeScore:
     def is_mate(self):
         return False
 
-    def score(self):
+    def score(self, mate_score=None):
         return 0
 
 

@@ -23,6 +23,8 @@ class AnnotatedPosition:
     best_san: str
     best_line_sans: tuple[str, ...]
     threats_san: str | None
+    # top-k root moves (san, white-POV centipawns) for the best_move top=N format
+    top_moves: tuple[tuple[str, int], ...] = ()
 
 
 class StockfishAnnotator:
@@ -45,9 +47,10 @@ class StockfishAnnotator:
 
     def _annotate_once(self, fen: str, depth: int) -> AnnotatedPosition:
         board = chess.Board(fen)
-        info = self._ensure().analyse(
-            board, chess.engine.Limit(depth=depth, time=self.timeout)
+        infos = self._ensure().analyse(
+            board, chess.engine.Limit(depth=depth, time=self.timeout), multipv=3
         )
+        info = infos[0]
         score = info["score"].white()
         pv = info.get("pv", [])
         best_san = board.san(pv[0]) if pv else ""
@@ -56,15 +59,17 @@ class StockfishAnnotator:
         for move in pv[:5]:
             line_sans.append(b.san(move))
             b.push(move)
+        # top-k candidates: each multipv root move scored from White's POV
+        top_moves: list[tuple[str, int]] = []
+        for inf in infos:
+            ipv = inf.get("pv", [])
+            if not ipv:
+                continue
+            top_moves.append((board.san(ipv[0]), int(inf["score"].white().score(mate_score=100000))))
         threats = self._threats(board, depth) if board.move_stack else None
-        if score.is_mate():
-            return AnnotatedPosition(
-                fen, depth, score.mate(), "mate",
-                best_san, tuple(line_sans), threats,
-            )
+        kind, cp = ("mate", score.mate()) if score.is_mate() else ("cp", int(score.score()))
         return AnnotatedPosition(
-            fen, depth, int(score.score()), "cp",
-            best_san, tuple(line_sans), threats,
+            fen, depth, cp, kind, best_san, tuple(line_sans), threats, tuple(top_moves),
         )
 
     def _restart(self) -> None:
