@@ -9,10 +9,12 @@ from typing import Protocol
 from llm_dataset.v1.catalog import official_tools
 from llm_training.system_prompt import build_system
 
+from .context_window import ContextWindow, WindowConfig, estimate_tokens
 from .skills import load_skills
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 6
+DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limit
 # Serve == train: the catalog of installed skills + the official tool manifest are
 # rendered by the SAME build_system() the loader uses. Skills appear by name +
 # description only (progressive disclosure); load_skill pulls the body on demand.
@@ -35,6 +37,21 @@ class AdapterView:
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
         return self.model.generate(messages, max_new_tokens, stop, use_adapter=self.use_adapter)
 
+    def count_tokens(self, text: str) -> int:
+        return self.model.count_tokens(text)
+
+    def context_limit(self) -> int:
+        return self.model.context_limit()
+
+
+def _build_window(model: "ModelBackend") -> ContextWindow:
+    """Wire the real tokenizer into the budget when the backend exposes one;
+    fall back to a chars/4 estimate so fakes/tests still work."""
+    count = getattr(model, "count_tokens", None) or estimate_tokens
+    limit_fn = getattr(model, "context_limit", None)
+    n_ctx = limit_fn() if callable(limit_fn) else DEFAULT_N_CTX
+    return ContextWindow(count, WindowConfig(n_ctx=n_ctx))
+
 
 def contains_tool_call(text: str) -> bool:
     return "<tool>" in text or "</tool>" in text
@@ -50,23 +67,23 @@ def narrate_tool_result(tool_result: str) -> str:
     if text.startswith("error: invalid_syntax"):
         return "I couldn't read that request as a valid chess action. Try phrasing it with a move or square."
     if text.startswith("error: engine_unavailable") or text.startswith("error: timeout"):
-        return "The chess engine is unavailable right now, so I can't analyze that position yet."
+        return "I can't analyze that position right now — analysis is unavailable. Try again in a moment."
     if text.startswith("error: duplicate_tool_call"):
         return "I already asked for that exact tool result, so I'll answer from what I have instead."
     if text.startswith("board_state:"):
         return f"Current board snapshot: {text.removeprefix('board_state:').strip()}."
     if text.startswith("best_line:"):
         line = text.removeprefix("best_line:").strip()
-        return f"The engine's forecast is {line}. That line gives you the clearest plan from here."
+        return f"The line to play is {line}. That gives you the clearest plan from here."
     if text.startswith("best_moves:"):
         moves = text.removeprefix("best_moves:").strip()
-        return f"Top engine candidates: {moves}. These are Stockfish's best options from the current position."
+        return f"The strongest tries here are {moves}."
     if text.startswith("best:"):
         move = text.removeprefix("best:").strip()
-        return f"The engine likes {move} best here."
+        return f"{move} is the move here."
     if text.startswith("score:"):
         score = text.removeprefix("score:").strip()
-        return f"Current evaluation: {score}. Positive favors White; negative favors Black."
+        return f"The position stands at {score} (positive favours White, negative Black)."
     if text.startswith("review:"):
         return f"Move review: {text.removeprefix('review:').strip()}."
     if text.startswith("threats:"):
@@ -110,11 +127,18 @@ class CoachLoop:
         self.executor = executor
         self.agent_overlay = agent_overlay
         self.plugin_context = plugin_context
+        self.window = _build_window(model)
 
     def respond(self, history: list[dict], user_message: str) -> dict:
-        """history: prior user/assistant/tool turns (no system). Returns the
-        new turns plus display fields (tool_call, tool_result, reply)."""
-        convo = [{"role": "system", "content": build_system_prompt(self.agent_overlay, self.plugin_context)}, *history,
+        """history: prior user/assistant turns (no system). Returns the reply,
+        display fields (tool_call, tool_result), and the context-window stats.
+
+        The session memory is bounded here: `window.fit` evicts the oldest turns
+        so the prompt stays inside the model's token budget — recent context is
+        kept, old context is dropped, the window never overflows."""
+        system = build_system_prompt(self.agent_overlay, self.plugin_context)
+        kept_history, ctx_stats = self.window.fit(system, history, user_message)
+        convo = [{"role": "system", "content": system}, *kept_history,
                  {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []
@@ -133,6 +157,7 @@ class CoachLoop:
                     "tool_calls": tool_calls,
                     "tool_results": tool_results,
                     "turns": new_turns,
+                    "context": ctx_stats.as_payload(),
                 }
             decision = normalize_tool_call(decision)
             tool_result = "error: duplicate_tool_call" if decision in seen_calls else self.executor.execute(decision)
@@ -157,4 +182,5 @@ class CoachLoop:
             "tool_calls": tool_calls,
             "tool_results": tool_results,
             "turns": new_turns,
+            "context": ctx_stats.as_payload(),
         }

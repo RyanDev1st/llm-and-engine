@@ -67,6 +67,13 @@ class HFModel:
         text = self.tok.decode(out[0][prompt_len:], skip_special_tokens=True)
         return _truncate(text, stop)
 
+    def count_tokens(self, text: str) -> int:
+        return len(self.tok.encode(text, add_special_tokens=False))
+
+    def context_limit(self) -> int:
+        # Cap at 8k: Gemma can report far more, but the KV cache must fit the 4060.
+        return min(int(getattr(self.model.config, "max_position_embeddings", 8192)), 8192)
+
     def _gen(self, enc: dict, max_new_tokens: int):
         return self.model.generate(
             **enc, max_new_tokens=max_new_tokens,

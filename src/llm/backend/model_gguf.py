@@ -19,12 +19,12 @@ def default_gguf_path() -> Path:
 
 
 def gguf_runtime_config() -> tuple[int, int]:
-    return int(os.environ.get("CHESS_N_CTX", "2048")), int(os.environ.get("CHESS_N_GPU_LAYERS", "-1"))
+    return int(os.environ.get("CHESS_N_CTX", "4096")), int(os.environ.get("CHESS_N_GPU_LAYERS", "-1"))
 
 
 class GGUFModel:
     def __init__(self, gguf: str | Path | None = None, n_gpu_layers: int = -1,
-                 n_ctx: int = 2048, temperature: float = 0.5) -> None:
+                 n_ctx: int = 4096, temperature: float = 0.5) -> None:
         from llama_cpp import Llama
         self.temperature = temperature
         path = Path(gguf) if gguf is not None else default_gguf_path()
@@ -44,3 +44,9 @@ class GGUFModel:
         if finish == "stop" and "</tool>" in stops and text.startswith("<tool>") and "</tool>" not in text:
             text += "</tool>"
         return text
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.llm.tokenize(text.encode("utf-8"), add_bos=False))
+
+    def context_limit(self) -> int:
+        return int(self.llm.n_ctx())

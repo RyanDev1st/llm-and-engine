@@ -59,12 +59,50 @@ function addLoadingTo(container) {
 
 const addMsg = (text, cls) => addMsgTo(messages, text, cls);
 
+function addThinkingTo(container, calls, results) {
+  // Tool calls + skill loads are the agent's reasoning, not chat. Tuck them in
+  // a collapsed disclosure so the reply reads clean, but you can expand it to
+  // prove the answer is grounded in real engine output.
+  if (!calls.length) return;
+  const det = document.createElement("details");
+  det.className = "thinking";
+  const sum = document.createElement("summary");
+  sum.textContent = `🧠 thinking · ${calls.length} step${calls.length > 1 ? "s" : ""}`;
+  det.appendChild(sum);
+  calls.forEach((c, i) => {
+    const step = document.createElement("div");
+    step.className = "think-step";
+    step.textContent = `${c}  →  ${results[i] || ""}`;
+    det.appendChild(step);
+  });
+  container.appendChild(det);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addContextMeterTo(container, ctx) {
+  // Live view of the session-memory budget: how much of the token window this
+  // turn used, and how many old turns were evicted to stay inside it.
+  if (!ctx || !ctx.budget) return;
+  const pct = Math.min(100, Math.round((ctx.used_tokens / ctx.budget) * 100));
+  const d = document.createElement("div");
+  d.className = "ctxmeter" + (pct >= 85 || ctx.overflow ? " warn" : "");
+  const evicted = ctx.turns_evicted ? ` · ${ctx.turns_evicted} evicted` : "";
+  const over = ctx.overflow ? " · OVERFLOW" : "";
+  d.innerHTML =
+    `<div class="ctxbar"><span style="width:${pct}%"></span></div>` +
+    `<div class="ctxlabel">memory ${ctx.used_tokens}/${ctx.budget} tok · ${pct}% · ` +
+    `${ctx.turns_kept} kept${evicted}${over}</div>`;
+  container.appendChild(d);
+  container.scrollTop = container.scrollHeight;
+}
+
 function renderReply(container, payload, loadingEl) {
   if (loadingEl) loadingEl.remove();
   const calls = payload.tool_calls || (payload.tool_call ? [payload.tool_call] : []);
   const results = payload.tool_results || (payload.tool_result ? [payload.tool_result] : []);
-  calls.forEach((c, i) => addMsgTo(container, `🔧 ${c}  →  ${results[i] || ""}`, "tool"));
+  addThinkingTo(container, calls, results);
   addMsgTo(container, payload.reply || "(no reply)", "bot");
+  addContextMeterTo(container, payload.context);
 }
 
 function setBusy(busy) {

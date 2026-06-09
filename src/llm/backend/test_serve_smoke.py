@@ -45,6 +45,11 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     assert out["tool_results"][2].startswith("score:")      # start-pos eval (no engine)
     assert out["reply"].rstrip().endswith("?")
     assert "<tool>" not in out["reply"]
+    # context-window stats are reported and the prompt stays within budget
+    ctx = out["context"]
+    assert ctx["n_ctx"] == 4096 and ctx["budget"] > 0
+    assert ctx["used_tokens"] <= ctx["budget"]
+    assert ctx["turns_kept"] + ctx["turns_evicted"] == ctx["turns_total"]
 
 
 def test_dropped_in_skill_is_discoverable_and_loadable():

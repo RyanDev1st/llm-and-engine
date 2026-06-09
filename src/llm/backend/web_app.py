@@ -75,9 +75,15 @@ class App:
 
     def _run(self, loop: CoachLoop, history: list[dict], message: str) -> dict:
         result = loop.respond(history, message)
-        history += result["turns"]
+        # Thinking turns (tool calls + results) are ephemeral: respond() already
+        # used them in-turn to write the reply. Persist ONLY the user message and
+        # the final reply, so the reasoning scratchpad never pollutes future
+        # context. The model re-derives via tools next turn if it needs to.
+        history += [{"role": "user", "content": message},
+                    {"role": "assistant", "content": result["reply"]}]
         return {"reply": result["reply"], "tool_calls": result.get("tool_calls", []),
-                "tool_results": result.get("tool_results", [])}
+                "tool_results": result.get("tool_results", []),
+                "context": result.get("context")}
 
     def chat(self, message: str, variant: str = "sft") -> dict:
         if self.loop is None:
