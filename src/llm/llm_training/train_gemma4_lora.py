@@ -42,6 +42,7 @@ class TrainConfig:
     data_path: Path | None = None
     val_path: Path | None = None
     seed: int = 42
+    engine: str = "cuda"  # "cuda" = proven HF path; "unsloth" = faster Unsloth engine
 
 
 def run_training(config: TrainConfig) -> dict:
@@ -54,9 +55,14 @@ def run_training(config: TrainConfig) -> dict:
             raise ValueError("smoke max_steps must be <= 5")
         if config.max_examples > 32:
             raise ValueError("smoke max_examples must be <= 32")
+    if config.engine not in {"cuda", "unsloth"}:
+        raise ValueError("engine must be cuda or unsloth")
     exists = config.model_path.exists()
     if config.dry_run or not exists:
         return _dry_result(config, exists)
+    if config.engine == "unsloth":
+        from .train_unsloth import run_unsloth_training
+        return run_unsloth_training(config)
     from .train_cuda import _real_training
     return _real_training(config)
 

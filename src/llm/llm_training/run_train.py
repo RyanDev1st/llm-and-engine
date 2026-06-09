@@ -40,6 +40,7 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         warmup_ratio=0.03, optimizer="paged_adamw_8bit", eval_every=args.eval_every,
         max_val_examples=args.max_val,
         loss_mask="assistant-only", load_in_4bit=not getattr(args, "no_4bit", False),
+        engine=getattr(args, "engine", "cuda"),
         model_path=MODELS / model,
         data_path=DATA / "v1_2_train.jsonl",
         val_path=DATA / "v1_2_val.jsonl",
@@ -65,6 +66,8 @@ def main() -> None:
                     help="base model dir under src/llm/models (e.g. gemma4_e4b, gemma4_e2b)")
     ap.add_argument("--no-4bit", action="store_true", dest="no_4bit",
                     help="train in bf16 (no bitsandbytes 4-bit) — fits E2B on one T4 at full seq")
+    ap.add_argument("--engine", default="cuda", choices=["cuda", "unsloth"],
+                    help="cuda = proven HF path; unsloth = Gemma4-native, ~2x faster + ~70%% less VRAM")
     args = ap.parse_args()
     if args.smoke:
         args.output = "gemma4_chess_smoke"
