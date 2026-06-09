@@ -24,6 +24,7 @@ class _FakePos:
         self.depth = 12
         self.threats_san = None
         self.mate = None
+        self.top_moves = ((self.best_san, self.score_cp), (self.best_san, self.score_cp - 30))
 
 
 class _FakeAnnotator:

@@ -218,24 +218,28 @@ def _eval_language(row: dict[str, Any]) -> list[Violation]:
 
 
 def _narration_grounded(row: dict[str, Any]) -> list[Violation]:
-    """The final narration must cite a value (move/eval) that appears in a tool
-    result — so the model learns to COPY the engine output, not invent it. Only
-    enforced where a numeric/move result exists (eval/best_move/review/threats)."""
+    """Anti-fabrication: any concrete value the final reply STATES — a pawn
+    number or a SAN move — must appear in a tool result, so the model copies
+    rather than invents. A purely qualitative final (no such value) is allowed:
+    the default coaching reply describes the standing in words, by design. Sign
+    prefixes are normalized so '+4.47' (tool) grounds '4.47' (reply)."""
     if "narration_grounded" not in row.get("acceptance_rules", []):
         return []
     messages = row["messages"]
+
+    def facts(text: str) -> set[str]:
+        return {f.lstrip("+-") for f in _FACT.findall(text)}
+
     tool_facts: set[str] = set()
     for m in messages:
         if m.get("role") == "tool":
-            tool_facts |= set(_FACT.findall(m.get("content", "")))
-    if not tool_facts:
-        return []
+            tool_facts |= facts(m.get("content", ""))
     finals = [m["content"] for m in messages
               if m.get("role") == "assistant" and not _tool_matches(m.get("content", ""))]
-    final_facts = set(_FACT.findall(finals[-1])) if finals else set()
-    if final_facts & tool_facts:
+    final_facts = facts(finals[-1]) if finals else set()
+    if final_facts <= tool_facts:
         return []
-    return [Violation("narration_grounded", "final narration cites no value from the tool results")]
+    return [Violation("narration_grounded", "final cites a value absent from the tool results")]
 
 
 def _applies_when(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:

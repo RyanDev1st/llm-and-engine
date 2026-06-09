@@ -7,8 +7,9 @@ from ..annotator import AnnotatedPosition, StockfishAnnotator
 from ..board_facts import board_state_line, choose_move, legal_moves_for_square, move_echo
 from ..sampler import Scenario
 from . import tone
-from .leadins import ask, lead
-from .text import eval_language, score_pawns, score_text
+from .finals import e_top_form, final_narration, wants_number
+from .leadins import lead
+from .text import score_pawns, score_text
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
 
@@ -16,8 +17,11 @@ SLICE_USER_TEMPLATES = {
     "A": ("play {san}", "let's go {san}", "{san} for me", "push {san}"),
     "B": ("should I move the knight or bishop?", "what plan should I choose?", "which capture is best?", "help me decide"),
     "C": ("play e5 for me", "can my king move to e2?", "castle through check", "make the illegal capture"),
-    "D": ("who is winning?", "rate this position", "is this lost for me?", "how is it?"),
-    "E": ("what should I play?", "best move?", "give me the line", "show me a plan"),
+    "D": ("who is winning?", "rate this position", "is this lost for me?", "how is it?",
+          "what's the exact eval?", "give me the score in pawns", "how many pawns am I up?",
+          "what's the centipawn eval?"),
+    "E": ("what should I play?", "best move?", "give me the line", "show me a plan",
+          "best move and the eval?"),
     "F": ("how was that move?", "did I blunder?", "rate my last move", "was that ok?"),
     "G": ("any threats?", "what is the opponent up to?", "watch out for what?"),
     "H": ("legal moves on {square}?", "undo that", "what pieces are left?"),
@@ -27,12 +31,6 @@ SLICE_USER_TEMPLATES = {
 }
 
 INTERNAL_LESSON = "Use board tools before claims. Ground evaluation in Stockfish output."
-
-
-def _e_top_form(scenario: Scenario, annotated: AnnotatedPosition | None) -> bool:
-    """Half of best-move rows use the top=N (best_moves) result the model emits
-    at serve — so it learns to read/narrate that shape, not just best_line."""
-    return bool(annotated and len(annotated.top_moves) >= 2 and scenario.seed % 2 == 0)
 
 
 def _best_moves_result(top_moves: tuple) -> str:
@@ -55,7 +53,8 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
         messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'board_state', 2)}\n<tool>board_state fields=basic</tool>"})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
     _emit_slice_tool(messages, scenario, annotated, move)
-    messages.append({"role": "assistant", "content": _final(scenario, annotated, move)})
+    messages.append({"role": "assistant",
+                     "content": final_narration(scenario, annotated, move, wants_number(user))})
     return _envelope(scenario, messages, annotated)
 
 
@@ -108,7 +107,7 @@ def _emit_slice_tool(
         messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'eval', 3)}\n<tool>eval depth=15</tool>"})
         messages.append({"role": "tool", "content": score_text(annotated)})
     elif scenario.slice == "E" and annotated:
-        if _e_top_form(scenario, annotated):
+        if e_top_form(scenario, annotated):
             messages.append({"role": "assistant", "content": f"{lead(scenario.seed, 'best_move', 3)}\n<tool>best_move depth=15 top=3</tool>"})
             messages.append({"role": "tool", "content": _best_moves_result(annotated.top_moves)})
         else:
@@ -145,47 +144,6 @@ def _list_pieces_text(fen: str) -> str:
             majors.append(f"{piece.symbol().upper()}={name}")
     parts = majors + ([f"pawns={','.join(pawns)}"] if pawns else [])
     return "pieces: " + ", ".join(parts)
-
-
-def _final(scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None) -> str:
-    if scenario.tone == "warm":
-        opener = tone.pick(scenario.seed, tone.OPENERS_WARM)
-    elif scenario.tone == "blunt":
-        opener = tone.pick(scenario.seed, tone.OPENERS_BLUNT)
-    else:
-        opener = tone.pick(scenario.seed, tone.OPENERS_SOCRATIC)
-    sep = " " if opener else ""
-    seed = scenario.seed
-    if scenario.slice == "A":
-        return ask(f"{opener}{sep}Played {move}. The board updated and it is now the opponent's turn.", seed, 4)
-    if scenario.slice == "B":
-        return ask(f"{opener}{sep}I listed the legal moves first, then chose based on the plan rather than guessing.", seed, 4)
-    if scenario.slice == "C":
-        return f"{opener}{sep}I will not execute that without a legal move result; board_state alone is not enough."
-    if scenario.slice == "D" and annotated:
-        # Echo the EXACT score from the tool result (was qualitative-only, so the
-        # model never learned to copy the number and fabricated one at serve).
-        return ask(f"{opener}{sep}{eval_language(annotated)} The engine reads {score_pawns(annotated)}.", seed, 4)
-    if scenario.slice == "E" and annotated:
-        if _e_top_form(scenario, annotated):
-            tm = annotated.top_moves
-            rest = ", ".join(san for san, _ in tm[1:3]) or "the alternatives"
-            return ask(f"{opener}{sep}Engine's top pick is {tm[0][0]} at {tm[0][1] / 100:+.2f}; next come {rest}.", seed, 4)
-        return ask(f"{opener}{sep}Engine's pick is {annotated.best_san} at {score_pawns(annotated)}; the line runs {' '.join(annotated.best_line_sans[1:3])}.", seed, 4)
-    if scenario.slice == "F" and annotated:
-        return ask(f"{opener}{sep}{move} grades as good, delta +0.05 pawns; the engine's pick was {annotated.best_san}.", seed, 4)
-    if scenario.slice == "G" and annotated:
-        threat = annotated.threats_san or "nothing forcing"
-        return ask(f"{opener}{sep}Watch for {threat} — that's {score_pawns(annotated)} for them.", seed, 4)
-    if scenario.slice == "H":
-        return ask(f"{opener}{sep}I listed your pieces from the board tool rather than guessing.", seed, 4)
-    if scenario.slice == "I":
-        return f"{opener}{sep}It's a sharp counter to 1.e4 that fights for the centre asymmetrically."
-    if scenario.slice == "J":
-        return f"{opener}{sep}Hi. Ask me to read the board, suggest a move, or explain a chess idea."
-    if scenario.slice == "K":
-        return f"{opener}{sep}A knight is worth about three pawns in most positions, but context matters more than the number."
-    return f"{opener}{sep}I read the position and the tools, then answered without inventing facts."
 
 
 def _envelope(
