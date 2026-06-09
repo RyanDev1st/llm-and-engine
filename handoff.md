@@ -36,6 +36,7 @@ Keep: 100% `load_skill`-first structure, 653 distinct tool-sequence shapes, bala
 - Generator: `python -m llm_dataset.v1.generate --profile v1.2` → `data/sft/v1_2/{accepted,rejected}.jsonl`; then `python -m llm_dataset.v1.build --profile v1.2` → `data/sft/v1_2_{train,val}.jsonl`.
 - Trainer: `python -m llm_training.run_train` (reads v1_2_train/val; base currently hardcoded `gemma4_e2b` → Task 7 parametrizes).
 - Backend serving already supports `CHESS_GGUF_PATH` (`src/llm/backend/model_gguf.py`).
+- **Train on Colab free T4 (2026-06-09):** Kaggle weekly quota exhausted → added `src/llm/llm_training/colab_e2b_qlora.ipynb`, a Colab port of the Kaggle notebook (HF token via Colab Secrets, `/content` paths, Drive checkpointing). Free-T4 sizing: `MAX_STEPS=300` (~5.4h, fits one session vs Kaggle's 500/9h), `EVAL_EVERY=100` so the `best/` adapter is re-saved to Drive as salvage points across an idle-disconnect. Same E2B QLoRA → serve local q4_0 GGUF; infra otherwise unchanged.
 - Stress tests this session: `src/llm/llm_training/stress_test_gemma4.py` (HF/nf4) and `stress_test_gemma4_gguf.py` (llama.cpp). Note: local `llama_cpp` 0.3.23 is a **CPU build** (GPU offload needs a CUDA rebuild).
 
 ## Constraints
