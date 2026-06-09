@@ -12,9 +12,10 @@ from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.multiturn import render_multiturn_row
 from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
-from .sampler import CHESS_SLICES, UNIVERSALITY_SLICES, plan_scenarios
+from .sampler import CHESS_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES, plan_scenarios
 from .validate import validate_row
 
 ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
@@ -37,6 +38,7 @@ DEFAULT_PLAN: dict[str, int] = {
     "V1_M_marketplace_navigation": 70,
     "V1_N_human_chat_skill_bridge": 70,
     "V1_O_cross_domain_skill_routing": 70,
+    "V1_P_multiturn_followup": 70,
 }
 
 
@@ -79,6 +81,20 @@ def run(
             if scenario.slice in CHESS_SLICES and annotator is not None:
                 try:
                     row = render_chess_row(scenario, annotator)
+                except Exception as exc:
+                    rejected.append({
+                        "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",
+                        "slice": scenario.slice,
+                        "kind": "harness_chess",
+                        "intent": scenario.intent,
+                        "reject_reason": f"annotator_error: {type(exc).__name__}: {exc}",
+                    })
+                    if progress and _should_report(index, total):
+                        progress(index, total, len(accepted), len(rejected))
+                    continue
+            elif scenario.slice == MULTITURN_SLICE and annotator is not None:
+                try:
+                    row = render_multiturn_row(scenario, annotator)
                 except Exception as exc:
                     rejected.append({
                         "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",

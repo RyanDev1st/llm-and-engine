@@ -17,6 +17,7 @@ from .catalog import (
 from .positions import Position, load_default_bank, sample_position
 
 CHESS_SLICES = set("ABCDEFGHIJK")
+MULTITURN_SLICE = "V1_P_multiturn_followup"  # chess-grounded but its own renderer
 UNIVERSALITY_SLICES = {
     "V1_A_skill_index_selection",
     "V1_B_skill_conflict_and_absence",
@@ -82,7 +83,8 @@ def _one(slice_name: str, bank, rng: random.Random, n: int) -> Scenario:
     tone = rng.choice(["warm", "blunt", "socratic"])
     length = rng.choice(["short", "medium", "long"])
     category = CATEGORY_FOR_SLICE.get(slice_name, "middlegame")
-    needs_position = slice_name in CHESS_SLICES or slice_name == "V1_F_special_chess_rules"
+    needs_position = (slice_name in CHESS_SLICES or slice_name == "V1_F_special_chess_rules"
+                      or slice_name == MULTITURN_SLICE)
     position = (
         sample_position(bank, category, seed=rng.randint(1, 10**9))
         if needs_position

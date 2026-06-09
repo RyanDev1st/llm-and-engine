@@ -68,7 +68,9 @@ def tokenize_with_assistant_mask(
             text = _fallback_render(messages[: i + 1])
         delta_text = text[len(prev_text):]
         prev_text = text
-        assistant = msg.get("role") == "assistant"
+        # A turn marked train:false is CONTEXT only (e.g. a prior conversational
+        # turn in a multi-turn row) — keep it in the prompt but mask it from loss.
+        assistant = msg.get("role") == "assistant" and msg.get("train", True)
         try:
             enc = tokenizer(delta_text, add_special_tokens=False, return_offsets_mapping=True)
             offsets = enc["offset_mapping"]
