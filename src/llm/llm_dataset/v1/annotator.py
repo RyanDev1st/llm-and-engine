@@ -32,6 +32,7 @@ class StockfishAnnotator:
         self.path = str(path)
         self.timeout = timeout
         self._engine: chess.engine.SimpleEngine | None = None
+        self._cache: dict[tuple[str, int], "AnnotatedPosition"] = {}
 
     def _ensure(self) -> chess.engine.SimpleEngine:
         if self._engine is None:
@@ -39,11 +40,18 @@ class StockfishAnnotator:
         return self._engine
 
     def annotate(self, fen: str, depth: int = 12) -> AnnotatedPosition:
+        # Memoize by (fen, depth): the generator reuses a small pool of seed FENs
+        # across ~50k rows, so this turns the regen from hours into minutes.
+        key = (fen, depth)
+        if key in self._cache:
+            return self._cache[key]
         try:
-            return self._annotate_once(fen, depth)
+            result = self._annotate_once(fen, depth)
         except (chess.engine.EngineTerminatedError, chess.engine.EngineError, BrokenPipeError):
             self._restart()
-            return self._annotate_once(fen, depth)
+            result = self._annotate_once(fen, depth)
+        self._cache[key] = result
+        return result
 
     def _annotate_once(self, fen: str, depth: int) -> AnnotatedPosition:
         board = chess.Board(fen)
