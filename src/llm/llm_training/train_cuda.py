@@ -162,6 +162,7 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
     best_val = float("inf")
     update = 0
     epoch = 0
+    skipped = 0
     while update < total_updates:
         # +process_index: each rank shuffles its own shard independently.
         batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle,
@@ -169,6 +170,7 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
         for micro_idx in range(0, len(batches), config.grad_accum_steps):
             optimizer.zero_grad()
             accum_loss = 0.0
+            oom = False
             chunk = batches[micro_idx: micro_idx + config.grad_accum_steps]
             for raw in chunk:
                 batch = {k: v.to(target_device) for k, v in raw.items()}
@@ -178,10 +180,28 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
                 # stays as an automatic per-op fallback. The fused loss forwards through
                 # the wrapped model (so DDP syncs LoRA grads) but swaps lm_head on the
                 # unwrapped base.
-                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
-                    loss = fused_masked_loss(model, batch, labels, weights, unwrapped=unwrapped) / len(chunk)
-                accelerator.backward(loss)
-                accum_loss += loss.item()
+                try:
+                    with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+                        loss = fused_masked_loss(model, batch, labels, weights, unwrapped=unwrapped) / len(chunk)
+                    accelerator.backward(loss)
+                    accum_loss += loss.item()
+                except torch.cuda.OutOfMemoryError:
+                    # A rare long sample (seq ~1280) can tip the T4 over during backward.
+                    # Drop the whole micro-step (partial grads may be inconsistent) and move
+                    # on rather than killing a multi-hour run. NPROC=1 only: no DDP collective
+                    # to desync. ~0.1% of samples; cost is one skipped update.
+                    oom = True
+                    skipped += 1
+                    seqlen = int(labels.shape[-1])
+                    batch = labels = weights = loss = None
+                    optimizer.zero_grad(set_to_none=True)
+                    if config.device == "cuda":
+                        torch.cuda.empty_cache()
+                    if main_proc:
+                        print(f"  [OOM-skip] step dropped (seq={seqlen}); total skipped={skipped}", flush=True)
+                    break
+            if oom:
+                continue
             accelerator.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)
             optimizer.step()
             scheduler.step()
