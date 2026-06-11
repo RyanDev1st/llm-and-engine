@@ -11,6 +11,7 @@ from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
 from .skills import load_skills
+from .tool_hints import routing_hints
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 6
@@ -163,7 +164,10 @@ class CoachLoop:
         The session memory is bounded here: `window.fit` evicts the oldest turns
         so the prompt stays inside the model's token budget — recent context is
         kept, old context is dropped, the window never overflows."""
-        system = build_system_prompt(self.agent_overlay, self.plugin_context)
+        # Deterministic routing layer: if the user's words clearly map to a tool,
+        # remind the model of it explicitly (fixes small-model routing slips like
+        # narrating "I'll play b3" without calling move, or stopping before eval).
+        system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message)
         kept_history, ctx_stats = self.window.fit(system, history, user_message)
         convo = [{"role": "system", "content": system}, *kept_history,
                  {"role": "user", "content": user_message}]
