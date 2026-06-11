@@ -78,6 +78,13 @@ class ToolExecutor:
             return self._review(clamp_depth(args, 15))
         if name == "threats":
             return self._threats(clamp_depth(args, 12))
+        # A skill is NOT a tool. The harness contract is load_skill name=<skill>.
+        # If the model calls a known skill BY NAME as a tool
+        # (<tool>chess-coach</tool>), do NOT silently accept it — that would mask
+        # the protocol violation. Return a corrective error naming the right
+        # call so the loop retries with load_skill (self-correction, enforced).
+        if name in {s.name for s in load_skills()}:
+            return f"error: '{name}' is a skill, not a tool — call load_skill name={name}"
         return "error: invalid_syntax"
 
     def _load_skill(self, name: str) -> str:

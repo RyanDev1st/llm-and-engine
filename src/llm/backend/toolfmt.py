@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import re
 
-_CALL = re.compile(r"<tool>\s*([a-z_]+)(.*?)</tool>", re.DOTALL)
+# Name allows hyphens/digits so a skill called as a tool (<tool>chess-coach</tool>,
+# <tool>plugin-echo-73</tool>) parses whole instead of truncating at the hyphen;
+# real tool names are a subset (a-z + _). The dispatcher then routes a known
+# skill name to load_skill rather than dead-ending.
+_CALL = re.compile(r"<tool>\s*([a-z0-9_-]+)(.*?)</tool>", re.DOTALL)
 
 
 def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:

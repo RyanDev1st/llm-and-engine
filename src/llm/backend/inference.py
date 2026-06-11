@@ -70,6 +70,8 @@ def narrate_tool_result(tool_result: str) -> str:
         return "I can't analyze that position right now — analysis is unavailable. Try again in a moment."
     if text.startswith("error: duplicate_tool_call"):
         return "I already asked for that exact tool result, so I'll answer from what I have instead."
+    if "is a skill, not a tool" in text:
+        return "Let me load the right skill and try again."
     if text.startswith("board_state:"):
         return f"Current board snapshot: {text.removeprefix('board_state:').strip()}."
     if text.startswith("best_line:"):
