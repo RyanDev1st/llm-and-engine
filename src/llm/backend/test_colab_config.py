@@ -21,7 +21,7 @@ def test_model_gguf_runtime_defaults_are_unchanged(monkeypatch):
     monkeypatch.delenv("CHESS_N_GPU_LAYERS", raising=False)
     mod = importlib.reload(importlib.import_module("backend.model_gguf"))
 
-    assert mod.gguf_runtime_config() == (2048, -1)
+    assert mod.gguf_runtime_config() == (4096, -1)
 
 
 def test_model_gguf_runtime_accepts_env(monkeypatch):

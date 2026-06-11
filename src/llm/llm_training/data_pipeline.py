@@ -57,6 +57,10 @@ def tokenize_with_assistant_mask(
     # delta once per turn (O(n) vs the old O(n^2) full re-tokenize). Also emit a
     # per-token loss weight: fact tokens (eval numbers, SAN moves) in assistant
     # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
+    from .chat_format import remap_tool_messages
+    # Gemma's template drops role="tool"; remap to a rendered user turn so the
+    # model is trained WITH the tool results in context (grounding), not blind.
+    messages = remap_tool_messages(messages)
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []

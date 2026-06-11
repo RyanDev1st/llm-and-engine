@@ -54,6 +54,10 @@ class HFModel:
         # use_adapter=False runs the SAME base weights with the LoRA turned OFF
         # (PEFT disable_adapter) — lets one loaded model serve both the untrained
         # base and our SFT side by side for the comparison demo.
+        from llm_training.chat_format import remap_tool_messages
+        # Same remap as training: Gemma drops role="tool", so render tool results
+        # as user turns. MUST match data_pipeline or the model sees a new shape.
+        messages = remap_tool_messages(messages)
         enc = self.tok.apply_chat_template(
             messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
         enc = {k: v.to(self.model.device) for k, v in enc.items()}
