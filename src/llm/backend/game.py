@@ -11,6 +11,18 @@ class Game:
         self.board = chess.Board()
         self.san_stack: list[str] = []
 
+    def load_uci_moves(self, moves: list[str]) -> bool:
+        """Reset to the start and replay a UCI move list (from the client-side
+        board, which stays authoritative for smooth play). Replaying — rather
+        than loading a FEN — preserves move_stack + san_stack so review_move and
+        undo keep working. Returns False on the first illegal move."""
+        self.board = chess.Board()
+        self.san_stack = []
+        for uci in moves:
+            if not self.move_uci(str(uci)):
+                return False
+        return True
+
     # ---- move -------------------------------------------------------------
     def move(self, san: str) -> str:
         try:

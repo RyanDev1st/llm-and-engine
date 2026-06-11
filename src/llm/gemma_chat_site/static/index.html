@@ -1,136 +1,1363 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gemma Chess Coach</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EasyChess — Play, Compare &amp; Extend</title>
+<style>
+/* ── Claude (Anthropic) Dark Mode Tokens ── */
+:root {
+  --bg:                 #141413;   /* Near Black */
+  --surface:            #1c1b1a;   /* Dark surface */
+  --surface-warm:       #2a2825;   /* Warmer dark highlight */
+  --surface-raised:     #242320;   /* Slightly raised panel */
+  --fg:                 #faf9f5;   /* Ivory */
+  --fg-high:            #ffffff;   /* Pure white for max emphasis */
+  --muted:              #b0aea5;   /* Warm Silver */
+  --meta:               #87867f;   /* Stone Gray */
+  --border:             #2e2d2a;   /* Dark border */
+  --border-soft:        #3d3b37;   /* Slightly lighter border */
+  --accent:             #d97757;   /* Coral accent (lighter terracotta for dark) */
+  --accent-on:          #141413;   /* Near Black — text on accent bg */
+  --accent-hover:       #e08a6e;
+  --danger:             #e05555;
+  --success:            #4ade80;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --elev-raised: 0 4px 24px rgba(0,0,0,0.35);
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  /* Chess.com-inspired board colors */
+  --chess-light: #eed4ac;
+  --chess-dark:  #b58863;
+  --chess-hover:   rgba(217,119,87,0.25);
+  --chess-sel:     rgba(217,119,87,0.55);
+  --chess-legal:   rgba(217,119,87,0.40);
+  --chess-last:    rgba(200,180,100,0.45);
+  --piece-white: #ffffff;
+  --piece-black: #111111;
+  --sq-size: 1fr;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ── */
+.app {
+  display: flex; flex-direction: column;
+  height: 100vh; width: 100vw; max-width: 1680px; margin: 0 auto;
+}
+
+/* ── Nav ── */
+.nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-6); height: 56px; flex-shrink: 0;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.nav-brand {
+  font: 500 22px/1 var(--font-display); color: var(--fg);
+  letter-spacing: -0.01em;
+  display: flex; align-items: center; gap: var(--space-3);
+}
+.nav-brand .pawn { font-size: 24px; color: var(--accent); }
+.nav-tabs { display: flex; gap: 2px; }
+.nav-tab {
+  padding: 8px 20px; border-radius: var(--radius-sm);
+  font: 500 14px/1 var(--font-body); cursor: pointer;
+  color: var(--muted); background: transparent; border: none;
+  transition: all 0.15s;
+}
+.nav-tab:hover { color: var(--fg); background: var(--surface-warm); }
+.nav-tab.active { color: var(--fg); background: var(--surface-warm); }
+.nav-actions { display: flex; gap: var(--space-2); align-items: center; }
+.nav-badge {
+  font: 400 11px/1 var(--font-mono); letter-spacing: 0.04em;
+  color: var(--accent-on); background: var(--accent);
+  padding: 3px 10px; border-radius: 999px;
+}
+
+/* ── Main content ── */
+.main {
+  display: flex; flex: 1; overflow: hidden;
+}
+.panel-chess {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  padding: var(--space-4); overflow-y: auto; overflow-x: hidden;
+  min-width: 0; background: var(--bg);
+}
+.panel-side {
+  width: 560px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* ── Chess board ── */
+.board-wrap {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-4);
+}
+.board-core {
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  width: min(70vh, 560px); aspect-ratio: 1;
+  border: 2px solid var(--border-soft); border-radius: var(--radius-sm);
+  box-shadow: var(--elev-raised);
+  user-select: none;
+  padding: 2px;
+}
+.sq {
+  display: grid; place-items: center; cursor: pointer;
+  position: relative; min-width: 0; min-height: 0;
+  transition: background 0.1s;
+}
+.sq-light { background: var(--chess-light); }
+.sq-dark  { background: var(--chess-dark); }
+.sq:hover         { box-shadow: inset 0 0 0 3px var(--chess-hover); }
+.sq.selected      { background: var(--chess-sel) !important; }
+.sq.last-move     { background: var(--chess-last) !important; }
+.sq.legal::after {
+  content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 26%; height: 26%; border-radius: 50%;
+  background: var(--chess-legal); pointer-events: none;
+}
+.sq.capture-target { box-shadow: inset 0 0 0 4px var(--chess-legal); border-radius: 50%; }
+.sq.check { box-shadow: inset 0 0 0 4px var(--danger); }
+.sq .piece {
+  font-size: calc(var(--piece-size, 40px));
+  line-height: 1;
+  pointer-events: none;
+}
+.piece.white { color: var(--piece-white); text-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 0 0.5px rgba(0,0,0,0.3); }
+.piece.black { color: var(--piece-black); text-shadow: 0 1px 2px rgba(0,0,0,0.35); }
+
+/* ── Board labels ── */
+.board-labels {
+  display: flex; justify-content: space-between;
+  width: min(70vh, 560px); padding: 0 4px;
+  font: 400 11px/1 var(--font-mono); color: var(--meta);
+  letter-spacing: 0.06em;
+}
+
+/* ── Game controls ── */
+.game-ctrls {
+  display: flex; gap: var(--space-2); align-items: center;
+}
+.btn {
+  padding: 8px 16px; border-radius: var(--radius-sm);
+  font: 500 13px/1 var(--font-body); cursor: pointer;
+  border: 1px solid var(--border-soft); background: var(--surface-warm);
+  color: var(--muted); transition: all 0.15s;
+}
+.btn:hover { background: var(--border-soft); color: var(--fg); }
+.btn-accent { background: var(--accent); color: var(--accent-on); border-color: var(--accent); font-weight: 600; }
+.btn-accent:hover { background: var(--accent-hover); }
+.btn-sm { padding: 6px 12px; font-size: 12px; }
+.btn-danger { color: var(--danger); border-color: var(--danger); }
+
+.status-bar {
+  display: flex; align-items: center; gap: var(--space-3);
+  font: 400 13px/1 var(--font-body); color: var(--muted);
+  min-height: 20px;
+}
+.status-turn { font-weight: 600; color: var(--fg); }
+.status-check { color: var(--danger); font-weight: 600; }
+
+/* ── Move history ── */
+.move-history {
+  width: min(70vh, 560px); max-height: 140px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
+  display: flex; flex-wrap: wrap; gap: 2px; align-content: flex-start;
+}
+.move-history .move-pair {
+  font: 400 13px/1.6 var(--font-mono); color: var(--muted);
+}
+.move-history .move-num { color: var(--meta); margin-right: 4px; }
+.move-history .move-w, .move-history .move-b { padding: 1px 3px; border-radius: 3px; cursor: default; }
+.move-history .move-w:hover, .move-history .move-b:hover { background: var(--surface-warm); }
+
+/* ── Side panel tabs ── */
+.side-tabs {
+  display: flex; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.side-tab {
+  flex: 1; padding: 12px; text-align: center;
+  font: 500 13px/1 var(--font-body); color: var(--muted);
+  cursor: pointer; border: none; background: transparent;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.side-tab:hover { color: var(--fg); }
+.side-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+.side-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
+.side-content.active { display: flex; }
+
+/* ── Chat ── */
+.chat-container { display: flex; flex-direction: column; flex: 1; }
+.chat-dual-toggle {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: var(--space-3); border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.chat-dual-toggle label { font: 400 13px/1 var(--font-body); color: var(--muted); cursor: pointer; }
+.toggle-switch {
+  width: 40px; height: 22px; border-radius: 11px; cursor: pointer;
+  background: var(--border-soft); border: none; position: relative;
+  transition: background 0.2s;
+}
+.toggle-switch.on { background: var(--accent); }
+.toggle-switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+}
+.toggle-switch.on::after { transform: translateX(18px); }
+.chat-panels { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+.chat-panel {
+  flex: 1; display: flex; flex-direction: column;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.chat-panel:last-child { border-right: none; }
+.chat-panel-header {
+  padding: 10px var(--space-3); font: 600 12px/1 var(--font-body);
+  color: var(--fg); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: var(--space-2);
+  flex-shrink: 0;
+}
+.chat-panel-header .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+}
+.chat-panel-header .dot.ft { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.chat-panel-header .dot.base { background: var(--meta); }
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-3);
+}
+.chat-msg {
+  padding: 10px 14px; border-radius: var(--radius-md);
+  font: 400 13px/1.5 var(--font-body); max-width: 92%;
+  animation: msgIn 0.2s ease-out;
+}
+@keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-on); }
+.chat-msg.ai { align-self: flex-start; background: var(--surface-raised); color: var(--fg); border: 1px solid var(--border); }
+.chat-msg.ai.ft-msg { border-left: 3px solid var(--accent); }
+
+/* Chat input — lives inside fine‑tuned panel */
+.chat-input-row {
+  display: flex; padding: var(--space-3); border-top: 1px solid var(--border);
+  gap: var(--space-2); flex-shrink: 0;
+}
+.chat-input-row input {
+  flex: 1; padding: 10px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft); background: var(--bg);
+  font: 400 13px/1.5 var(--font-body); color: var(--fg);
+  outline: none;
+}
+.chat-input-row input:focus { border-color: var(--accent); }
+.chat-input-row input::placeholder { color: var(--meta); }
+.chat-input-row button {
+  padding: 10px 18px; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--accent); color: var(--accent-on); border: none;
+  font: 600 13px/1 var(--font-body); transition: opacity 0.15s;
+}
+.chat-input-row button:hover { opacity: 0.88; }
+
+/* Dual-mode label below base panel */
+.chat-base-receive-only {
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-2); font: 400 11px/1 var(--font-body);
+  color: var(--meta); border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* ── Skills & Plugins ── */
+.skl-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-4); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; gap: var(--space-2);
+}
+.skl-header h3 {
+  font: 500 16px/1 var(--font-display); color: var(--fg);
+}
+.drop-zone {
+  display: flex; align-items: center; justify-content: center;
+  margin: var(--space-3); padding: var(--space-4);
+  border: 2px dashed var(--border-soft); border-radius: var(--radius-md);
+  color: var(--meta); font: 400 13px/1.5 var(--font-body);
+  cursor: pointer; transition: all 0.2s;
+  flex-shrink: 0; text-align: center;
+}
+.drop-zone.drag-over { border-color: var(--accent); background: rgba(217,119,87,0.08); color: var(--accent); }
+.drop-zone .dz-icon { font-size: 24px; margin-bottom: 4px; }
+.skl-list {
+  flex: 1; overflow-y: auto; padding: var(--space-3);
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.skl-card {
+  padding: var(--space-4); border-radius: var(--radius-sm);
+  background: var(--bg); border: 1px solid var(--border);
+  cursor: pointer; transition: all 0.15s;
+}
+.skl-card:hover { border-color: var(--border-soft); background: var(--surface-warm); }
+.skl-card.selected { border-color: var(--accent); }
+.skl-card h4 { font: 500 14px/1.3 var(--font-display); color: var(--fg); margin-bottom: 4px; }
+.skl-card p { font: 400 12px/1.5 var(--font-body); color: var(--muted); }
+.skl-card .skl-meta {
+  display: flex; gap: var(--space-2); margin-top: var(--space-2);
+  font: 400 11px/1 var(--font-mono); color: var(--meta);
+}
+.skl-editor {
+  flex: 1; display: flex; flex-direction: column;
+  padding: var(--space-4); overflow-y: auto;
+}
+.skl-editor label {
+  font: 500 11px/1 var(--font-body); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;
+}
+.skl-editor input, .skl-editor textarea {
+  width: 100%; padding: 10px 14px; margin-bottom: var(--space-3);
+  border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+  font: 400 13px/1.5 var(--font-body); color: var(--fg);
+  background: var(--bg); outline: none; resize: vertical;
+}
+.skl-editor input:focus, .skl-editor textarea:focus { border-color: var(--accent); }
+.skl-editor textarea { min-height: 80px; font-family: var(--font-mono); font-size: 12px; }
+.skl-editor .btn-row { display: flex; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap; }
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: var(--space-8);
+  color: var(--meta); text-align: center; gap: var(--space-2);
+}
+.empty-state .empty-icon { font-size: 40px; opacity: 0.4; }
+.empty-state p { font: 400 13px/1.5 var(--font-body); }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--meta); }
+
+/* ── Checkmate overlay ── */
+.checkmate-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,10,0.75); backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0; pointer-events: none; transition: opacity 0.35s;
+}
+.checkmate-overlay.show { opacity: 1; pointer-events: auto; }
+.checkmate-modal {
+  background: var(--surface); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg); padding: 40px 48px;
+  max-width: 440px; width: 90%; text-align: center;
+  box-shadow: 0 0 0 1px var(--border), 0 20px 60px rgba(0,0,0,0.5);
+}
+.checkmate-modal .cm-icon { font-size: 56px; margin-bottom: var(--space-4); }
+.checkmate-modal h2 {
+  font: 500 28px/1.2 var(--font-display); color: var(--fg);
+  margin-bottom: var(--space-2);
+}
+.checkmate-modal .cm-winner {
+  font: 400 16px/1.5 var(--font-body); color: var(--accent);
+  margin-bottom: var(--space-6);
+}
+.checkmate-modal .cm-options {
+  display: flex; gap: var(--space-2); justify-content: center; flex-wrap: wrap;
+}
+.cm-options .btn-choice {
+  padding: 12px 24px; border-radius: var(--radius-sm); cursor: pointer;
+  font: 500 14px/1 var(--font-body); border: 1px solid var(--border-soft);
+  background: var(--surface-warm); color: var(--fg);
+  transition: all 0.15s;
+}
+.cm-options .btn-choice:hover { border-color: var(--accent); background: var(--bg); }
+.cm-options .btn-choice.primary { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
+.cm-options .btn-choice.primary:hover { background: var(--accent-hover); }
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .main { flex-direction: column; }
+  .panel-side { width: 100%; max-height: 45vh; border-left: none; border-top: 1px solid var(--border); }
+  .board { width: min(55vw, 420px); }
+  .board-labels, .move-history { width: min(55vw, 420px); }
+}
+</style>
 </head>
 <body>
 <div class="app">
 
-  <!-- ── Top nav ── -->
-  <nav class="nav">
-    <div class="nav-brand"><span class="pawn">♞</span> Gemma Chess Coach
-      <span class="sub">Gemma&nbsp;4 E2B · LoRA + Stockfish</span></div>
-    <div class="nav-tabs" id="navTabs">
-      <button class="nav-tab active" data-panel="chat">Chat</button>
-      <button class="nav-tab" data-panel="skills">Skills</button>
-      <button class="nav-tab" data-panel="plugins">Plugins</button>
-    </div>
-    <div class="nav-actions">
-      <span class="nav-badge" id="turnpill">White to move</span>
-      <button id="reset" class="btn btn-accent btn-sm">New game</button>
-    </div>
-  </nav>
+<nav class="nav">
+  <div class="nav-brand">
+    <span class="pawn">♞</span> EasyChess
+  </div>
+  <div class="nav-tabs" id="navTabs">
+    <button class="nav-tab active" data-panel="chat">Chat</button>
+    <button class="nav-tab" data-panel="skills">Skills</button>
+    <button class="nav-tab" data-panel="plugins">Plugins</button>
+  </div>
+  <div class="nav-actions">
+    <span class="nav-badge" id="turnBadge">White to move</span>
+  </div>
+</nav>
 
-  <div class="main">
+<div class="main">
 
-    <!-- ── Board panel ── -->
-    <section class="panel-board" aria-label="Chess board">
-      <div class="board-stage">
-        <div class="evalcol" aria-label="Evaluation bar">
-          <div class="evalbar"><div id="evalfill" class="evalfill"></div>
-            <div class="evalmid"></div></div>
-          <div id="evaltext" class="evaltext">0.00</div>
+  <!-- Chess panel -->
+  <div class="panel-chess">
+    <div class="board-wrap">
+      <div class="board-core">
+        <div class="board-labels" style="padding-left:20px;">
+          <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
         </div>
-        <div class="board-wrap">
-          <div id="board" class="board"></div>
-        </div>
-      </div>
-      <div class="movestrip">
-        <span id="movelist" class="movelist">Game starts — make your move</span>
-      </div>
-    </section>
-
-    <!-- ── Side panel (tabbed) ── -->
-    <aside class="panel-side">
-
-      <!-- Chat tab -->
-      <div class="side-content active" id="panel-chat">
-        <div class="dual-toggle">
-          <span>Compare vs untrained base</span>
-          <label class="switch"><input type="checkbox" id="cmptoggle" />
-            <span class="slider"></span></label>
-        </div>
-        <div class="chat-panels">
-          <div class="chat-panel" id="sftcol">
-            <div class="chat-head"><span class="dot sft"></span>Our SFT Gemma
-              <span class="tag sft">adapter ON</span></div>
-            <div id="messages" class="messages"></div>
-            <form id="chatform" class="composer">
-              <input id="chatinput" class="chatinput" autocomplete="off"
-                     placeholder="Ask the coach…" />
-              <button class="btn btn-accent send" type="submit">Send</button>
-            </form>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div class="board-labels" style="flex-direction:column;width:18px;gap:0;justify-content:space-around;height:min(70vh,560px);padding:4px 2px;font-size:10px;">
+            <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
           </div>
-          <div class="chat-panel" id="basecol" hidden>
-            <div class="chat-head"><span class="dot base"></span>Base Gemma
-              <span class="tag base">no training</span></div>
-            <div id="messages-base" class="messages"></div>
-            <div class="basehint">same harness · same skills · LoRA OFF</div>
+          <div style="position:relative;">
+            <div class="board" id="board"></div>
           </div>
         </div>
-      </div>
-
-      <!-- Skills tab -->
-      <div class="side-content" id="panel-skills">
-        <div class="skl-head"><h3>Add a runtime SKILL.md</h3></div>
-        <div class="skl-form">
-          <label>Name (load id)</label>
-          <input id="sk-name" placeholder="e.g. endgame-drills" />
-          <label>Description — the routing trigger</label>
-          <input id="sk-desc" placeholder="Use when …" />
-          <label>SKILL.md body</label>
-          <textarea id="sk-body" rows="5" placeholder="When to use / Steps (reference tools: eval, best_move, threats…) / Constraint"></textarea>
-          <button id="sk-add" class="btn btn-accent">Add skill</button>
-          <div id="sk-msg" class="skmsg"></div>
+        <div class="status-bar">
+          <span class="status-turn" id="statusTurn">White's turn</span>
+          <span id="statusCheck" style="display:none;"></span>
         </div>
-        <div class="skl-head"><h3>Catalog the model sees <span id="sk-count" class="skcount"></span></h3></div>
-        <ul id="sk-items" class="skl-list"></ul>
-      </div>
-
-      <!-- Plugins tab -->
-      <div class="side-content" id="panel-plugins">
-        <div class="skl-head"><h3>Plugin context</h3></div>
-        <div class="skl-form">
-          <label>Installed</label>
-          <input id="pl-installed" placeholder="comma-separated" />
-          <label>Enabled</label>
-          <input id="pl-enabled" placeholder="comma-separated" />
-          <label>Marketplace</label>
-          <input id="pl-market" placeholder="comma-separated" />
-          <button id="pl-apply" class="btn btn-accent">Apply plugins</button>
-          <div class="plhint">Changes the skills/plugins surface the model is told about — watch routing react.</div>
+        <div class="game-ctrls">
+          <button class="btn btn-sm" onclick="ChessUI.newGame()">New Game</button>
+          <button class="btn btn-sm" onclick="ChessUI.undo()">Undo</button>
+          <button class="btn btn-sm" onclick="ChessUI.flipBoard()">Flip Board</button>
         </div>
       </div>
-
-    </aside>
-  </div>
-
-  <!-- ── Game-over overlay ── -->
-  <div class="cm-overlay" id="cmOverlay">
-    <div class="cm-modal">
-      <div class="cm-icon" id="cmIcon">♚</div>
-      <h2 id="cmTitle">Checkmate</h2>
-      <div class="cm-sub" id="cmSub"></div>
-      <button class="btn btn-accent" onclick="document.getElementById('reset').click()">New game</button>
+      <div class="move-history" id="moveHistory"></div>
+    </div>
+<div class="checkmate-overlay" id="checkmateOverlay">
+      <div class="checkmate-modal">
+        <div class="cm-icon" id="cmIcon">&#9818;</div>
+        <h2 id="cmTitle">Checkmate!</h2>
+        <div class="cm-winner" id="cmWinner"></div>
+        <div class="cm-options">
+          <button class="btn-choice primary" onclick="ChessUI.newGameColor('random')">New Game</button>
+          <button class="btn-choice" onclick="ChessUI.newGameColor('white')">Play as White</button>
+          <button class="btn-choice" onclick="ChessUI.newGameColor('black')">Play as Black</button>
+        </div>
+      </div>
     </div>
   </div>
+
+  <!-- Side panel -->
+  <div class="panel-side">
+
+    <!-- Chat tab -->
+    <div class="side-content active" id="panel-chat">
+      <div class="chat-container">
+        <div class="chat-dual-toggle">
+          <label>Dual Model Comparison</label>
+          <button class="toggle-switch on" id="dualToggle" onclick="ChatUI.toggleDual()"></button>
+        </div>
+        <div class="chat-panels" id="chatPanels">
+          <div class="chat-panel" id="panel-ft">
+            <div class="chat-panel-header">
+              <span class="dot ft"></span> Gemma 4 with Trained Weights
+            </div>
+            <div class="chat-messages" id="msgs-ft">
+              <div class="chat-msg ai ft-msg">Trained-weight Gemma 4 chess assistant ready. Ask me about positions, strategy, or your next move.</div>
+            </div>
+            <div class="chat-input-row" id="chatInputRow">
+              <input id="chatInput" placeholder="Ask about the position, strategy, or next move..." onkeydown="if(event.key==='Enter')ChatUI.send()" />
+              <button onclick="ChatUI.send()">Send</button>
+            </div>
+          </div>
+          <div class="chat-panel" id="panel-base">
+            <div class="chat-panel-header">
+              <span class="dot base"></span> Gemma 4 Base
+            </div>
+            <div class="chat-messages" id="msgs-base">
+              <div class="chat-msg ai">Base Gemma 4 model. I have general chess knowledge but my responses are less precise than the fine-tuned version.</div>
+            </div>
+            <div class="chat-base-receive-only">↳ receives mirrored queries in dual mode</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Skills tab -->
+    <div class="side-content" id="panel-skills">
+      <div class="drop-zone" id="skillsDropZone">
+        <div>
+          <div class="dz-icon">📁</div>
+          Drop a <code style="background:var(--surface-warm);padding:1px 6px;border-radius:4px;">/skills/</code> folder here<br>
+          <span style="font-size:11px;">or a single skill folder, or a SKILL.md file</span>
+        </div>
+      </div>
+      <div class="skl-header">
+        <h3>Installed Skills</h3>
+        <button class="btn btn-sm btn-accent" onclick="SkillsUI.showEditor()">+ New Skill</button>
+      </div>
+      <div id="skillsList" class="skl-list"></div>
+      <div id="skillsEditor" class="skl-editor" style="display:none;">
+        <label>Skill Name</label>
+        <input id="skillName" placeholder="e.g. chess-opening-advisor" />
+        <label>Description</label>
+        <input id="skillDesc" placeholder="What this skill does" />
+        <label>SKILL.md Content</label>
+        <textarea id="skillContent" rows="8" placeholder="# Skill Name&#10;&#10;## Description&#10;&#10;## Instructions&#10;&#10;Provide chess opening advice based on the current board position."></textarea>
+        <div class="btn-row">
+          <button class="btn btn-accent btn-sm" onclick="SkillsUI.save()">Save Skill</button>
+          <button class="btn btn-sm btn-danger" id="skillsDeleteBtn" style="display:none;" onclick="SkillsUI.delete()">Delete</button>
+          <button class="btn btn-sm" onclick="SkillsUI.hideEditor()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Plugins tab -->
+    <div class="side-content" id="panel-plugins">
+      <div class="drop-zone" id="pluginsDropZone">
+        <div>
+          <div class="dz-icon">📁</div>
+          Drop a <code style="background:var(--surface-warm);padding:1px 6px;border-radius:4px;">/plugins/</code> folder here<br>
+          <span style="font-size:11px;">or a single plugin folder, or a config.json file</span>
+        </div>
+      </div>
+      <div class="skl-header">
+        <h3>Installed Plugins</h3>
+        <button class="btn btn-sm btn-accent" onclick="PluginsUI.showEditor()">+ New Plugin</button>
+      </div>
+      <div id="pluginsList" class="skl-list"></div>
+      <div id="pluginsEditor" class="skl-editor" style="display:none;">
+        <label>Plugin Name</label>
+        <input id="pluginName" placeholder="e.g. stockfish-engine" />
+        <label>Description</label>
+        <input id="pluginDesc" placeholder="What this plugin provides" />
+        <label>Plugin Config (JSON)</label>
+        <textarea id="pluginContent" rows="6" placeholder="{&#10;  &quot;entry&quot;: &quot;./engine.js&quot;,&#10;  &quot;type&quot;: &quot;analysis&quot;,&#10;  &quot;config&quot;: {}&#10;}"></textarea>
+        <div class="btn-row">
+          <button class="btn btn-accent btn-sm" onclick="PluginsUI.save()">Save Plugin</button>
+          <button class="btn btn-sm btn-danger" id="pluginsDeleteBtn" style="display:none;" onclick="PluginsUI.delete()">Delete</button>
+          <button class="btn btn-sm" onclick="PluginsUI.hideEditor()">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 </div>
 
-<script src="/static/board.js"></script>
-<script src="/static/app.js"></script>
 <script>
-  // Pure-UI side-panel tab switching (no backend).
-  document.getElementById("navTabs").addEventListener("click", (e) => {
-    const tab = e.target.closest(".nav-tab");
-    if (!tab) return;
-    document.querySelectorAll(".nav-tab").forEach((t) => t.classList.toggle("active", t === tab));
-    const id = "panel-" + tab.dataset.panel;
-    document.querySelectorAll(".side-content").forEach((p) => p.classList.toggle("active", p.id === id));
-  });
+/* ═══════════════════════════════════════════════════════════════
+   Chess Engine — full rules
+   ═══════════════════════════════════════════════════════════════ */
+const Chess = (() => {
+  function initBoard() {
+    const order = ['r','n','b','q','k','b','n','r'];
+    const b = Array.from({length:8}, () => Array(8).fill(null));
+    for (let c = 0; c < 8; c++) { b[0][c] = {type:order[c], color:'b'}; b[7][c] = {type:order[c], color:'w'}; }
+    for (let c = 0; c < 8; c++) { b[1][c] = {type:'p', color:'b'}; b[6][c] = {type:'p', color:'w'}; }
+    return b;
+  }
+
+  function cloneBoard(b) { return b.map(r => r.map(c => c ? {...c} : null)); }
+  function inBounds(r, c) { return r >= 0 && r < 8 && c >= 0 && c < 8; }
+
+  function findKing(board, color) {
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++)
+      if (board[r][c] && board[r][c].type === 'k' && board[r][c].color === color) return {r, c};
+    return null;
+  }
+
+  function isAttacked(board, r, c, byColor) {
+    for (let rr = 0; rr < 8; rr++) for (let cc = 0; cc < 8; cc++) {
+      const p = board[rr][cc];
+      if (!p || p.color !== byColor) continue;
+      if (p.type === 'k') { if (Math.abs(rr-r) <= 1 && Math.abs(cc-c) <= 1 && (rr!==r || cc!==c)) return true; }
+      else { const moves = rawPieceMoves(board, rr, cc, p.type, p.color); if (moves.some(m => m.r === r && m.c === c)) return true; }
+    }
+    return false;
+  }
+
+  function rawPieceMoves(board, r, c, type, color) {
+    const moves = [];
+    const addSliding = (dr, dc) => {
+      for (let i = 1; i < 8; i++) {
+        const nr = r + dr*i, nc = c + dc*i;
+        if (!inBounds(nr, nc)) break;
+        if (board[nr][nc]) { if (board[nr][nc].color !== color) moves.push({r:nr, c:nc}); break; }
+        moves.push({r:nr, c:nc});
+      }
+    };
+    switch (type) {
+      case 'p': {
+        const dir = color === 'w' ? -1 : 1, startR = color === 'w' ? 6 : 1;
+        if (inBounds(r+dir, c) && !board[r+dir][c]) { moves.push({r:r+dir, c}); if (r === startR && !board[r+2*dir][c]) moves.push({r:r+2*dir, c, ep:true}); }
+        for (const dc of [-1, 1]) if (inBounds(r+dir, c+dc) && board[r+dir][c+dc] && board[r+dir][c+dc].color !== color) moves.push({r:r+dir, c:c+dc});
+        break;
+      }
+      case 'n':
+        for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]])
+          if (inBounds(r+dr, c+dc) && (!board[r+dr][c+dc] || board[r+dr][c+dc].color !== color)) moves.push({r:r+dr, c:c+dc});
+        break;
+      case 'b': for (const [dr, dc] of [[-1,-1],[-1,1],[1,-1],[1,1]]) addSliding(dr, dc); break;
+      case 'r': for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) addSliding(dr, dc); break;
+      case 'q': for (const [dr, dc] of [[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]) addSliding(dr, dc); break;
+      case 'k':
+        for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]])
+          if (inBounds(r+dr, c+dc) && (!board[r+dr][c+dc] || board[r+dr][c+dc].color !== color)) moves.push({r:r+dr, c:c+dc});
+        break;
+    }
+    return moves;
+  }
+
+  function legalMoves(board, r, c, castlingRights, enPassantTarget) {
+    const p = board[r][c]; if (!p) return [];
+    const moves = rawPieceMoves(board, r, c, p.type, p.color);
+    if (p.type === 'p' && enPassantTarget) {
+      const dir = p.color === 'w' ? -1 : 1;
+      for (const dc of [-1, 1])
+        if (r+dir === enPassantTarget.r && c+dc === enPassantTarget.c)
+          moves.push({r: enPassantTarget.r, c: enPassantTarget.c, epCapture: true});
+    }
+    if (p.type === 'k') {
+      const cr = castlingRights || {}, backR = p.color === 'w' ? 7 : 0;
+      if (r === backR && c === 4) {
+        if ((p.color==='w'?cr.wK:cr.bK) && !board[backR][5] && !board[backR][6] && board[backR][7] && board[backR][7].type==='r' && board[backR][7].color===p.color)
+          if (!isAttacked(board, backR, 4, oppColor(p.color)) && !isAttacked(board, backR, 5, oppColor(p.color)) && !isAttacked(board, backR, 6, oppColor(p.color)))
+            moves.push({r: backR, c: 6, castle: 'k'});
+        if ((p.color==='w'?cr.wQ:cr.bQ) && !board[backR][3] && !board[backR][2] && !board[backR][1] && board[backR][0] && board[backR][0].type==='r' && board[backR][0].color===p.color)
+          if (!isAttacked(board, backR, 4, oppColor(p.color)) && !isAttacked(board, backR, 3, oppColor(p.color)) && !isAttacked(board, backR, 2, oppColor(p.color)))
+            moves.push({r: backR, c: 2, castle: 'q'});
+      }
+    }
+    return moves.filter(m => {
+      const nb = cloneBoard(board);
+      nb[r][c] = null; nb[m.r][m.c] = {type: p.type, color: p.color};
+      if (m.epCapture) { const epR = p.color==='w'?m.r+1:m.r-1; nb[epR][m.c] = null; }
+      const k = findKing(nb, p.color);
+      return k && !isAttacked(nb, k.r, k.c, oppColor(p.color));
+    });
+  }
+
+  function oppColor(c) { return c === 'w' ? 'b' : 'w'; }
+
+  function hasLegalMoves(board, color, cr, ep) {
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++)
+      if (board[r][c] && board[r][c].color === color && legalMoves(board, r, c, cr, ep).length > 0) return true;
+    return false;
+  }
+
+  function makeMove(state, fromR, fromC, toR, toC) {
+    const b = cloneBoard(state.board), p = b[fromR][fromC];
+    let captured = b[toR][toC], epTarget = null, promo = null;
+    b[fromR][fromC] = null; b[toR][toC] = p;
+    if (p.type === 'p' && !captured && fromC !== toC) { const epR = p.color==='w'?toR+1:toR-1; captured = b[epR][toC]; b[epR][toC] = null; }
+    if (p.type === 'p' && Math.abs(toR - fromR) === 2) epTarget = {r: (fromR + toR) / 2, c: fromC};
+    if (p.type === 'p' && (toR === 0 || toR === 7)) { b[toR][toC] = {type:'q', color:p.color}; promo = 'q'; }
+    if (p.type === 'k' && Math.abs(toC - fromC) === 2) {
+      const rfc = toC > fromC ? 7 : 0, rtc = toC > fromC ? 5 : 3;
+      b[toR][rtc] = b[toR][rfc]; b[toR][rfc] = null;
+    }
+    const cr = {...state.castlingRights};
+    if (p.type === 'k') { cr[p.color+'K'] = false; cr[p.color+'Q'] = false; }
+    if (p.type === 'r') { if (fromR===(p.color==='w'?7:0) && fromC===0) cr[p.color+'Q']=false; if (fromR===(p.color==='w'?7:0) && fromC===7) cr[p.color+'K']=false; }
+    if (captured && captured.type==='r') { if (toR===(captured.color==='w'?7:0) && toC===0) cr[captured.color+'Q']=false; if (toR===(captured.color==='w'?7:0) && toC===7) cr[captured.color+'K']=false; }
+    const nextColor = oppColor(p.color);
+    const inCheck = (() => { const k = findKing(b, nextColor); return k && isAttacked(b, k.r, k.c, p.color); })();
+    const hl = hasLegalMoves(b, nextColor, cr, epTarget);
+    const gameOver = !hl ? (inCheck ? 'checkmate' : 'stalemate') : null;
+    return {
+      board: b, turn: nextColor, inCheck, gameOver, castlingRights: cr, enPassantTarget: epTarget,
+      lastMove: { fromR, fromC, toR, toC, piece: p.type+p.color, captured: captured ? captured.type+captured.color : null, promo },
+      moveHistory: [...state.moveHistory, {fromR, fromC, toR, toC, piece: p, captured, promo, castle: Math.abs(toC-fromC)===2 && p.type==='k'}],
+    };
+  }
+
+  return { initBoard, legalMoves, makeMove, hasLegalMoves, findKing, isAttacked, oppColor };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   Chess UI
+   ═══════════════════════════════════════════════════════════════ */
+const ChessUI = (() => {
+  const UNICODE = {
+    kw:'\u2654', qw:'\u2655', rw:'\u2656', bw:'\u2657', nw:'\u2658', pw:'\u2659',
+    kb:'\u265A', qb:'\u265B', rb:'\u265C', bb:'\u265D', nb:'\u265E', pb:'\u265F',
+  };
+
+  let state, selectedR = -1, selectedC = -1, legalDests = [], flipped = false;
+
+  function newGame() {
+    state = {
+      board: Chess.initBoard(), turn: 'w', inCheck: false, gameOver: null,
+      castlingRights: {wK:true,wQ:true,bK:true,bQ:true}, enPassantTarget: null,
+      lastMove: null, moveHistory: [], playerColor: 'w'
+    };
+    selectedR = selectedC = -1; legalDests = [];
+    render();
+  }
+
+  function newGameColor(color) {
+    if (color === 'random') color = Math.random() < 0.5 ? 'w' : 'b';
+    else if (color === 'white') color = 'w';
+    else if (color === 'black') color = 'b';
+    newGame();
+    state.playerColor = color;
+    if (color === 'b') {
+      flipped = true;
+      render();
+      setTimeout(autoOpponent, 500);
+    } else {
+      flipped = false;
+      render();
+    }
+  }
+
+  function render() {
+    const boardEl = document.getElementById('board');
+    const rect = boardEl.getBoundingClientRect();
+    const bw = rect.width || 560;
+    boardEl.innerHTML = '';
+    const pieceSize = Math.max(18, Math.round(bw / 8 * 0.76));
+    boardEl.style.setProperty('--piece-size', pieceSize + 'px');
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const br = flipped ? (7 - row) : row;
+        const bc = flipped ? (7 - col) : col;
+        const isLight = (row + col) % 2 === 0;
+        const sq = document.createElement('div');
+        sq.className = 'sq ' + (isLight ? 'sq-light' : 'sq-dark');
+        sq.dataset.r = br;
+        sq.dataset.c = bc;
+        if (br === selectedR && bc === selectedC) sq.classList.add('selected');
+        if (state.lastMove && ((br === state.lastMove.fromR && bc === state.lastMove.fromC) || (br === state.lastMove.toR && bc === state.lastMove.toC)))
+          sq.classList.add('last-move');
+        if (legalDests.some(d => d.r === br && d.c === bc)) {
+          if (state.board[br] && state.board[br][bc]) sq.classList.add('capture-target');
+          else sq.classList.add('legal');
+        }
+        const p = state.board[br] && state.board[br][bc];
+        if (p) {
+          const pk = p.type + p.color;
+          const span = document.createElement('span');
+          span.className = 'piece ' + (p.color === 'w' ? 'white' : 'black');
+          span.textContent = UNICODE[pk] || '';
+          sq.appendChild(span);
+          if (p.type === 'k' && state.inCheck && p.color === state.turn) sq.classList.add('check');
+        }
+        boardEl.appendChild(sq);
+      }
+    }
+    const st = document.getElementById('statusTurn'); if (st) st.textContent = state.turn === 'w' ? "White's turn" : "Black's turn";
+    const chkEl = document.getElementById('statusCheck');
+    const overlay = document.getElementById('checkmateOverlay');
+    if (state.gameOver === 'checkmate') {
+      if (chkEl) { chkEl.style.display = 'inline'; chkEl.textContent = state.turn === 'w' ? '— Checkmate! Black wins' : '— Checkmate! White wins'; }
+      const winner = state.turn === 'w' ? 'Black' : 'White';
+      const ct = document.getElementById('cmTitle'); if (ct) ct.textContent = 'Checkmate!';
+      const cw = document.getElementById('cmWinner'); if (cw) cw.textContent = winner + ' wins — start a new game';
+      const ci = document.getElementById('cmIcon'); if (ci) ci.textContent = winner === 'White' ? '\u2654' : '\u265A';
+      if (overlay) overlay.classList.add('show');
+    } else if (state.gameOver === 'stalemate') {
+      if (chkEl) { chkEl.style.display = 'inline'; chkEl.textContent = '— Stalemate! Draw'; }
+      const ct = document.getElementById('cmTitle'); if (ct) ct.textContent = 'Stalemate — Draw!';
+      const cw = document.getElementById('cmWinner'); if (cw) cw.textContent = 'No winner — start a new game';
+      const ci = document.getElementById('cmIcon'); if (ci) ci.textContent = '\u2657';
+      if (overlay) overlay.classList.add('show');
+    } else {
+      if (chkEl) chkEl.style.display = 'none';
+      if (overlay) overlay.classList.remove('show');
+    }
+    if (state.inCheck && !state.gameOver && chkEl) { chkEl.style.display = 'inline'; chkEl.textContent = '— Check!'; }
+    const tb = document.getElementById('turnBadge'); if (tb) tb.textContent = state.turn === 'w' ? 'White to move' : 'Black to move';
+    renderMoveHistory();
+  }
+
+  function handleBoardClick(e) {
+    const sq = e.target.closest('.sq');
+    if (!sq) return;
+    const r = parseInt(sq.dataset.r), c = parseInt(sq.dataset.c);
+    if (isNaN(r) || isNaN(c)) return;
+    if (!state || state.gameOver) return;
+
+    const clickedPiece = state.board[r] && state.board[r][c];
+    const clickedOwn = clickedPiece && clickedPiece.color === state.turn;
+    const clickedLegal = selectedR >= 0 && legalDests.some(function(d) { return d.r === r && d.c === c; });
+
+    if (clickedOwn && !clickedLegal) {
+      selectedR = r; selectedC = c;
+      legalDests = Chess.legalMoves(state.board, r, c, state.castlingRights, state.enPassantTarget);
+      render();
+      return;
+    }
+
+    if (selectedR >= 0 && clickedLegal) {
+      var result = Chess.makeMove(state, selectedR, selectedC, r, c);
+      if (!result || !result.board) { clearSel(); render(); return; }
+      state = result;
+      clearSel(); render();
+      if (!state.gameOver) setTimeout(autoOpponent, 300);
+      return;
+    }
+
+    clearSel(); render();
+  }
+
+  function clearSel() { selectedR = selectedC = -1; legalDests = []; }
+
+  function autoOpponent() {
+    if (state.gameOver || state.turn === state.playerColor) return;
+    const allMoves = [];
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      if (state.board[r][c] && state.board[r][c].color === state.turn)
+        Chess.legalMoves(state.board, r, c, state.castlingRights, state.enPassantTarget)
+          .forEach(m => allMoves.push({fromR:r, fromC:c, toR:m.r, toC:m.c}));
+    }
+    if (allMoves.length) {
+      const m = allMoves[Math.floor(Math.random() * allMoves.length)];
+      state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
+      clearSel();
+      render();
+    }
+  }
+
+  function undo() {
+    if (state.moveHistory.length === 0) return;
+    const savedPC = state.playerColor, savedFlip = flipped;
+    const moves = state.moveHistory.slice(0, -1);
+    newGame();
+    state.playerColor = savedPC;
+    flipped = savedFlip;
+    for (const m of moves) {
+      const dests = Chess.legalMoves(state.board, m.fromR, m.fromC, state.castlingRights, state.enPassantTarget);
+      const d = dests.find(d => d.r === m.toR && d.c === m.toC);
+      if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
+    }
+    render();
+    if (state.turn !== state.playerColor && !state.gameOver) setTimeout(autoOpponent, 400);
+  }
+
+  function flipBoard() { flipped = !flipped; render(); }
+
+  function renderMoveHistory() {
+    const el = document.getElementById('moveHistory');
+    let html = '';
+    for (let i = 0; i < state.moveHistory.length; i += 2) {
+      const num = Math.floor(i/2) + 1;
+      const w = state.moveHistory[i], b = state.moveHistory[i+1];
+      html += `<div class="move-pair"><span class="move-num">${num}.</span>`;
+      html += `<span class="move-w">${formatMove(w)}</span>`;
+      if (b) html += ` <span class="move-b">${formatMove(b)}</span>`;
+      html += '</div>';
+    }
+    if (!html) html = '<div class="move-pair" style="color:var(--meta)">Game starts — make your move</div>';
+    el.innerHTML = html;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function formatMove(m) {
+    const files = 'abcdefgh';
+    const from = files[m.fromC] + (8-m.fromR), to = files[m.toC] + (8-m.toR);
+    let s = from + to;
+    if (m.promo) s += '=' + m.promo.toUpperCase();
+    if (m.captured) s = from[0] + 'x' + to;
+    return s;
+  }
+
+  function getFEN() {
+    let fen = '';
+    for (let r = 0; r < 8; r++) {
+      let e = 0;
+      for (let c = 0; c < 8; c++) {
+        const p = state.board[r][c];
+        if (p) { if (e) { fen += e; e = 0; } let ch = p.type; ch = p.color==='w' ? ch.toUpperCase() : ch; fen += ch; }
+        else e++;
+      }
+      if (e) fen += e;
+      if (r < 7) fen += '/';
+    }
+    fen += ' ' + state.turn + ' ';
+    const cr = state.castlingRights;
+    let crs = ''; if (cr.wK) crs += 'K'; if (cr.wQ) crs += 'Q'; if (cr.bK) crs += 'k'; if (cr.bQ) crs += 'q';
+    fen += (crs || '-') + ' ';
+    fen += (state.enPassantTarget ? 'abcdefgh'[state.enPassantTarget.c] + (8-state.enPassantTarget.r) : '-');
+    fen += ' 0 ' + (Math.floor(state.moveHistory.length/2)+1);
+    return fen;
+  }
+
+  // UCI move list — lets the backend mirror this (authoritative) board before analysis.
+  function getMovesUci() {
+    const files = 'abcdefgh';
+    return state.moveHistory.map(m => {
+      let u = files[m.fromC] + (8 - m.fromR) + files[m.toC] + (8 - m.toR);
+      if (m.promo) u += m.promo;
+      return u;
+    });
+  }
+
+  document.getElementById('board').addEventListener('click', handleBoardClick);
+  newGame();
+  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   Chat UI — input lives inside the fine‑tuned panel.
+   When dual mode is on, messages broadcast to both panels.
+   ═══════════════════════════════════════════════════════════════ */
+const ChatUI = (() => {
+  let dualMode = true;
+  let busy = false;
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+                                  body: JSON.stringify(body) });
+    return r.json();
+  }
+
+  async function send() {
+    if (busy) return;
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = ''; busy = true;
+    appendMsg(document.getElementById('msgs-ft'), text, 'user');
+    if (dualMode) appendMsg(document.getElementById('msgs-base'), text, 'user');
+    const waitFT = appendLoading(document.getElementById('msgs-ft'));
+    const waitBase = dualMode ? appendLoading(document.getElementById('msgs-base')) : null;
+    try {
+      // Mirror the live (client-authoritative) board to the backend so the
+      // analysis tools see the real position, then ask the model.
+      await api('/api/sync', { moves: ChessUI.getMovesUci() });
+      const res = await api('/api/chat', { message: text, variant: dualMode ? 'both' : 'sft' });
+      if (dualMode && res.sft) {
+        renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
+        renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
+      } else {
+        renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
+      }
+    } catch (e) {
+      waitFT.remove(); if (waitBase) waitBase.remove();
+      appendMsg(document.getElementById('msgs-ft'), 'Could not reach the coach backend.', 'ai', 'ft-msg');
+    } finally { busy = false; input.focus(); }
+  }
+
+  function appendMsg(container, text, role, extraClass) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role + (extraClass ? ' ' + extraClass : '');
+    div.textContent = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  function appendLoading(container) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ai';
+    div.textContent = '···';
+    div.style.opacity = '0.6';
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div;
+  }
+
+  function renderReply(container, payload, loadingEl, extraClass) {
+    if (loadingEl) loadingEl.remove();
+    appendMsg(container, (payload && payload.reply) || '(no reply)', 'ai', extraClass);
+  }
+
+  function toggleDual() {
+    dualMode = !dualMode;
+    const toggle = document.getElementById('dualToggle');
+    const panelBase = document.getElementById('panel-base');
+    toggle.classList.toggle('on', dualMode);
+    panelBase.style.display = dualMode ? 'flex' : 'none';
+  }
+
+  return { send, toggleDual };
+})();
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Shared Storage
+   ═══════════════════════════════════════════════════════════════ */
+const Storage = {
+  get(key) { try { return JSON.parse(localStorage.getItem('easychess_' + key) || 'null'); } catch(e) { return null; } },
+  set(key, val) { localStorage.setItem('easychess_' + key, JSON.stringify(val)); }
+};
+
+/* Bridge the Skills/Plugins panels to the real model so what you install here
+   actually changes the catalog/context the coach sees (best-effort; the panels
+   stay client-side for their visuals). */
+const Backend = {
+  async post(path, body) {
+    try { const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+                                        body: JSON.stringify(body) }); return await r.json(); }
+    catch (e) { return { ok: false, error: String(e) }; }
+  },
+  addSkill(s) { return this.post('/api/skill', { name: s.name, description: s.desc || s.name, body: s.content || '' }); },
+  delSkill(name) { return this.post('/api/skill/delete', { name }); },
+  setPlugins(names) { const csv = names.join(', ');
+    return this.post('/api/plugin', { installed: csv, enabled: csv, marketplace: '' }); },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   Drag‑and‑Drop — Claude Code compatible folder import
+   
+   Rules (matching Anthropic Claude Code skill/plugin layout):
+   • Folder named "skills" or "plugins" → parent container:
+     each sub-folder = one skill/plugin
+   • Single folder (not named skills/plugins) → one skill/plugin,
+     look for SKILL.md (skills) or any .json (plugins) inside
+   • Single file (.md/.json) → one skill/plugin, name = filename
+   • Multiple folders (none named skills/plugins) → each is one
+     skill/plugin
+   • Multiple files → each is one skill/plugin
+   ═══════════════════════════════════════════════════════════════ */
+const DnD = (() => {
+  function setup(zoneId, kind, onItems) {
+    const zone = document.getElementById(zoneId);
+    if (!zone) return;
+    ['dragenter', 'dragover'].forEach(evt => {
+      zone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); zone.classList.add('drag-over'); });
+    });
+    ['dragleave', 'drop'].forEach(evt => {
+      zone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); zone.classList.remove('drag-over'); });
+    });
+    zone.addEventListener('drop', async e => {
+      const items = e.dataTransfer.items || e.dataTransfer.files;
+      if (!items) return;
+      const entries = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind && item.kind !== 'file') continue;
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) entries.push(entry);
+        else {
+          const f = item.getAsFile ? item.getAsFile() : item;
+          if (f) entries.push(f);
+        }
+      }
+      if (entries.length === 0) return;
+      const parsed = await parseDropped(entries, kind);
+      if (parsed.length) onItems(parsed);
+    });
+  }
+
+  async function parseDropped(entries, kind) {
+    const containerNames = kind === 'skill' ? ['skills'] : ['plugins'];
+    const results = [];
+
+    for (const entry of entries) {
+      const isDir = entry.isDirectory ? entry.isDirectory() : false;
+      const name = entry.name || (entry.webkitRelativePath || '');
+
+      if (isDir && containerNames.includes(name.toLowerCase())) {
+        const children = await readDirEntries(entry);
+        for (const child of children) {
+          if (child.isFile) {
+            const f = await getFile(child);
+            if (f) { const item = fileToItem(f, kind); if (item) results.push(item); }
+          } else {
+            const item = await folderToItem(child, kind);
+            if (item) results.push(item);
+          }
+        }
+      } else if (isDir) {
+        const item = await folderToItem(entry, kind);
+        if (item) results.push(item);
+      } else {
+        let file;
+        if (typeof entry.getAsFile === 'function') file = entry.getAsFile();
+        else if (entry.isFile && entry.file) file = await getFile(entry);
+        else file = entry;
+        const item = fileToItem(file, kind);
+        if (item) results.push(item);
+      }
+    }
+    return results;
+  }
+
+  async function folderToItem(dirEntry, kind) {
+    const fname = dirEntry.name;
+    const children = await readDirEntries(dirEntry);
+    const textFiles = [];
+    for (const child of children) {
+      if (child.isFile) {
+        const f = await getFile(child);
+        if (f) textFiles.push(f);
+      }
+    }
+    const ext = kind === 'skill' ? '.md' : '.json';
+    const primary = textFiles.find(f => f.name.toLowerCase() === 'skill.md' || f.name.toLowerCase() === 'plugin.json' || f.name.toLowerCase() === 'config.json' || f.name.toLowerCase().endsWith(ext));
+    const content = primary ? await primary.text() : '';
+    const descFile = textFiles.find(f => f.name.toLowerCase() === 'description.md' || f.name.toLowerCase() === 'readme.md');
+    const desc = descFile ? (await descFile.text()).split('\n')[0].replace(/^#\s*/, '').slice(0, 120) : extractDesc(content, kind);
+    return { name: fname, desc: desc || ('Imported from folder /' + fname), content, path: fname + '/' };
+  }
+
+  function fileToItem(file, kind) {
+    const ext = kind === 'skill' ? '.md' : '.json';
+    if (!file.name.toLowerCase().endsWith(ext)) return null;
+    const name = file.name.replace(new RegExp(ext + '$', 'i'), '');
+    return {
+      name,
+      desc: 'Imported from ' + (file.webkitRelativePath || file.name),
+      path: file.webkitRelativePath || file.name,
+      _file: file
+    };
+  }
+
+  function extractDesc(content, kind) {
+    if (!content) return '';
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const m = line.match(/^##\s*Description\s*$/i);
+      if (m) {
+        const idx = lines.indexOf(line);
+        if (idx >= 0 && idx + 1 < lines.length) return lines[idx + 1].trim().slice(0, 120);
+      }
+    }
+    return '';
+  }
+
+  function readDirEntries(dirEntry) {
+    const reader = dirEntry.createReader();
+    return new Promise(resolve => {
+      const all = [];
+      function readBatch() {
+        reader.readEntries(batch => {
+          if (batch.length === 0) resolve(all);
+          else { all.push(...batch); readBatch(); }
+        }, () => resolve(all));
+      }
+      readBatch();
+    });
+  }
+
+  function getFile(fileEntry) {
+    return new Promise(resolve => fileEntry.file(resolve, () => resolve(null)));
+  }
+
+  return { setup };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   Skills UI
+   ═══════════════════════════════════════════════════════════════ */
+const SkillsUI = (() => {
+  let skills = Storage.get('skills') || [], editingIdx = -1;
+  const sampleSkills = [
+    { name: 'chess-opening-advisor', desc: 'Recommends opening moves and explains opening theory for the current position.', content: '# chess-opening-advisor\n\n## Description\nRecommends opening moves and explains opening theory.\n\n## Instructions\nAnalyze the board FEN. If in the opening phase (moves < 10), suggest 2-3 principled opening moves with explanations. Reference named openings when applicable.' },
+    { name: 'tactical-puzzle-generator', desc: 'Creates tactical puzzles from the current board position for training.', content: '# tactical-puzzle-generator\n\n## Description\nGenerates tactical puzzles from live positions.\n\n## Instructions\nScan the board for tactical motifs (forks, pins, skewers, discoveries). Present the best tactical sequence in puzzle format with difficulty rating.' },
+  ];
+
+  function init() {
+    if (skills.length === 0) { skills = sampleSkills.map(s => ({...s, id: Date.now() + Math.random()})); save(); }
+    DnD.setup('skillsDropZone', 'skill', async (imported) => {
+      for (const item of imported) {
+        let content = item.content || '';
+        if (item._file) content = await item._file.text();
+        const existing = skills.find(s => s.name === item.name);
+        if (existing) { existing.content = content; existing.desc = item.desc || existing.desc; }
+        else skills.push({ name: item.name, desc: item.desc || 'Imported from ' + (item.path || item.name), content, id: Date.now() });
+        await Backend.addSkill(skills.find(s => s.name === item.name));  // model sees it
+      }
+      save(); render();
+    });
+    skills.forEach(s => Backend.addSkill(s));   // mirror what's shown into the model's catalog
+    render();
+  }
+
+  function save() { Storage.set('skills', skills); }
+
+  function render() {
+    const list = document.getElementById('skillsList');
+    if (skills.length === 0) {
+      list.innerHTML = '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No skills installed.<br>Drop a <code>/skills/</code> folder above or click "+ New Skill".</p></div>';
+      return;
+    }
+    list.innerHTML = skills.map((s, i) => `<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="SkillsUI.select(${i})">
+      <h4>${esc(s.name)}</h4><p>${esc(s.desc)}</p>
+      <div class="skl-meta"><span>${s.content.split('\n').length} lines</span><span>SKILL.md</span></div>
+    </div>`).join('');
+  }
+
+  function select(i) {
+    editingIdx = i;
+    const s = skills[i];
+    document.getElementById('skillName').value = s.name;
+    document.getElementById('skillDesc').value = s.desc;
+    document.getElementById('skillContent').value = s.content;
+    document.getElementById('skillsEditor').style.display = 'flex';
+    document.getElementById('skillsList').style.display = 'none';
+    document.getElementById('skillsDeleteBtn').style.display = 'inline-block';
+    render();
+  }
+
+  function showEditor() {
+    editingIdx = -1;
+    document.getElementById('skillName').value = '';
+    document.getElementById('skillDesc').value = '';
+    document.getElementById('skillContent').value = '';
+    document.getElementById('skillsEditor').style.display = 'flex';
+    document.getElementById('skillsList').style.display = 'none';
+    document.getElementById('skillsDeleteBtn').style.display = 'none';
+  }
+
+  function hideEditor() {
+    editingIdx = -1;
+    document.getElementById('skillsEditor').style.display = 'none';
+    document.getElementById('skillsList').style.display = 'flex';
+    render();
+  }
+
+  function saveSkill() {
+    const name = document.getElementById('skillName').value.trim();
+    if (!name) return;
+    const obj = { name, desc: document.getElementById('skillDesc').value.trim(), content: document.getElementById('skillContent').value.trim(), id: Date.now() };
+    if (editingIdx >= 0) { obj.id = skills[editingIdx].id; skills[editingIdx] = obj; }
+    else skills.push(obj);
+    Backend.addSkill(obj);
+    save(); hideEditor();
+  }
+
+  function deleteSkill() {
+    if (editingIdx < 0) return;
+    const removed = skills[editingIdx];
+    skills.splice(editingIdx, 1);
+    if (removed) Backend.delSkill(removed.name);
+    save(); hideEditor();
+  }
+
+  return { init, select, showEditor, hideEditor, save: saveSkill, delete: deleteSkill };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   Plugins UI
+   ═══════════════════════════════════════════════════════════════ */
+const PluginsUI = (() => {
+  let plugins = Storage.get('plugins') || [], editingIdx = -1;
+  const samplePlugins = [
+    { name: 'stockfish-engine', desc: 'Local Stockfish 16 engine for position analysis and eval bar.', content: '{"entry": "./stockfish.js", "type": "engine", "depth": 18, "threads": 2}' },
+    { name: 'opening-book', desc: 'Standard opening book (ECO codes) for move suggestions in the opening phase.', content: '{"entry": "./openings.db", "type": "database", "format": "polyglot"}' },
+  ];
+
+  function init() {
+    if (plugins.length === 0) { plugins = samplePlugins.map(p => ({...p, id: Date.now() + Math.random()})); save(); }
+    DnD.setup('pluginsDropZone', 'plugin', async (imported) => {
+      for (const item of imported) {
+        let content = item.content || '';
+        if (item._file) content = await item._file.text();
+        const existing = plugins.find(p => p.name === item.name);
+        if (existing) { existing.content = content; existing.desc = item.desc || existing.desc; }
+        else plugins.push({ name: item.name, desc: item.desc || 'Imported from ' + (item.path || item.name), content, id: Date.now() });
+      }
+      save(); render(); syncPlugins();
+    });
+    render(); syncPlugins();
+  }
+
+  function save() { Storage.set('plugins', plugins); }
+  // Installing a plugin here = its name appears in the installed/enabled context
+  // the model is told about. (Plugin file bodies stay client-side.)
+  function syncPlugins() { Backend.setPlugins(plugins.map(p => p.name)); }
+
+  function render() {
+    const list = document.getElementById('pluginsList');
+    if (plugins.length === 0) {
+      list.innerHTML = '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No plugins installed.<br>Drop a <code>/plugins/</code> folder above or click "+ New Plugin".</p></div>';
+      return;
+    }
+    list.innerHTML = plugins.map((p, i) => `<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="PluginsUI.select(${i})">
+      <h4>${esc(p.name)}</h4><p>${esc(p.desc)}</p>
+      <div class="skl-meta"><span>plugin</span><span>${p.content.length} chars</span></div>
+    </div>`).join('');
+  }
+
+  function select(i) {
+    editingIdx = i;
+    const p = plugins[i];
+    document.getElementById('pluginName').value = p.name;
+    document.getElementById('pluginDesc').value = p.desc;
+    document.getElementById('pluginContent').value = p.content;
+    document.getElementById('pluginsEditor').style.display = 'flex';
+    document.getElementById('pluginsList').style.display = 'none';
+    document.getElementById('pluginsDeleteBtn').style.display = 'inline-block';
+    render();
+  }
+
+  function showEditor() {
+    editingIdx = -1;
+    document.getElementById('pluginName').value = '';
+    document.getElementById('pluginDesc').value = '';
+    document.getElementById('pluginContent').value = '';
+    document.getElementById('pluginsEditor').style.display = 'flex';
+    document.getElementById('pluginsList').style.display = 'none';
+    document.getElementById('pluginsDeleteBtn').style.display = 'none';
+  }
+
+  function hideEditor() {
+    editingIdx = -1;
+    document.getElementById('pluginsEditor').style.display = 'none';
+    document.getElementById('pluginsList').style.display = 'flex';
+    render();
+  }
+
+  function savePlugin() {
+    const name = document.getElementById('pluginName').value.trim();
+    if (!name) return;
+    const obj = { name, desc: document.getElementById('pluginDesc').value.trim(), content: document.getElementById('pluginContent').value.trim(), id: Date.now() };
+    if (editingIdx >= 0) { obj.id = plugins[editingIdx].id; plugins[editingIdx] = obj; }
+    else plugins.push(obj);
+    save(); hideEditor(); syncPlugins();
+  }
+
+  function deletePlugin() {
+    if (editingIdx < 0) return;
+    plugins.splice(editingIdx, 1);
+    save(); hideEditor(); syncPlugins();
+  }
+
+  return { init, select, showEditor, hideEditor, save: savePlugin, delete: deletePlugin };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   Panel Switching
+   ═══════════════════════════════════════════════════════════════ */
+document.getElementById('navTabs').addEventListener('click', e => {
+  const tab = e.target.closest('.nav-tab');
+  if (!tab) return;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  const panel = tab.dataset.panel;
+  document.querySelectorAll('.side-content').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('panel-' + panel);
+  if (target) target.classList.add('active');
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════════════════════ */
+SkillsUI.init();
+PluginsUI.init();
 </script>
 </body>
 </html>

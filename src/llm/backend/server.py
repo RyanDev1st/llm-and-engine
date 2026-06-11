@@ -51,6 +51,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/move":
                 ok = APP.game.move_uci(str(body.get("uci", "")))
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
+            if path == "/api/sync":
+                # The client board is authoritative (smooth, no per-move round-trip);
+                # mirror it here by replaying its move list so analysis tools see the
+                # real position before a chat turn.
+                moves = body.get("moves", [])
+                ok = APP.game.load_uci_moves([str(m) for m in moves] if isinstance(moves, list) else [])
+                APP.executor.game = APP.game
+                return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/reset":
                 return self._json({"ok": True, "state": APP.reset()})
             if path == "/api/chat":
