@@ -40,7 +40,8 @@ const Board = {
         if (this.selected === sqName) sq.classList.add("sel");
         if (piece) {
           const span = document.createElement("span");
-          span.className = "piece"; span.textContent = GLYPH[piece];
+          span.className = "piece " + (piece === piece.toUpperCase() ? "white-piece" : "black-piece");
+          span.textContent = GLYPH[piece];
           sq.appendChild(span);
         }
         if (this.selected) {

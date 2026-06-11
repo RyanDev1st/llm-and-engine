@@ -30,7 +30,24 @@ function renderState(state) {
     ? "Game over" : "Checkmate";
   else turnPill.textContent = (state.turn === "white" ? "White" : "Black") + " to move"
     + (state.in_check ? " · check!" : "");
-  moveList.textContent = pairMoves(state.history);
+  turnPill.classList.toggle("over", !!state.game_over);
+  moveList.textContent = state.history.length ? pairMoves(state.history) : "Game starts — make your move";
+  renderGameOver(state);
+}
+
+function renderGameOver(state) {
+  const overlay = document.getElementById("cmOverlay");
+  if (!overlay) return;
+  if (!state.game_over) { overlay.classList.remove("show"); return; }
+  const ev = state.eval || {};
+  const text = (ev.text || "").toLowerCase();
+  const draw = ev.kind === "over" && text.includes("draw");
+  // On checkmate it's the side NOT to move that delivered mate.
+  const winner = draw ? null : (state.turn === "white" ? "Black" : "White");
+  document.getElementById("cmIcon").textContent = draw ? "½" : (winner === "White" ? "♔" : "♚");
+  document.getElementById("cmTitle").textContent = draw ? "Draw" : "Checkmate";
+  document.getElementById("cmSub").textContent = draw ? "No winner — start a new game" : winner + " wins";
+  overlay.classList.add("show");
 }
 
 function pairMoves(sans) {

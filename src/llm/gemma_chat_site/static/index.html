@@ -7,97 +7,130 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">♞ Gemma&nbsp;Chess&nbsp;Coach <span class="sub">Gemma-4 E2B · Q4_0 LoRA + Stockfish</span></div>
-    <button id="reset" class="btn">New game</button>
-  </header>
+<div class="app">
 
-  <main class="layout">
-    <!-- LEFT: evaluation bar -->
-    <section class="evalcol" aria-label="Evaluation bar">
-      <div class="evalbar"><div id="evalfill" class="evalfill"></div></div>
-      <div id="evaltext" class="evaltext">0.00</div>
-      <div class="evalcap">eval</div>
-    </section>
-
-    <!-- MIDDLE: board -->
-    <section class="boardcol">
-      <div id="board" class="board"></div>
-      <div class="movestrip"><span class="turnpill" id="turnpill">White to move</span>
-        <span id="movelist" class="movelist"></span></div>
-    </section>
-
-    <!-- RIGHT: our SFT chat (+ compare toggle) -->
-    <section class="chatcol" id="sftcol" aria-label="SFT coach chat">
-      <div class="chathead">Our SFT Gemma <span class="tag sft">adapter ON</span>
-        <label class="cmp"><input type="checkbox" id="cmptoggle" /> Compare vs base</label>
-      </div>
-      <div id="messages" class="messages"></div>
-      <form id="chatform" class="composer">
-        <input id="chatinput" class="chatinput" autocomplete="off"
-               placeholder="Ask the coach… (sent to both models in compare mode)" />
-        <button class="btn send" type="submit">Send</button>
-      </form>
-    </section>
-
-    <!-- RIGHT: untrained base chat (compare mode only) -->
-    <section class="chatcol" id="basecol" aria-label="Untrained base chat" hidden>
-      <div class="chathead">Base Gemma <span class="tag base">no training</span></div>
-      <div id="messages-base" class="messages"></div>
-      <div class="basehint">same harness · same skills · LoRA OFF</div>
-    </section>
-  </main>
-
-  <details class="skillpanel" open>
-    <summary>🧩 Skills &amp; plugins — test how it follows injected instructions</summary>
-    <div class="skillgrid">
-      <div class="skilladd">
-        <h4>Add a SKILL.md (loadable at runtime)</h4>
-        <input id="sk-name" placeholder="name → load id (e.g. endgame-drills)" />
-        <input id="sk-desc" placeholder="description — the routing trigger ('Use when …')" />
-        <textarea id="sk-body" rows="5" placeholder="body: When to use / Steps (reference tools: eval, best_move, threats…) / Constraint"></textarea>
-        <button id="sk-add" class="btn">Add skill</button>
-        <div id="sk-msg" class="skmsg"></div>
-        <h4>Plugin context</h4>
-        <input id="pl-installed" placeholder="installed (comma-separated)" />
-        <input id="pl-enabled" placeholder="enabled (comma-separated)" />
-        <input id="pl-market" placeholder="marketplace (comma-separated)" />
-        <button id="pl-apply" class="btn">Apply plugins</button>
-      </div>
-      <div class="skilllist">
-        <h4>Catalog the model sees <span id="sk-count" class="skcount"></span></h4>
-        <ul id="sk-items"></ul>
-      </div>
+  <!-- ── Top nav ── -->
+  <nav class="nav">
+    <div class="nav-brand"><span class="pawn">♞</span> Gemma Chess Coach
+      <span class="sub">Gemma&nbsp;4 E2B · LoRA + Stockfish</span></div>
+    <div class="nav-tabs" id="navTabs">
+      <button class="nav-tab active" data-panel="chat">Chat</button>
+      <button class="nav-tab" data-panel="skills">Skills</button>
+      <button class="nav-tab" data-panel="plugins">Plugins</button>
     </div>
-  </details>
+    <div class="nav-actions">
+      <span class="nav-badge" id="turnpill">White to move</span>
+      <button id="reset" class="btn btn-accent btn-sm">New game</button>
+    </div>
+  </nav>
 
-  <style>
-    .skillpanel{position:fixed;right:16px;bottom:16px;z-index:9999;width:560px;max-width:92vw;
-      max-height:82vh;overflow:auto;border:1px solid #2a2f3a;border-radius:10px;background:#161922;
-      color:#cfd6e4;box-shadow:0 14px 48px rgba(0,0,0,.6)}
-    .skillpanel>summary{cursor:pointer;padding:11px 14px;font-weight:600;user-select:none;
-      position:sticky;top:0;background:#1b1f2a;border-radius:10px 10px 0 0}
-    .skillgrid{display:grid;grid-template-columns:1fr;gap:14px;padding:8px 14px 16px}
-    .skillpanel h4{margin:10px 0 6px;font-size:13px;color:#9fb0c8}
-    .skillpanel input,.skillpanel textarea{width:100%;box-sizing:border-box;margin:3px 0;padding:7px 9px;
-      background:#0e1118;border:1px solid #2a2f3a;border-radius:6px;color:#e6ebf3;font:inherit}
-    .skillpanel .btn{margin-top:6px}
-    .skmsg{font-size:12px;margin:6px 0;min-height:14px}
-    .skilllist ul{list-style:none;margin:0;padding:0;max-height:320px;overflow:auto}
-    .skilllist li{padding:7px 9px;border:1px solid #232836;border-radius:6px;margin:5px 0;background:#0e1118;font-size:12.5px}
-    .skilllist li .nm{font-weight:600;color:#e6ebf3}
-    .skilllist li .rt{color:#7fd1a0;font-size:11px;margin-left:6px}
-    .skilllist li .del{float:right;cursor:pointer;color:#e07a7a;border:none;background:none;font-size:13px}
-    .skcount{color:#7f8aa0;font-weight:400}
-    .chathead .tag{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:8px;vertical-align:middle}
-    .chathead .tag.sft{background:#1f7a4d;color:#dffae9}
-    .chathead .tag.base{background:#7a3b1f;color:#ffe6d6}
-    .chathead .cmp{float:right;font-size:12px;font-weight:500;color:#9fb0c8;cursor:pointer;display:flex;align-items:center;gap:5px}
-    .basehint{padding:8px 14px;font-size:11.5px;color:#7f8aa0;border-top:1px solid var(--line)}
-    #basecol{opacity:.97}
-  </style>
+  <div class="main">
 
-  <script src="/static/board.js"></script>
-  <script src="/static/app.js"></script>
+    <!-- ── Board panel ── -->
+    <section class="panel-board" aria-label="Chess board">
+      <div class="board-stage">
+        <div class="evalcol" aria-label="Evaluation bar">
+          <div class="evalbar"><div id="evalfill" class="evalfill"></div>
+            <div class="evalmid"></div></div>
+          <div id="evaltext" class="evaltext">0.00</div>
+        </div>
+        <div class="board-wrap">
+          <div id="board" class="board"></div>
+        </div>
+      </div>
+      <div class="movestrip">
+        <span id="movelist" class="movelist">Game starts — make your move</span>
+      </div>
+    </section>
+
+    <!-- ── Side panel (tabbed) ── -->
+    <aside class="panel-side">
+
+      <!-- Chat tab -->
+      <div class="side-content active" id="panel-chat">
+        <div class="dual-toggle">
+          <span>Compare vs untrained base</span>
+          <label class="switch"><input type="checkbox" id="cmptoggle" />
+            <span class="slider"></span></label>
+        </div>
+        <div class="chat-panels">
+          <div class="chat-panel" id="sftcol">
+            <div class="chat-head"><span class="dot sft"></span>Our SFT Gemma
+              <span class="tag sft">adapter ON</span></div>
+            <div id="messages" class="messages"></div>
+            <form id="chatform" class="composer">
+              <input id="chatinput" class="chatinput" autocomplete="off"
+                     placeholder="Ask the coach…" />
+              <button class="btn btn-accent send" type="submit">Send</button>
+            </form>
+          </div>
+          <div class="chat-panel" id="basecol" hidden>
+            <div class="chat-head"><span class="dot base"></span>Base Gemma
+              <span class="tag base">no training</span></div>
+            <div id="messages-base" class="messages"></div>
+            <div class="basehint">same harness · same skills · LoRA OFF</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skills tab -->
+      <div class="side-content" id="panel-skills">
+        <div class="skl-head"><h3>Add a runtime SKILL.md</h3></div>
+        <div class="skl-form">
+          <label>Name (load id)</label>
+          <input id="sk-name" placeholder="e.g. endgame-drills" />
+          <label>Description — the routing trigger</label>
+          <input id="sk-desc" placeholder="Use when …" />
+          <label>SKILL.md body</label>
+          <textarea id="sk-body" rows="5" placeholder="When to use / Steps (reference tools: eval, best_move, threats…) / Constraint"></textarea>
+          <button id="sk-add" class="btn btn-accent">Add skill</button>
+          <div id="sk-msg" class="skmsg"></div>
+        </div>
+        <div class="skl-head"><h3>Catalog the model sees <span id="sk-count" class="skcount"></span></h3></div>
+        <ul id="sk-items" class="skl-list"></ul>
+      </div>
+
+      <!-- Plugins tab -->
+      <div class="side-content" id="panel-plugins">
+        <div class="skl-head"><h3>Plugin context</h3></div>
+        <div class="skl-form">
+          <label>Installed</label>
+          <input id="pl-installed" placeholder="comma-separated" />
+          <label>Enabled</label>
+          <input id="pl-enabled" placeholder="comma-separated" />
+          <label>Marketplace</label>
+          <input id="pl-market" placeholder="comma-separated" />
+          <button id="pl-apply" class="btn btn-accent">Apply plugins</button>
+          <div class="plhint">Changes the skills/plugins surface the model is told about — watch routing react.</div>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- ── Game-over overlay ── -->
+  <div class="cm-overlay" id="cmOverlay">
+    <div class="cm-modal">
+      <div class="cm-icon" id="cmIcon">♚</div>
+      <h2 id="cmTitle">Checkmate</h2>
+      <div class="cm-sub" id="cmSub"></div>
+      <button class="btn btn-accent" onclick="document.getElementById('reset').click()">New game</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="/static/board.js"></script>
+<script src="/static/app.js"></script>
+<script>
+  // Pure-UI side-panel tab switching (no backend).
+  document.getElementById("navTabs").addEventListener("click", (e) => {
+    const tab = e.target.closest(".nav-tab");
+    if (!tab) return;
+    document.querySelectorAll(".nav-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    const id = "panel-" + tab.dataset.panel;
+    document.querySelectorAll(".side-content").forEach((p) => p.classList.toggle("active", p.id === id));
+  });
+</script>
 </body>
 </html>
