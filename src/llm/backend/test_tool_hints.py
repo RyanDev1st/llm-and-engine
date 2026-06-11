@@ -48,3 +48,15 @@ def test_silent_when_no_intent():
     assert routing_hints("hi there, nice to meet you") == ""
     assert routing_hints("thanks!") == ""
     assert routing_hints("") == ""
+
+
+# --- extract_call recovery (regressions from the live audit) ---
+from backend.inference import extract_call
+
+
+def test_extract_call_recovers_tool_code_and_echoes():
+    assert "<tool>review_move" in extract_call("I'll review. <tool_code>review_move depth=12</tool_code>")
+    assert "<tool>move san=Nf3" in extract_call("call: move san=Nf3</tool>")          # hint echo, opening tag dropped
+    assert "<tool>move san=b3" in extract_call("Play it. <move san=b3</tool>")          # malformed wrapper
+    assert extract_call("I would remove the rook and improve my position.") is None     # prose, not a call
+    assert extract_call("Your best move is Nf3.") is None                                # plain reply

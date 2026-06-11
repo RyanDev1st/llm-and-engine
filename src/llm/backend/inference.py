@@ -109,6 +109,16 @@ def narrate_tool_result(tool_result: str) -> str:
     return text or "I ran the chess tool, but it did not return a readable result."
 
 
+def _fallback_reply(tool_calls: list[str], tool_results: list[str]) -> str:
+    """When the model gives an empty/leaked final reply, narrate the last FACT
+    result. Skip load_skill bodies (a skill's markdown is not a user-facing fact)."""
+    for call, res in zip(reversed(tool_calls), reversed(tool_results)):
+        if "load_skill" in call:
+            continue
+        return narrate_tool_result(res)
+    return "What would you like to look at on the board?"
+
+
 def normalize_tool_call(text: str) -> str:
     # The trained shape is an optional lead-in sentence then ONE <tool>; the loop
     # stops at "</tool>", so close the tag if the stop trimmed it.
@@ -122,7 +132,12 @@ import re as _re
 
 # Known tool names, longest-first so e.g. best_move matches before a prefix.
 _TOOL_NAMES = sorted({t["name"] for t in official_tools()} | {"load_skill"}, key=len, reverse=True)
-_MALFORMED = _re.compile(r"<(" + "|".join(_re.escape(n) for n in _TOOL_NAMES) + r")\b([^<>]*?)(?:</tool>|>|$)")
+_NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
+_MALFORMED = _re.compile(r"<(" + _NAME_ALT + r")\b([^<>]*?)(?:</tool>|>|$)")
+# Echo of a hint example with the OPENING <tool> dropped, e.g. the model copies
+# "move san=Nf3</tool>" from the routing hint. Anchor the name at a token boundary
+# so "remove</tool>" / "improve" can't false-match.
+_ECHO = _re.compile(r"(?:^|[\s:>\"'`])(" + _NAME_ALT + r")\b([^<>]*)</tool>")
 
 
 def extract_call(decision: str) -> str | None:
@@ -138,11 +153,16 @@ def extract_call(decision: str) -> str | None:
     if "<tool>" in s:
         return normalize_tool_call(s)
     m = _MALFORMED.search(s)
-    if not m:
-        return None
-    name, rest = m.group(1), m.group(2).strip()
-    canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
-    return (s[:m.start()] + canon + s[m.end():]).strip()
+    if m:
+        name, rest = m.group(1), m.group(2).strip()
+        canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
+        return (s[:m.start()] + canon + s[m.end():]).strip()
+    e = _ECHO.search(s)  # closing-tag-only echo of a hint example, opening <tool> dropped
+    if e:
+        name, rest = e.group(1), e.group(2).strip()
+        canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
+        return (s[:e.start(1)] + canon).strip()
+    return None
 
 
 def serving_skills_index() -> list[dict]:
@@ -191,7 +211,9 @@ class CoachLoop:
             raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>", "</tool_code>"]).strip()
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None:  # no tool call -> this is the final reply
-                reply = raw
+                # An empty final reply after tools ran (e.g. board_state+load_skill then
+                # nothing) would show a blank bubble — narrate the last fact instead.
+                reply = raw if raw else _fallback_reply(tool_calls, tool_results)
                 new_turns.append({"role": "assistant", "content": reply})
                 return {
                     "reply": reply,
@@ -219,8 +241,10 @@ class CoachLoop:
                 break
 
         reply = self.model.generate(convo, max_new_tokens=160, stop=[]).strip()
-        if contains_tool_call(reply):
-            reply = narrate_tool_result(tool_results[-1]) if tool_results else "I need more board context before I can answer."
+        if contains_tool_call(reply) or not reply:
+            # leaked a tool tag, or produced nothing — narrate the last fact so the
+            # user never sees a raw tag or an empty bubble.
+            reply = _fallback_reply(tool_calls, tool_results)
         new_turns.append({"role": "assistant", "content": reply})
         return {
             "reply": reply,
