@@ -177,6 +177,18 @@ html, body {
   font: 400 13px/1 var(--font-body); color: var(--muted);
   min-height: 20px;
 }
+.fen-row {
+  display: flex; gap: var(--space-2); align-items: center;
+  width: min(70vh, 560px); max-width: 100%;
+}
+.fen-input {
+  flex: 1; min-width: 0; padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft); background: var(--bg); color: var(--fg);
+  font: 400 12px/1.4 var(--font-mono); outline: none;
+}
+.fen-input:focus { border-color: var(--accent); }
+.fen-input::placeholder { color: var(--meta); }
+.fen-msg { font: 400 11px/1.4 var(--font-mono); color: var(--meta); min-height: 14px; }
 .status-turn { font-weight: 600; color: var(--fg); }
 .status-check { color: var(--danger); font-weight: 600; }
 
@@ -474,6 +486,13 @@ html, body {
           <button class="btn btn-sm" onclick="ChessUI.undo()">Undo</button>
           <button class="btn btn-sm" onclick="ChessUI.flipBoard()">Flip Board</button>
         </div>
+        <div class="fen-row">
+          <input id="fenInput" class="fen-input" placeholder="Paste a FEN to set up the board…"
+                 onkeydown="if(event.key==='Enter')BoardIO.loadFen()" />
+          <button class="btn btn-sm" onclick="BoardIO.loadFen()">Load FEN</button>
+          <button class="btn btn-sm" onclick="BoardIO.copyFen()" title="copy current position">Copy FEN</button>
+        </div>
+        <div id="fenMsg" class="fen-msg"></div>
       </div>
       <div class="move-history" id="moveHistory"></div>
     </div>
@@ -730,6 +749,9 @@ const ChessUI = (() => {
   };
 
   let state, selectedR = -1, selectedC = -1, legalDests = [], flipped = false;
+  // true = position reached from the standard start via moveHistory (sync by move
+  // list, preserves review/undo); false = FEN-loaded snapshot (sync by FEN).
+  let originFromStart = true;
 
   function newGame() {
     state = {
@@ -737,7 +759,7 @@ const ChessUI = (() => {
       castlingRights: {wK:true,wQ:true,bK:true,bQ:true}, enPassantTarget: null,
       lastMove: null, moveHistory: [], playerColor: 'w'
     };
-    selectedR = selectedC = -1; legalDests = [];
+    selectedR = selectedC = -1; legalDests = []; originFromStart = true;
     render();
   }
 
@@ -849,6 +871,70 @@ const ChessUI = (() => {
 
   function clearSel() { selectedR = selectedC = -1; legalDests = []; }
 
+  // Load any position from a FEN (puzzle setup, paste, or model load_fen). A FEN
+  // is a snapshot, so move history starts fresh here.
+  function loadFEN(fen) {
+    const parts = String(fen).trim().split(/\s+/);
+    if (parts.length < 2) return false;
+    const board = [];
+    for (const row of parts[0].split('/')) {
+      const r = [];
+      for (const ch of row) {
+        if (/\d/.test(ch)) { for (let i = 0; i < +ch; i++) r.push(null); }
+        else r.push({ type: ch.toLowerCase(), color: ch === ch.toUpperCase() ? 'w' : 'b' });
+      }
+      while (r.length < 8) r.push(null);
+      board.push(r.slice(0, 8));
+    }
+    while (board.length < 8) board.push(Array(8).fill(null));
+    const turn = parts[1] === 'b' ? 'b' : 'w';
+    const cr = parts[2] || '-';
+    const castlingRights = { wK: cr.includes('K'), wQ: cr.includes('Q'), bK: cr.includes('k'), bQ: cr.includes('q') };
+    let ep = null;
+    if (parts[3] && parts[3] !== '-') ep = { r: 8 - parseInt(parts[3][1]), c: 'abcdefgh'.indexOf(parts[3][0]) };
+    const prevColor = state ? state.playerColor : 'w';
+    state = { board, turn, inCheck: false, gameOver: null, castlingRights, enPassantTarget: ep,
+              lastMove: null, moveHistory: [], playerColor: prevColor };
+    const k = Chess.findKing(board, turn);
+    state.inCheck = !!(k && Chess.isAttacked(board, k.r, k.c, Chess.oppColor(turn)));
+    if (!Chess.hasLegalMoves(board, turn, castlingRights, ep)) state.gameOver = state.inCheck ? 'checkmate' : 'stalemate';
+    originFromStart = false;  // a FEN snapshot — sync by FEN from here
+    clearSel(); render();
+    return true;
+  }
+
+  // What to send to /api/sync so the backend mirrors this board: a move list when
+  // we came from the start (preserves history), else the current FEN snapshot.
+  function syncPayload() {
+    return originFromStart ? { moves: getMovesUci() } : { fen: getFEN() };
+  }
+
+  // Adopt whatever the backend board became after a chat turn (the model may have
+  // played a move or loaded a FEN). Prefer replaying the single move so client
+  // history stays intact; fall back to loading the FEN for a position jump.
+  function reconcile(st) {
+    if (!st || !st.fen) return;
+    const sameBoard = (a, b) => a.split(' ')[0] === b.split(' ')[0] && a.split(' ')[1] === b.split(' ')[1];
+    if (sameBoard(getFEN(), st.fen)) return;          // board unchanged
+    if (st.last_move && tryApplyUci(st.last_move) && sameBoard(getFEN(), st.fen)) return;  // model's move
+    loadFEN(st.fen);                                   // position jump (load_fen)
+  }
+
+  // Apply a UCI move (e.g. e2e4, e7e8q) if legal — used to mirror a move the model
+  // played, keeping client history intact. Returns true if applied.
+  function tryApplyUci(uci) {
+    if (!state || state.gameOver || !uci || uci.length < 4) return false;
+    const files = 'abcdefgh';
+    const fromC = files.indexOf(uci[0]), fromR = 8 - parseInt(uci[1]);
+    const toC = files.indexOf(uci[2]), toR = 8 - parseInt(uci[3]);
+    if ([fromC, fromR, toC, toR].some(v => isNaN(v) || v < 0 || v > 7)) return false;
+    const dests = Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget);
+    if (!dests.some(d => d.r === toR && d.c === toC)) return false;
+    state = Chess.makeMove(state, fromR, fromC, toR, toC);
+    clearSel(); render();
+    return true;
+  }
+
   function autoOpponent() {
     if (state.gameOver || state.turn === state.playerColor) return;
     const allMoves = [];
@@ -941,7 +1027,7 @@ const ChessUI = (() => {
 
   document.getElementById('board').addEventListener('click', handleBoardClick);
   newGame();
-  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci };
+  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci, syncPayload, reconcile };
 })();
 
 /* ═══════════════════════════════════════════════════════════════
@@ -971,7 +1057,7 @@ const ChatUI = (() => {
     try {
       // Mirror the live (client-authoritative) board to the backend so the
       // analysis tools see the real position, then ask the model.
-      await api('/api/sync', { moves: ChessUI.getMovesUci() });
+      await api('/api/sync', ChessUI.syncPayload());
       const res = await api('/api/chat', { message: text, variant: dualMode ? 'both' : 'sft' });
       if (dualMode && res.sft) {
         renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
@@ -979,6 +1065,8 @@ const ChatUI = (() => {
       } else {
         renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
       }
+      // The model may have played a move or set a FEN — reflect it on the board.
+      if (res.state) ChessUI.reconcile(res.state);
     } catch (e) {
       waitFT.remove(); if (waitBase) waitBase.remove();
       appendMsg(document.getElementById('msgs-ft'), 'Could not reach the coach backend.', 'ai', 'ft-msg');
@@ -1403,6 +1491,31 @@ const PluginsUI = (() => {
   }
 
   return { init, select, showEditor, hideEditor, save: savePlugin, delete: deletePlugin };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   FEN load / copy (user sets up an arbitrary position)
+   ═══════════════════════════════════════════════════════════════ */
+const BoardIO = (() => {
+  function msg(text, ok) {
+    const el = document.getElementById('fenMsg');
+    el.textContent = text; el.style.color = ok ? 'var(--success)' : 'var(--danger)';
+  }
+  function loadFen() {
+    const fen = document.getElementById('fenInput').value.trim();
+    if (!fen) return;
+    if (!ChessUI.loadFEN(fen)) { msg('Invalid FEN — check the piece layout and side-to-move.', false); return; }
+    // mirror to the backend so the model's analysis matches the shown position
+    fetch('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json' },
+                         body: JSON.stringify({ fen }) }).catch(() => {});
+    msg('Position loaded.', true);
+  }
+  function copyFen() {
+    const fen = ChessUI.getFEN();
+    (navigator.clipboard ? navigator.clipboard.writeText(fen) : Promise.reject())
+      .then(() => msg('FEN copied: ' + fen, true), () => msg(fen, true));
+  }
+  return { loadFen, copyFen };
 })();
 
 /* ═══════════════════════════════════════════════════════════════

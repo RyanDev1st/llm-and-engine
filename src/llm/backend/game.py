@@ -23,6 +23,20 @@ class Game:
                 return False
         return True
 
+    def load_fen(self, fen: str) -> bool:
+        """Set the board to an arbitrary position (puzzle setup, FEN paste). A FEN
+        is a snapshot, so move history starts fresh from here. Returns False on an
+        invalid/illegal FEN without disturbing the current board."""
+        try:
+            board = chess.Board(str(fen).strip())
+        except ValueError:
+            return False
+        if not board.is_valid():
+            return False
+        self.board = board
+        self.san_stack = []
+        return True
+
     # ---- move -------------------------------------------------------------
     def move(self, san: str) -> str:
         try:

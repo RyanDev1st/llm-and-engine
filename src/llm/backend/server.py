@@ -53,10 +53,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/sync":
                 # The client board is authoritative (smooth, no per-move round-trip);
-                # mirror it here by replaying its move list so analysis tools see the
-                # real position before a chat turn.
+                # mirror it here before a chat turn. Normal play sends a move list
+                # (replayed -> preserves history for review_move/undo); a FEN-loaded
+                # position (puzzle/paste) sends fen (history starts fresh).
+                fen = str(body.get("fen", "")).strip()
                 moves = body.get("moves", [])
-                ok = APP.game.load_uci_moves([str(m) for m in moves] if isinstance(moves, list) else [])
+                if fen:
+                    ok = APP.game.load_fen(fen)
+                else:
+                    ok = APP.game.load_uci_moves([str(m) for m in moves] if isinstance(moves, list) else [])
                 APP.executor.game = APP.game
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/reset":

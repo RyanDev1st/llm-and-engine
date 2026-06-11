@@ -19,11 +19,14 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
         return None, {}
     name = m.group(1)
     rest = m.group(2).strip()
-    if name == "ask_chessbot" and "query=" in rest:
-        head, query = rest.split("query=", 1)
-        args = _kv(head)
-        args["query"] = query.strip()
-        return name, args
+    # Some args are free text with spaces and must capture the rest of the call:
+    # ask_chessbot's query=, and load_fen's fen= (a FEN has space-separated fields).
+    for free in ("query=", "fen="):
+        if free in rest:
+            head, tail = rest.split(free, 1)
+            args = _kv(head)
+            args[free[:-1]] = tail.strip()
+            return name, args
     return name, _kv(rest)
 
 

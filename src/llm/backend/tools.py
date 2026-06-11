@@ -58,6 +58,11 @@ class ToolExecutor:
             return self._board_state(args.get("fields", "basic"))
         if name == "move":
             return self.game.move(args.get("san", ""))
+        if name == "load_fen":
+            fen = args.get("fen", "")
+            if self.game.load_fen(fen):
+                return self._board_state("all")
+            return "error: invalid_fen"
         if name == "undo":
             return self.game.undo()
         if name == "legal_moves":

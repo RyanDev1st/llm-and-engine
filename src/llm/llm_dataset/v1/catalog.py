@@ -25,6 +25,7 @@ USER_SKILL_TOOLS: list[dict[str, Any]] = [
 
 OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "move", "description": "Play a SAN move on the live board.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
+    {"name": "load_fen", "description": "Set the board to a position from a FEN string (e.g. to set up a puzzle).", "args": {"fen": "required"}, "applies_when": "always"},
     {"name": "eval", "description": "Evaluate the current chess position.", "args": {"depth": "required"}, "applies_when": "game_in_progress"},
     {"name": "best_move", "description": "Find the engine's best move or principal variation.", "args": {"depth": "required", "top": ["1", "2", "3", "4", "5"], "series": ["1", "2", "3", "4", "5"]}, "applies_when": "game_in_progress"},
     {"name": "review_move", "description": "Judge the last move played.", "args": {"depth": "required"}, "applies_when": "has_history"},

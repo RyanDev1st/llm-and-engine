@@ -108,6 +108,31 @@ def normalize_tool_call(text: str) -> str:
     return call
 
 
+import re as _re
+
+# Known tool names, longest-first so e.g. best_move matches before a prefix.
+_TOOL_NAMES = sorted({t["name"] for t in official_tools()} | {"load_skill"}, key=len, reverse=True)
+_MALFORMED = _re.compile(r"<(" + "|".join(_re.escape(n) for n in _TOOL_NAMES) + r")\b([^<>]*?)(?:</tool>|>|$)")
+
+
+def extract_call(decision: str) -> str | None:
+    """Return a canonical '<tool>NAME args</tool>' (lead-in preserved) if `decision`
+    is — even malformedly — a tool call, else None for a plain final reply.
+
+    A small model sometimes drops the <tool> wrapper and uses the tool name as the
+    tag, e.g. 'I will play b3. <move san=b3</tool>'. Recover that to the canonical
+    form so the move actually executes instead of leaking into the chat."""
+    s = decision.strip()
+    if "<tool>" in s:
+        return normalize_tool_call(s)
+    m = _MALFORMED.search(s)
+    if not m:
+        return None
+    name, rest = m.group(1), m.group(2).strip()
+    canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
+    return (s[:m.start()] + canon + s[m.end():]).strip()
+
+
 def serving_skills_index() -> list[dict]:
     """All installed SKILL.md as catalog entries (name + description only)."""
     return [
@@ -148,9 +173,10 @@ class CoachLoop:
         seen_calls: set[str] = set()
 
         for _ in range(MAX_TOOL_CALLS):
-            decision = self.model.generate(convo, max_new_tokens=96, stop=["</tool>"]).strip()
-            if "<tool>" not in decision:  # a lead-in may precede the call, so search don't anchor
-                reply = decision
+            raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>"]).strip()
+            decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
+            if decision is None:  # no tool call -> this is the final reply
+                reply = raw
                 new_turns.append({"role": "assistant", "content": reply})
                 return {
                     "reply": reply,
@@ -161,7 +187,6 @@ class CoachLoop:
                     "turns": new_turns,
                     "context": ctx_stats.as_payload(),
                 }
-            decision = normalize_tool_call(decision)
             tool_result = "error: duplicate_tool_call" if decision in seen_calls else self.executor.execute(decision)
             seen_calls.add(decision)
             tool_calls.append(decision)

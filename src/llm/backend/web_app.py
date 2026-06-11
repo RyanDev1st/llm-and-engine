@@ -90,9 +90,10 @@ class App:
             return {"reply": f"(model not loaded: {self.model_error or 'no adapter'})",
                     "tool_calls": [], "tool_results": [], "state": self.state()}
         if variant == "both" and self.loop_base is not None:
-            return {"sft": self._run(self.loop, self.history, message),
-                    "base": self._run(self.loop_base, self.history_base, message),
-                    "state": self.state()}
+            sft = self._run(self.loop, self.history, message)
+            board = self.state()  # the visible board follows OUR model, snapshot before base runs
+            base = self._run(self.loop_base, self.history_base, message)
+            return {"sft": sft, "base": base, "state": board}
         out = self._run(self.loop, self.history, message)
         return {**out, "tool_call": out["tool_calls"][-1] if out["tool_calls"] else None,
                 "tool_result": out["tool_results"][-1] if out["tool_results"] else None,
