@@ -2,68 +2,80 @@ Parent: none
 
 # Stockfish UCI I/O — exact format spec
 
-Source: `src/llm/runtime/stockfish/stockfish/stockfish-windows-x86-64-avx2.exe` → **Stockfish 18**. All lines below captured live 2026-06-11. Match these byte formats exactly.
+Source: `src/llm/runtime/stockfish/stockfish/stockfish-windows-x86-64-avx2.exe` → **Stockfish 18**. All formats captured live 2026-06-11. Match exactly.
 
 Transport: line-based ASCII over stdin/stdout, each line `\n`-terminated, flush per line. `go` is async (engine keeps reading stdin during search).
 
-Notation: `<x>` = required field, `[x]` = optional, `…` = repeatable, `|` = alternative.
+Notation: `<x>` required, `[x]` optional, `…` repeatable, `a|b` alternative.
 
 ---
 
 ## On launch (before any input)
 
-```
-Stockfish 18 by the Stockfish developers (see AUTHORS file)
-```
+| Line emitted |
+|---|
+| `Stockfish 18 by the Stockfish developers (see AUTHORS file)` |
 
 ---
 
-## INPUT (GUI → engine)
+## INPUT commands (GUI → engine)
 
-```
-uci
-isready
-ucinewgame
-setoption name <id> [value <v>]
-position startpos [moves <m> …]
-position fen <FEN> [moves <m> …]
-go <limit> …
-stop
-ponderhit
-quit
-d
-eval
-```
+| Command | Format | Engine response |
+|---|---|---|
+| uci | `uci` | id lines + option lines + `uciok` |
+| isready | `isready` | `readyok` (reply anytime, even mid-search) |
+| ucinewgame | `ucinewgame` | none |
+| setoption | `setoption name <id> [value <v>]` | none (may emit `info string …`) |
+| position (start) | `position startpos [moves <m> …]` | none |
+| position (fen) | `position fen <FEN> [moves <m> …]` | none |
+| go | `go <limit> …` | `info` lines + one `bestmove` |
+| stop | `stop` | final `bestmove` |
+| ponderhit | `ponderhit` | continue search → `bestmove` |
+| quit | `quit` | exit process |
+| d | `d` | board dump (debug, non-UCI) |
+| eval | `eval` | eval dump (debug, non-UCI) |
+| *unknown* | any other | `Unknown command: '<input>'. Type help for more information.` |
 
-`go` limits (any combination, space-separated):
-```
-depth <n>
-movetime <ms>
-nodes <n>
-wtime <ms> btime <ms> winc <ms> binc <ms> [movestogo <n>]
-infinite
-mate <n>
-ponder
-searchmoves <m> …
-perft <n>
-```
+### `go` limit tokens (combine any, space-separated)
 
-Move format (`<m>`): long algebraic `<from><to>[promo]`. Promo = lowercase `q|r|b|n`. Castling = king move (`e1g1`, `e1c1`). Null = `0000`.
+| Token | Format | Meaning |
+|---|---|---|
+| depth | `depth <n>` | search to fixed depth |
+| movetime | `movetime <ms>` | search fixed milliseconds |
+| nodes | `nodes <n>` | stop after n nodes |
+| clock | `wtime <ms> btime <ms> winc <ms> binc <ms> [movestogo <n>]` | manage own time |
+| infinite | `infinite` | search until `stop` |
+| mate | `mate <n>` | search for mate in n |
+| ponder | `ponder` | ponder mode (ends on `ponderhit`/`stop`) |
+| searchmoves | `searchmoves <m> …` | restrict to listed root moves |
+| perft | `perft <n>` | move-count test (no `bestmove`) |
+
+### Move format `<m>`
+
+| Case | Format | Example |
+|---|---|---|
+| normal | `<from><to>` | `e2e4` |
+| promotion | `<from><to><piece>` (piece = `q\|r\|b\|n`, lowercase) | `e7e8q` |
+| castling | king move | `e1g1`, `e1c1` |
+| null | literal | `0000` |
 
 ---
 
-## OUTPUT (engine → GUI)
+## OUTPUT lines (engine → GUI)
 
 ### Response to `uci`
-```
-id name Stockfish 18
-id author the Stockfish developers (see AUTHORS file)
 
-option name <id> type <spin|check|string|button|combo> default <v> [min <n> max <n>]
-…
-uciok
-```
-Full option list emitted by SF18 (advertise only what you honor):
+Order: `id name`, `id author`, blank line, `option …` (one per line), `uciok`.
+
+| Field | Format |
+|---|---|
+| name | `id name Stockfish 18` |
+| author | `id author the Stockfish developers (see AUTHORS file)` |
+| option | `option name <id> type <spin\|check\|string\|button\|combo> default <v> [min <n> max <n>]` |
+| terminator | `uciok` |
+
+Full SF18 option list (advertise only what you honor):
+
 ```
 option name Debug Log File type string default <empty>
 option name NumaPolicy type string default auto
@@ -87,83 +99,67 @@ option name EvalFile type string default nn-c288c895ea92.nnue
 option name EvalFileSmall type string default nn-37f18f62d772.nnue
 ```
 
-### Response to `isready`
-```
-readyok
-```
+### `info` line (during `go`)
 
-### Response to `ucinewgame`, `setoption`, `position`
-None. (Some `setoption` may emit an `info string …`.)
+Token then value, space-separated, in this exact order. Omit any token not computed. Prefix `info`.
 
-### Response to `go` (search): zero+ `info` lines, then exactly one `bestmove`
+| Order | Token | Format | Notes |
+|---|---|---|---|
+| 1 | depth | `depth <n>` | full-width search depth |
+| 2 | seldepth | `seldepth <n>` | selective depth |
+| 3 | multipv | `multipv <n>` | rank index, 1-based |
+| 4 | score | `score cp <n>` \| `score mate <n>` | cp = centipawns, side-to-move POV (+ = mover better); mate = mate in n moves, negative = being mated |
+| 5 | wdl | `wdl <w> <d> <l>` | only if `UCI_ShowWDL true`; per-mille, sums 1000; immediately after score |
+| 6 | bound | `lowerbound` \| `upperbound` | only on aspiration fail-high/low; flag, no value |
+| 7 | nodes | `nodes <n>` | nodes searched |
+| 8 | nps | `nps <n>` | nodes per second |
+| 9 | hashfull | `hashfull <n>` | TT fill, per-mille |
+| 10 | tbhits | `tbhits <n>` | tablebase hits |
+| 11 | time | `time <ms>` | elapsed milliseconds |
+| 12 | pv | `pv <m> …` | principal variation; MUST be last token |
 
-`info` line — fields in this exact order, omit any not computed:
-```
-info depth <n> seldepth <n> multipv <n> score <cp <n> | mate <n>> [wdl <w> <d> <l>] [lowerbound|upperbound] nodes <n> nps <n> hashfull <n> tbhits <n> time <ms> pv <m> …
-```
-Real examples:
+Also: `info string <free text>` — diagnostics, GUI ignores. Standalone line.
+
+Captured examples:
+
 ```
 info depth 12 seldepth 19 multipv 1 score cp 47 nodes 41065 nps 821300 hashfull 11 tbhits 0 time 50 pv e2e4 c7c5 b1c3 a7a6 g1f3
 info depth 1 seldepth 2 multipv 1 score mate 1 nodes 20 nps 20000 hashfull 0 tbhits 0 time 1 pv a1a8
 info depth 10 seldepth 12 multipv 1 score cp 69 wdl 235 763 2 nodes 4835 nps 805833 hashfull 1 tbhits 0 time 6 pv e2e4 e7e5 g1f3 b8c6
 ```
-- `score cp <n>`: centipawns, side-to-move POV (positive = mover better).
-- `score mate <n>`: mate in `n` moves; negative = being mated.
-- `wdl <w> <d> <l>`: only if `UCI_ShowWDL true`; per-mille, sums 1000; placed immediately after score.
-- MultiPV >1: one line per ranked move, `multipv 1`, `multipv 2`, … (each `go` iteration).
-- `info string <text>`: free-form diagnostics, GUI ignores.
 
-`bestmove` — terminates the search:
-```
-bestmove <m> [ponder <m>]
-```
-No legal move:
-```
-bestmove (none)
-```
+### `bestmove` (terminates every `go` except perft)
 
-### Response to `go perft <n>`: per-move counts, blank line, total. No `bestmove`.
-```
-<m>: <count>
-…
+| Case | Format | Example |
+|---|---|---|
+| normal | `bestmove <m> [ponder <m>]` | `bestmove e2e4 ponder c7c5` |
+| no legal move | `bestmove (none)` | `bestmove (none)` |
 
-Nodes searched: <total>
-```
-Example (`perft 2` from startpos):
-```
-a2a3: 20
-b2b3: 20
-…
-g1h3: 20
+### `go perft <n>` (no `bestmove`)
 
-Nodes searched: 400
-```
+Order: one line per root move, blank line, total.
 
-### Response to `stop`
-Same as a finished `go`: final `bestmove <m> [ponder <m>]`.
+| Order | Format | Example |
+|---|---|---|
+| per move | `<m>: <count>` | `a2a3: 20` |
+| separator | (blank line) | |
+| total | `Nodes searched: <total>` | `Nodes searched: 400` |
 
-### Response to unknown command
-```
-Unknown command: '<input>'. Type help for more information.
-```
+### Debug dumps (non-UCI, optional)
 
-### Response to `d` (debug, non-UCI)
+| Command | Output lines |
+|---|---|
+| `d` | board grid, then `Fen: <FEN>`, `Key: <hex>`, `Checkers: <squares>` |
+| `eval` | `NNUE evaluation        +0.12 (white side)` then `Final evaluation       +0.15 (white side) [with scaled NNUE, ...]` |
+
+`d` board grid format:
+
 ```
  +---+---+---+---+---+---+---+---+
  | r | n | b | q | k | b | n | r | 8
  +---+---+---+---+---+---+---+---+
  …
    a   b   c   d   e   f   g   h
-
-Fen: <FEN>
-Key: <hex>
-Checkers: <squares>
-```
-
-### Response to `eval` (debug, non-UCI)
-```
-NNUE evaluation        +0.12 (white side)
-Final evaluation       +0.15 (white side) [with scaled NNUE, ...]
 ```
 
 ---
@@ -172,12 +168,12 @@ Final evaluation       +0.15 (white side) [with scaled NNUE, ...]
 
 | Input | Output |
 |---|---|
-| `uci` | `id name`, `id author`, `option …`*, `uciok` |
+| `uci` | `id name`, `id author`, `option …`, `uciok` |
 | `isready` | `readyok` |
 | `ucinewgame` | none |
 | `setoption …` | none |
 | `position …` | none |
-| `go …` | `info …`*, `bestmove <m> [ponder <m>]` |
+| `go …` | `info …`, `bestmove <m> [ponder <m>]` |
 | `stop` | `bestmove <m> [ponder <m>]` |
 | `quit` | exit |
 
@@ -185,7 +181,9 @@ Optional: `ponder`, `ponderhit`, `perft`, `d`, `eval`, `wdl`, MultiPV.
 
 ---
 
-## Not reproducible on this hardware (standard UCI, include if implementing)
+## Not reproducible on this hardware (standard UCI — include if implementing)
 
-- `currmove <m> currmovenumber <n>` — SF emits only when a root move's search exceeds ~3s; binary runs >1M nps so it never fired.
-- `lowerbound` / `upperbound` — aspiration-window fail-high/low flag on the `info` line; short searches didn't trigger.
+| Field | Format | Why absent |
+|---|---|---|
+| currmove | `currmove <m> currmovenumber <n>` | SF emits only when one root move searches >~3s; binary runs >1M nps, never fired |
+| bound | `lowerbound` / `upperbound` | aspiration fail-high/low; short searches didn't trigger |
