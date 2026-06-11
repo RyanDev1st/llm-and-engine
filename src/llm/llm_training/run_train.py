@@ -29,11 +29,18 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         targets = args.targets if args.targets != "all-linear" else "qv"
         grad_accum = args.grad_accum if args.grad_accum != 16 else 1
     model = getattr(args, "model", DEFAULT_MODEL)
+    cap = getattr(args, "max_examples", None)
+    if args.smoke:
+        max_examples = 32
+    elif cap is not None:
+        max_examples = cap
+    else:
+        max_examples = 1_000_000
     return TrainConfig(
         phase="unified", device="cuda", allow_cuda=True, dry_run=False,
         smoke=args.smoke,
         max_steps=args.max_steps,
-        max_examples=32 if args.smoke else 1_000_000,
+        max_examples=max_examples,
         batch_size=1, grad_accum_steps=grad_accum, epochs=args.epochs,
         max_seq_len=args.max_seq, lora_rank=rank, lora_alpha=2 * rank,
         lora_dropout=0.05, lora_targets=targets, learning_rate=args.lr,
@@ -52,6 +59,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--max-steps", type=int, default=5, dest="max_steps")
+    ap.add_argument("--max-examples", type=int, default=None, dest="max_examples",
+                    help="cap training rows loaded (quick local de-risk runs); smoke forces 32")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--max-seq", type=int, default=1280, dest="max_seq")
     ap.add_argument("--rank", type=int, default=16)

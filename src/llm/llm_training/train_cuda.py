@@ -163,6 +163,7 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
     update = 0
     epoch = 0
     skipped = 0
+    consec_skips = 0
     while update < total_updates:
         # +process_index: each rank shuffles its own shard independently.
         batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle,
@@ -192,6 +193,7 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
                     # to desync. ~0.1% of samples; cost is one skipped update.
                     oom = True
                     skipped += 1
+                    consec_skips += 1
                     seqlen = int(labels.shape[-1])
                     batch = labels = weights = loss = None
                     optimizer.zero_grad(set_to_none=True)
@@ -199,9 +201,17 @@ def _train_loop(accelerator, model, train_examples, val_batches, optimizer, sche
                         torch.cuda.empty_cache()
                     if main_proc:
                         print(f"  [OOM-skip] step dropped (seq={seqlen}); total skipped={skipped}", flush=True)
+                    # A rare straggler is fine; OOM on (nearly) every step means the
+                    # seq/batch just doesn't fit — fail loudly instead of silently
+                    # training on nothing and saving a useless adapter.
+                    if consec_skips >= 16:
+                        raise RuntimeError(
+                            f"{consec_skips} consecutive OOM-skips — seq {seqlen} too large "
+                            f"for this GPU. Lower MAX_SEQ or free VRAM.")
                     break
             if oom:
                 continue
+            consec_skips = 0
             accelerator.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)
             optimizer.step()
             scheduler.step()

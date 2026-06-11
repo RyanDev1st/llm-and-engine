@@ -22,22 +22,36 @@ How to act:
 def _render_skills(skills_index: list[dict]) -> str:
     if not skills_index:
         return ""
+    # Terse tags: keep plugin provenance; defaults (enabled) are assumed, so only
+    # flag the exception (disabled). Drops source= and enabled=True to keep the
+    # per-row system prompt small enough that the conversation fits the train seq.
     lines = []
     for s in skills_index:
-        flags = f"plugin={s.get('plugin', '?')} source={s.get('source', '?')} enabled={s.get('enabled', True)}"
-        lines.append(f"- {s['name']}: {s.get('description', '')} [{flags}]")
+        tag = s.get("plugin", "?")
+        if not s.get("enabled", True):
+            tag += ", disabled"
+        lines.append(f"- {s['name']}: {s.get('description', '')} [{tag}]")
     return "\n\nAVAILABLE SKILLS (names + descriptions only; load_skill to get the body):\n" + "\n".join(lines)
 
 
 def _render_tools(tool_manifest: list[dict]) -> str:
     if not tool_manifest:
         return ""
+    # Only annotate the non-defaults: applies_when when it isn't "always", and
+    # "disabled" when the tool can't be called now. Saves ~8 tokens/tool vs the
+    # old applies_when=… enabled=True on every line.
     lines = []
     for t in tool_manifest:
         args = " ".join(f"{k}=<{v}>" for k, v in (t.get("args") or {}).items())
         head = f"- {t['name']} {args}".rstrip()
-        flags = f"applies_when={t.get('applies_when', 'always')} enabled={t.get('enabled', True)}"
-        lines.append(f"{head}  {t.get('description', '')} [{flags}]")
+        bits = []
+        aw = t.get("applies_when", "always")
+        if aw != "always":
+            bits.append(aw)
+        if not t.get("enabled", True):
+            bits.append("disabled")
+        tag = f" [{', '.join(bits)}]" if bits else ""
+        lines.append(f"{head}  {t.get('description', '')}{tag}")
     return "\n\nAVAILABLE TOOLS (call only these):\n" + "\n".join(lines)
 
 
