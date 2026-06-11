@@ -55,7 +55,8 @@ def _build_window(model: "ModelBackend") -> ContextWindow:
 
 
 def contains_tool_call(text: str) -> bool:
-    return "<tool>" in text or "</tool>" in text
+    # Gemma natively emits <tool_code>…</tool_code>; treat it as a tool call too.
+    return any(t in text for t in ("<tool>", "</tool>", "<tool_code>", "</tool_code>"))
 
 
 def narrate_tool_result(tool_result: str) -> str:
@@ -73,6 +74,14 @@ def narrate_tool_result(tool_result: str) -> str:
         return "I already asked for that exact tool result, so I'll answer from what I have instead."
     if "is a skill, not a tool" in text:
         return "Let me load the right skill and try again."
+    if text.startswith("error: invalid_fen"):
+        return "That FEN doesn't look valid — check the layout and side-to-move and try again."
+    if text.startswith("error: no moves to review"):
+        return "There's no move to review yet — make a move first."
+    if text.startswith("error: unknown_skill"):
+        return "I couldn't find that skill. Let me work with what I have."
+    if text.startswith("error:"):  # never leak a raw internal error to the user
+        return "That didn't work — let me try a different approach."
     if text.startswith("board_state:"):
         return f"Current board snapshot: {text.removeprefix('board_state:').strip()}."
     if text.startswith("best_line:"):
@@ -123,7 +132,9 @@ def extract_call(decision: str) -> str | None:
     A small model sometimes drops the <tool> wrapper and uses the tool name as the
     tag, e.g. 'I will play b3. <move san=b3</tool>'. Recover that to the canonical
     form so the move actually executes instead of leaking into the chat."""
-    s = decision.strip()
+    # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
+    # <tool>. Map it so those calls execute instead of leaking into the reply.
+    s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
     if "<tool>" in s:
         return normalize_tool_call(s)
     m = _MALFORMED.search(s)
@@ -177,7 +188,7 @@ class CoachLoop:
         seen_calls: set[str] = set()
 
         for _ in range(MAX_TOOL_CALLS):
-            raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>"]).strip()
+            raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>", "</tool_code>"]).strip()
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None:  # no tool call -> this is the final reply
                 reply = raw

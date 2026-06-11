@@ -87,8 +87,9 @@ class HFModel:
 
 def _truncate(text: str, stop: list[str]) -> str:
     text = text.strip()
-    if "</tool>" in text:  # always close after the first tool call
-        return text[: text.index("</tool>") + len("</tool>")]
+    for close in ("</tool>", "</tool_code>"):  # always close after the first tool call
+        if close in text:
+            return text[: text.index(close) + len(close)]
     for s in stop:
         if s and s in text:
             text = text[: text.index(s)]
