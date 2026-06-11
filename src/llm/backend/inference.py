@@ -202,8 +202,13 @@ class CoachLoop:
                     "turns": new_turns,
                     "context": ctx_stats.as_payload(),
                 }
-            tool_result = "error: duplicate_tool_call" if decision in seen_calls else self.executor.execute(decision)
-            seen_calls.add(decision)
+            # Dedup on the call itself, not the full text — a differing lead-in
+            # ("Let me check" vs "I'll look") must not let the same call re-run and
+            # re-hit the engine. Key = the <tool>…</tool> span.
+            i0 = decision.find("<tool>")
+            key = decision[i0:] if i0 >= 0 else decision
+            tool_result = "error: duplicate_tool_call" if key in seen_calls else self.executor.execute(decision)
+            seen_calls.add(key)
             tool_calls.append(decision)
             tool_results.append(tool_result)
             convo += [{"role": "assistant", "content": decision},

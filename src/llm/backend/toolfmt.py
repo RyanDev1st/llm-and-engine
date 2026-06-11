@@ -19,14 +19,15 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
         return None, {}
     name = m.group(1)
     rest = m.group(2).strip()
-    # Some args are free text with spaces and must capture the rest of the call:
-    # ask_chessbot's query=, and load_fen's fen= (a FEN has space-separated fields).
-    for free in ("query=", "fen="):
-        if free in rest:
-            head, tail = rest.split(free, 1)
-            args = _kv(head)
-            args[free[:-1]] = tail.strip()
-            return name, args
+    # One free-text arg per tool captures the rest of the call (it may contain
+    # spaces / '='): ask_chessbot's query=, load_fen's fen=. Keyed BY TOOL so a
+    # 'fen=' inside a question (or odd chars in a FEN) can't truncate the other.
+    free = {"ask_chessbot": "query=", "load_fen": "fen="}.get(name)
+    if free and free in rest:
+        head, tail = rest.split(free, 1)
+        args = _kv(head)
+        args[free[:-1]] = tail.strip()
+        return name, args
     return name, _kv(rest)
 
 

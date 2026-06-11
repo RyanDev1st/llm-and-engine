@@ -760,6 +760,9 @@ const ChessUI = (() => {
       lastMove: null, moveHistory: [], playerColor: 'w'
     };
     selectedR = selectedC = -1; legalDests = []; originFromStart = true;
+    // Also clear the backend board + conversation history, else the model keeps
+    // the old game's context and references positions from the finished game.
+    try { fetch('/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {}); } catch (e) {}
     render();
   }
 
@@ -1041,6 +1044,7 @@ const ChatUI = (() => {
   async function api(path, body) {
     const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' },
                                   body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);  // don't treat a 4xx/5xx body as a valid reply
     return r.json();
   }
 
@@ -1104,7 +1108,8 @@ const ChatUI = (() => {
     calls.forEach((c, i) => {
       const step = document.createElement('div');
       step.className = 'think-step';
-      step.textContent = c.replace(/\s+/g, ' ').trim() + '  →  ' + ((results && results[i]) || '');
+      const callStr = typeof c === 'string' ? c : JSON.stringify(c);
+      step.textContent = callStr.replace(/\s+/g, ' ').trim() + '  →  ' + ((results && results[i]) || '');
       det.appendChild(step);
     });
     container.appendChild(det);
@@ -1129,6 +1134,7 @@ const ChatUI = (() => {
 
   function renderReply(container, payload, loadingEl, extraClass) {
     if (loadingEl) loadingEl.remove();
+    payload = payload || {};  // dual mode may omit res.base — don't crash the render
     const calls = payload.tool_calls || (payload.tool_call ? [payload.tool_call] : []);
     const results = payload.tool_results || (payload.tool_result ? [payload.tool_result] : []);
     addThinking(container, calls, results);
@@ -1220,7 +1226,9 @@ const DnD = (() => {
     const results = [];
 
     for (const entry of entries) {
-      const isDir = entry.isDirectory ? entry.isDirectory() : false;
+      // FileSystemEntry.isDirectory is a boolean PROPERTY (webkit), not a method —
+      // calling it threw and silently broke every folder drop.
+      const isDir = typeof entry.isDirectory === 'function' ? entry.isDirectory() : !!entry.isDirectory;
       const name = entry.name || (entry.webkitRelativePath || '');
 
       if (isDir && containerNames.includes(name.toLowerCase())) {
