@@ -124,9 +124,13 @@ class ToolExecutor:
         sans, (kind, val) = self.engine.best_line(self.game.board, depth, series)
         if not sans:
             return "best: none (no legal moves)"
-        if series == 1:
-            return f"best: {sans[0]}"
         score = fmt_white_score(kind, val, depth).removeprefix("score: ").split(", depth")[0]
+        if series == 1:
+            # Always attach the score, in the same ", score: ... pawns from white POV"
+            # idiom as best_line/best_moves. The bare "best: <move>" form carried no
+            # number, and the model (trained only on scored best_* results) then
+            # invented one from opening priors. Grounding it kills that fabrication.
+            return f"best: {sans[0]}, score: {score}"
         return f"best_line: {' '.join(sans)}, score: {score}"
 
     def _review(self, depth: int) -> str:
