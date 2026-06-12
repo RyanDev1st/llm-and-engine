@@ -53,26 +53,36 @@ def to_gguf(merged: Path, gguf_f16: Path) -> bool:
     return subprocess.run(cmd).returncode == 0
 
 
-def quantize(gguf_f16: Path, gguf_q4: Path) -> bool:
+def quantize(gguf_f16: Path, gguf_out: Path, quant_type: str = "Q4_0") -> bool:
     qbin = find_tool("llama-quantize.exe") or find_tool("quantize.exe")
     if not qbin:
         print("llama-quantize not found under runtime/llamacpp. Skipping quantize.", flush=True)
         return False
-    cmd = [str(qbin), str(gguf_f16), str(gguf_q4), "Q4_0"]
+    cmd = [str(qbin), str(gguf_f16), str(gguf_out), quant_type]
     print(" ".join(cmd), flush=True)
     return subprocess.run(cmd).returncode == 0
 
 
 def main() -> None:
+    import os
     adapter = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "runs" / "gemma4_chess"
+    # Quant target: Q4_0 default; CHESS_GGUF_QUANT=Q5_K_M for better number fidelity.
+    quant = os.environ.get("CHESS_GGUF_QUANT", "Q4_0")
     merged = REPO / "runs" / "gemma4_chess_merged"
     gguf_f16 = REPO / "runs" / "gemma4-E2B-chesscoach-f16.gguf"
-    gguf_q4 = REPO / "runs" / "gemma4-E2B-chesscoach-Q4_0.gguf"
-    merge(adapter, merged)
-    if to_gguf(merged, gguf_f16) and quantize(gguf_f16, gguf_q4):
-        print(f"DONE: {gguf_q4}", flush=True)
+    gguf_out = REPO / "runs" / f"gemma4-E2B-chesscoach-{quant}.gguf"
+    # Reuse an existing f16 GGUF if present (skip the costly merge + convert).
+    if not gguf_f16.exists():
+        merge(adapter, merged)
+        if not to_gguf(merged, gguf_f16):
+            print("GGUF export incomplete; ship via transformers 4-bit + adapter (model_hf).", flush=True)
+            return
     else:
-        print("GGUF export incomplete; ship via transformers 4-bit + adapter (model_hf).", flush=True)
+        print(f"reusing existing f16 GGUF: {gguf_f16}", flush=True)
+    if quantize(gguf_f16, gguf_out, quant):
+        print(f"DONE: {gguf_out}", flush=True)
+    else:
+        print("quantize failed; ship via transformers 4-bit + adapter (model_hf).", flush=True)
 
 
 if __name__ == "__main__":
