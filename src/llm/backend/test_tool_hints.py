@@ -132,3 +132,13 @@ def test_plural_best_moves_detected_with_count():
     assert matched_calls("show me the five best moves")["best_move"] == "<tool>best_move depth=18 top=5</tool>"
     # singular still works, no spurious top
     assert matched_calls("what's the best move?")["best_move"] == "<tool>best_move depth=18</tool>"
+
+
+def test_moves_without_the_word_best_detected():
+    # the prefix-probe gap: "5 next moves" / "suggest 5 moves" (no word "best")
+    assert matched_tools("suggest 5 next moves and tell me how am I doing") == {"best_move", "eval"}
+    assert matched_calls("suggest 5 next moves")["best_move"] == "<tool>best_move depth=18 top=5</tool>"
+    assert "best_move" in matched_tools("give me some moves")
+    assert "best_move" in matched_tools("show me 3 moves to consider")
+    # "legal moves" must stay legal_moves, NOT best_move
+    assert matched_tools("give me the legal moves") == {"legal_moves"}

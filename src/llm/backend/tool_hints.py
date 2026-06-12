@@ -25,7 +25,14 @@ _QUEENSIDE = re.compile(r"\b(queenside|long)\b", re.I)
 # move/best_move are made mutually exclusive in routing_hints().
 _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
     ("best_move", "find the engine's best move or a hint", "<tool>best_move depth=18</tool>",
-     re.compile(r"\b(best moves?|top \d+ moves?|what should i play|what do i play|what to play|hint|suggest (?:a |some |me )?moves?|recommend (?:a |some )?moves?|best line|best continuation|strongest moves?|candidate moves?)\b", re.I)),
+     re.compile(
+         r"\b(best moves?|candidate moves?|strongest moves?|best line|best continuation"
+         r"|what should i play|what do i play|what to play|hint"
+         r"|top \d+ moves?"                                          # "top 5 moves"
+         r"|\d+\s+(?:next |good |top |best )*moves?"                 # "5 next moves", "3 best moves"
+         r"|(?:suggest|recommend)\s+(?:me\s+)?(?:a |some |\d+ )?(?:next |best |good )*moves?"   # "suggest 5 next moves"
+         r"|(?:show|give|list)\s+me\s+(?:a |some |the |\d+ )?(?:next |best |good )*moves?)\b",  # "give me moves"
+         re.I)),
     ("eval", "evaluate who stands better", "<tool>eval depth=18</tool>",
      re.compile(r"\beval\b|\bevaluat\w*|\bassess\w*|\b(who'?s winning|am i winning|am i losing|how am i doing|how'?s my (game|position)|how do i stand|is (this|it) lost|am i better|am i worse)\b", re.I)),
     ("review_move", "review the move just played", "<tool>review_move depth=15</tool>",
