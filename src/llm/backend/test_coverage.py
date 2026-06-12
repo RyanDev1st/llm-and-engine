@@ -86,6 +86,24 @@ def test_no_required_intent_returns_first_reply():
     assert out["tool_calls"] == [] and out["reply"] == "Hello there!"
 
 
+def test_leadin_only_terminal_reply_narrates_tool_result():
+    # the live "it didn't finish" bug: model ran ask_chessbot, then its final reply was
+    # just "Loading the chess-coach skill." (a dangling lead-in) -> narrate the real result.
+    out = _loop([
+        "<tool>ask_chessbot query=explain chess",          # runs ask_chessbot
+        "Loading the chess-coach skill.",                   # terminal lead-in, no tool -> non-answer
+    ]).respond([], "explain chess in 8 sentences")
+    assert "ask_chessbot" in _names(out)
+    assert "Loading the chess-coach skill" not in out["reply"]      # the dangling lead-in is replaced
+    assert out["reply"]                                             # with a real narrated answer
+
+
+def test_leadin_only_kept_when_no_tools_ran():
+    # without tools, a lead-in is the model's actual (if weak) reply — don't fabricate.
+    out = _loop(["Let me check that for you."]).respond([], "hi")
+    assert out["reply"] == "Let me check that for you."
+
+
 def test_game_over_skips_coverage():
     g = Game()
     for san in ["f3", "e5", "g4", "Qh4#"]:

@@ -4,6 +4,7 @@ The model uses the role of the latest message to pick Mode 1 vs Mode 2; we keep
 the same system prompt across phases. A `ModelBackend` just needs generate()."""
 from __future__ import annotations
 
+import re as _re
 from typing import Protocol
 
 from llm_dataset.v1.catalog import official_tools
@@ -123,6 +124,19 @@ def _fallback_reply(tool_calls: list[str], tool_results: list[str]) -> str:
             continue
         return narrate_tool_result(res)
     return "What would you like to look at on the board?"
+
+
+# A terminal reply that is JUST a tool-intent lead-in (the model narrated "I'll load X"
+# / "let me check" then stopped without calling the tool) is a non-answer. If tools ran
+# this turn, we narrate the real result instead of showing the dangling lead-in.
+_LEADIN_ONLY = _re.compile(
+    r"^(loading\b|let me (load|check|look|grab|pull|see)|i'?ll (load|check|use|look)"
+    r"|first,?\s|now (i|let)|let me (get|find))\b[^.?!]*[.?!]?\s*$", _re.I)
+
+
+def _is_leadin_only(reply: str) -> bool:
+    r = (reply or "").strip()
+    return bool(r) and len(r) <= 70 and bool(_LEADIN_ONLY.match(r))
 
 
 def _result_signal(result: str) -> str | None:
@@ -259,8 +273,6 @@ def normalize_tool_call(text: str) -> str:
         call += "</tool>"
     return call
 
-
-import re as _re
 
 # Known tool names, longest-first so e.g. best_move matches before a prefix.
 _TOOL_NAMES = sorted({t["name"] for t in official_tools()} | {"load_skill"}, key=len, reverse=True)
@@ -410,9 +422,11 @@ class CoachLoop:
             if decision is None:  # the model wants to give the final reply
                 outstanding = [t for t in required if t not in seen_names]
                 if not outstanding:
-                    # All required intents covered. An empty final reply after tools ran
-                    # would show a blank bubble — narrate the last fact instead.
-                    reply = raw if raw else _fallback_reply(tool_calls, tool_results)
+                    # All required intents covered. An empty reply — or a bare tool-intent
+                    # lead-in the model stopped on ("Loading the chess-coach skill.") after
+                    # tools ran — is a non-answer; narrate the real tool result instead.
+                    reply = raw if (raw and not (tool_calls and _is_leadin_only(raw))) \
+                        else _fallback_reply(tool_calls, tool_results)
                     # Number guard FIRST (fix a fabricated eval number -> the real one),
                     # then answer-coverage (append any required fact still missing). Order
                     # matters: a corrected number then reads as present, so it isn't doubled.
@@ -459,9 +473,9 @@ class CoachLoop:
         convo.append({"role": "user", "content":
                       "You're out of tool steps and the user is waiting — give your best answer now using the results you have."})
         reply = gen(160, [])
-        if contains_tool_call(reply) or not reply:
-            # leaked a tool tag, or produced nothing — narrate the last fact so the
-            # user never sees a raw tag or an empty bubble.
+        if contains_tool_call(reply) or not reply or (tool_calls and _is_leadin_only(reply)):
+            # leaked a tool tag, produced nothing, or stopped on a bare tool-intent lead-in
+            # after tools ran — narrate the last fact so the user gets a real answer.
             reply = _fallback_reply(tool_calls, tool_results)
         reply = _correct_eval_number(reply, tool_results)   # fix a fabricated eval number first
         reply = _correct_move_names(reply, tool_results)     # then a fabricated move list
