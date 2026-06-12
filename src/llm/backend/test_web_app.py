@@ -36,12 +36,13 @@ def test_base_loop_never_mutates_real_board():
     assert out["state"]["fen"].split()[0] == chess.STARTING_FEN.split()[0]  # display = real board
 
 
-def test_thinking_compare_returns_both_and_isolates_board():
+def test_coverage_compare_returns_both_and_isolates_board():
     app = App(adapter=None)
-    # staged engine drives the SFT loop (eval then DONE); single engine runs on the mirror loop
-    app.loop = CoachLoop(ScriptedModel(["<tool>eval depth=18", "DONE", "Equal (staged)."]), app.executor)
-    app.loop_mirror = CoachLoop(ScriptedModel(["Equal (single)."]), app.base_executor)
-    out = app.chat("how am I doing?", variant="thinking", thinking=None)
-    assert set(out) == {"staged", "single", "state"}
-    assert "staged" in out["staged"]["reply"] and "single" in out["single"]["reply"]
+    # ON run force-routes the required eval; OFF run just replies without it.
+    app.loop = CoachLoop(ScriptedModel(["I'll just say it.", "<tool>eval depth=18", "ON: equal."]), app.executor)
+    app.loop_mirror = CoachLoop(ScriptedModel(["OFF: just play e4."]), app.base_executor)
+    out = app.chat("how am I doing?", variant="coverage", coverage=True)
+    assert set(out) == {"on", "off", "state"}
+    assert out["on"]["reply"] == "ON: equal." and out["on"]["tool_calls"]      # coverage ran eval
+    assert out["off"]["reply"] == "OFF: just play e4." and out["off"]["tool_calls"] == []  # off: no tool
     assert app.game.board.fen() == chess.STARTING_FEN     # neither run advanced the real board

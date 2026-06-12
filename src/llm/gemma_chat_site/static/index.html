@@ -519,9 +519,7 @@ html, body {
         <div class="chat-dual-toggle">
           <label>Dual Model Comparison</label>
           <button class="toggle-switch on" id="dualToggle" onclick="ChatUI.toggleDual()"></button>
-          <label style="margin-left:16px;">Thinking mode</label>
-          <button class="toggle-switch" id="thinkToggle" onclick="ChatUI.toggleThinking()"></button>
-          <label style="margin-left:16px;">Compare staged vs single</label>
+          <label style="margin-left:16px;">Compare coverage on/off</label>
           <button class="toggle-switch" id="compareToggle" onclick="ChatUI.toggleCompare()"></button>
         </div>
         <div class="chat-panels" id="chatPanels">
@@ -1055,8 +1053,7 @@ const ChessUI = (() => {
    ═══════════════════════════════════════════════════════════════ */
 const ChatUI = (() => {
   let dualMode = true;
-  let thinkingMode = false;   // staged engine on/off
-  let compareMode = false;    // staged-vs-single side by side
+  let compareMode = false;    // coverage on-vs-off ablation, side by side
   let busy = false;
 
   async function api(path, body) {
@@ -1084,12 +1081,11 @@ const ChatUI = (() => {
       // tell, on return, whether the user kept playing.
       await api('/api/sync', ChessUI.syncPayload());
       const seqAtSend = ChessUI.moveSeq();
-      const variant = compareMode ? 'thinking' : (dualMode ? 'both' : 'sft');
-      const thinking = thinkingMode ? 'staged' : 'single';
-      const res = await api('/api/chat', { message: text, variant, thinking });
-      if (compareMode && res.staged) {
-        renderReply(document.getElementById('msgs-ft'), res.staged, waitFT, 'ft-msg');
-        renderReply(document.getElementById('msgs-base'), res.single, waitBase, '');
+      const variant = compareMode ? 'coverage' : (dualMode ? 'both' : 'sft');
+      const res = await api('/api/chat', { message: text, variant, coverage: true });
+      if (compareMode && res.on) {
+        renderReply(document.getElementById('msgs-ft'), res.on, waitFT, 'ft-msg');
+        renderReply(document.getElementById('msgs-base'), res.off, waitBase, '');
       } else if (dualMode && res.sft) {
         renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
         renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
@@ -1183,11 +1179,6 @@ const ChatUI = (() => {
     syncPanels();
   }
 
-  function toggleThinking() {
-    thinkingMode = !thinkingMode;
-    document.getElementById('thinkToggle').classList.toggle('on', thinkingMode);
-  }
-
   function toggleCompare() {
     compareMode = !compareMode;
     if (compareMode) { dualMode = false; document.getElementById('dualToggle').classList.remove('on'); }
@@ -1202,15 +1193,15 @@ const ChatUI = (() => {
     const ftHdr = document.querySelector('#panel-ft .chat-panel-header');
     const baseHdr = document.querySelector('#panel-base .chat-panel-header');
     if (compareMode) {
-      ftHdr.innerHTML = '<span class="dot ft"></span> Staged thinking';
-      baseHdr.innerHTML = '<span class="dot base"></span> Single-prompt';
+      ftHdr.innerHTML = '<span class="dot ft"></span> Coverage ON';
+      baseHdr.innerHTML = '<span class="dot base"></span> Coverage OFF';
     } else {
       ftHdr.innerHTML = '<span class="dot ft"></span> Gemma 4 with Trained Weights';
       baseHdr.innerHTML = '<span class="dot base"></span> Gemma 4 Base';
     }
   }
 
-  return { send, toggleDual, toggleThinking, toggleCompare };
+  return { send, toggleDual, toggleCompare };
 })();
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }

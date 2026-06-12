@@ -70,8 +70,8 @@ class Handler(BaseHTTPRequestHandler):
                 msg = str(body.get("message", "")).strip()
                 if not msg:
                     raise ValueError("empty message")
-                thinking = str(body.get("thinking", "")).strip() or None
-                return self._json({"ok": True, **APP.chat(msg, str(body.get("variant", "sft")), thinking)})
+                coverage = bool(body.get("coverage", True))
+                return self._json({"ok": True, **APP.chat(msg, str(body.get("variant", "sft")), coverage)})
             if path == "/api/skill":
                 skill_admin.add_skill(str(body.get("name", "")), str(body.get("description", "")),
                                       str(body.get("body", "")))

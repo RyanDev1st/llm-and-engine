@@ -4,7 +4,6 @@ The model uses the role of the latest message to pick Mode 1 vs Mode 2; we keep
 the same system prompt across phases. A `ModelBackend` just needs generate()."""
 from __future__ import annotations
 
-import os
 from typing import Protocol
 
 from llm_dataset.v1.catalog import official_tools
@@ -12,10 +11,11 @@ from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
 from .skills import load_skills
-from .tool_hints import routing_hints, skill_hints
+from .tool_hints import routing_hints, skill_hints, matched_calls
+from .toolfmt import parse_call
 from .tools import ToolExecutor
 
-MAX_TOOL_CALLS = 6
+MAX_TOOL_CALLS = 8  # headroom for the coverage "Wait" nudges (each can cost a step)
 DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limit
 # Serve == train: the catalog of installed skills + the official tool manifest are
 # rendered by the SAME build_system() the loader uses. Skills appear by name +
@@ -192,18 +192,20 @@ class CoachLoop:
         self.plugin_context = plugin_context
         self.window = _build_window(model)
 
-    def respond(self, history: list[dict], user_message: str, thinking: str | None = None) -> dict:
+    def respond(self, history: list[dict], user_message: str, coverage: bool = True) -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
         display fields (tool_call, tool_result), and the context-window stats.
 
         The session memory is bounded here: `window.fit` evicts the oldest turns
         so the prompt stays inside the model's token budget — recent context is
-        kept, old context is dropped, the window never overflows."""
-        engine = thinking or os.environ.get("CHESS_THINKING", "single")
-        if engine == "staged":
-            from .thinking.loop import StagedLoop  # lazy: thinking imports inference
-            return StagedLoop(self.model, self.executor, self.agent_overlay,
-                              self.plugin_context, self.window).run(history, user_message)
+        kept, old context is dropped, the window never overflows.
+
+        `coverage` (default on) is the reliability layer: the user's words are mapped
+        to a deterministic set of REQUIRED tools, and the loop will not accept a final
+        reply while one is ungathered — it first injects a "Wait, you still need X"
+        steer (s1-style budget forcing; the model usually complies and looks smart),
+        then force-routes the tool as a backstop. This is what makes the model do
+        multi-tool reliably in one session. Set coverage=False for the ablation."""
         # Deterministic routing layer: if the user's words clearly map to a tool,
         # remind the model of it explicitly (fixes small-model routing slips like
         # narrating "I'll play b3" without calling move, or stopping before eval).
@@ -211,31 +213,45 @@ class CoachLoop:
         system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index())
+        # Coverage set: tool -> canonical call for each detected intent. Empty on a
+        # finished game or when coverage is off.
+        required = {} if (game_over or not coverage) else matched_calls(user_message)
         kept_history, ctx_stats = self.window.fit(system, history, user_message)
         convo = [{"role": "system", "content": system}, *kept_history,
                  {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []
         tool_results: list[str] = []
-        seen_calls: set[str] = set()
+        seen_calls: set[str] = set()   # full <tool> spans, for dedup (same call never re-runs)
+        seen_names: set[str] = set()   # tool NAMES gathered, for coverage (best_move != best_move top=3)
+        nudged: set[str] = set()       # required tools already given one "Wait" steer
 
         for _ in range(MAX_TOOL_CALLS):
             raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>", "</tool_code>"]).strip()
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
-            if decision is None:  # no tool call -> this is the final reply
-                # An empty final reply after tools ran (e.g. board_state+load_skill then
-                # nothing) would show a blank bubble — narrate the last fact instead.
-                reply = raw if raw else _fallback_reply(tool_calls, tool_results)
-                new_turns.append({"role": "assistant", "content": reply})
-                return {
-                    "reply": reply,
-                    "tool_call": tool_calls[-1] if tool_calls else None,
-                    "tool_result": tool_results[-1] if tool_results else None,
-                    "tool_calls": tool_calls,
-                    "tool_results": tool_results,
-                    "turns": new_turns,
-                    "context": ctx_stats.as_payload(),
-                }
+            if decision is None:  # the model wants to give the final reply
+                outstanding = [t for t in required if t not in seen_names]
+                if not outstanding:
+                    # All required intents covered. An empty final reply after tools ran
+                    # would show a blank bubble — narrate the last fact instead.
+                    reply = raw if raw else _fallback_reply(tool_calls, tool_results)
+                    new_turns.append({"role": "assistant", "content": reply})
+                    return {
+                        "reply": reply,
+                        "tool_call": tool_calls[-1] if tool_calls else None,
+                        "tool_result": tool_results[-1] if tool_results else None,
+                        "tool_calls": tool_calls,
+                        "tool_results": tool_results,
+                        "turns": new_turns,
+                        "context": ctx_stats.as_payload(),
+                    }
+                tool = outstanding[0]
+                if tool not in nudged:  # s1 "Wait": steer the model to the missing tool first
+                    nudged.add(tool)
+                    convo.append({"role": "user", "content":
+                                  f"Wait — before answering, the user also needs this. Call it now: {required[tool]}"})
+                    continue
+                decision = required[tool]  # backstop: model ignored the steer -> force-route the tool
             # Dedup on the call itself, not the full text — a differing lead-in
             # ("Let me check" vs "I'll look") must not let the same call re-run and
             # re-hit the engine. Key = the <tool>…</tool> span.
@@ -243,6 +259,9 @@ class CoachLoop:
             key = decision[i0:] if i0 >= 0 else decision
             tool_result = "error: duplicate_tool_call" if key in seen_calls else self.executor.execute(decision)
             seen_calls.add(key)
+            name = parse_call(decision)[0] or ""
+            if name:
+                seen_names.add(name)
             tool_calls.append(decision)
             tool_results.append(tool_result)
             convo += [{"role": "assistant", "content": decision},
@@ -252,6 +271,9 @@ class CoachLoop:
             if tool_result == "error: duplicate_tool_call":
                 break
 
+        # Budget forcing (s1): out of tool steps, the user is waiting — answer now.
+        convo.append({"role": "user", "content":
+                      "You're out of tool steps and the user is waiting — give your best answer now using the results you have."})
         reply = self.model.generate(convo, max_new_tokens=160, stop=[]).strip()
         if contains_tool_call(reply) or not reply:
             # leaked a tool tag, or produced nothing — narrate the last fact so the
