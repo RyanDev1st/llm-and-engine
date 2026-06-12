@@ -11,7 +11,9 @@ import os
 
 LLM_DIR = Path(__file__).resolve().parents[1]
 REPO = LLM_DIR.parent.parent
-DEFAULT_GGUF = REPO / "runs" / "gemma4-E2B-chesscoach-Q4_0.gguf"
+# Q5_K_M (not Q4_0): better number/interpretation fidelity for the eval-grounding the
+# coach narrates, at ~3.6 GB (vs 3.35). Q4_0 fabricated eval numbers; Q5_K_M doesn't.
+DEFAULT_GGUF = REPO / "runs" / "gemma4-E2B-chesscoach-Q5_K_M.gguf"
 
 
 def default_gguf_path() -> Path:

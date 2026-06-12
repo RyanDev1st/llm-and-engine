@@ -1,11 +1,12 @@
 import importlib
 
 
-def test_model_gguf_default_path_is_unchanged(monkeypatch):
+def test_model_gguf_default_path_is_q5(monkeypatch):
     monkeypatch.delenv("CHESS_GGUF_PATH", raising=False)
     mod = importlib.reload(importlib.import_module("backend.model_gguf"))
 
-    assert mod.default_gguf_path() == mod.REPO / "runs" / "gemma4-E2B-chesscoach-Q4_0.gguf"
+    # Q5_K_M is the serving default (better eval fidelity than the old Q4_0).
+    assert mod.default_gguf_path() == mod.REPO / "runs" / "gemma4-E2B-chesscoach-Q5_K_M.gguf"
 
 
 def test_model_gguf_path_can_come_from_env(monkeypatch, tmp_path):
