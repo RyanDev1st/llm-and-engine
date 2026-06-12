@@ -90,6 +90,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/reset":
                 return self._json({"ok": True, "state": APP.reset()})
+            if path == "/api/engine":      # toggle the eval-bar engine (stockfish | custom)
+                from . import eval_engines
+                eval_engines.set_engine(str(body.get("engine", "")).strip())
+                return self._json({"ok": True, "engine": eval_engines.current(),
+                                   "available": eval_engines.available(), "state": APP.state()})
             if path == "/api/base/load":   # demo dual: bring up the untrained HF base on demand
                 return self._json(APP.load_base())
             if path == "/api/base/unload":  # free it immediately when dual is turned off

@@ -108,6 +108,13 @@ html, body {
   display: flex; flex-direction: column; align-items: center;
   gap: var(--space-4);
 }
+/* Eval bar: dark = black's share, the fill = white's share growing from the bottom. */
+.eval-bar { position: relative; width: 16px; height: min(70vh,560px); border-radius: 6px;
+  background: #2b2b2b; overflow: hidden; box-shadow: inset 0 0 0 1px var(--border); flex: 0 0 auto; }
+.eval-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+  background: #f0f0f0; transition: height .35s ease; }
+.eval-num { position: absolute; left: 0; right: 0; top: 4px; text-align: center;
+  font: 600 9px/1 var(--font-mono); color: #111; mix-blend-mode: difference; pointer-events: none; }
 .board-core {
   display: flex; flex-direction: column; align-items: center;
   gap: var(--space-4);
@@ -301,6 +308,7 @@ html, body {
 .ctxmeter.warn .ctxbar span { background: var(--accent); }
 .ctxlabel { font: 400 10px/1.4 var(--font-mono); color: var(--meta); margin-top: 3px; }
 .turn-timer { align-self: flex-start; font: 600 11px/1.4 var(--font-mono); color: var(--accent); margin-top: 2px; }
+.live-tok { align-self: flex-start; font: 600 11px/1.4 var(--font-mono); color: var(--meta); margin-top: 2px; opacity: .85; }
 .ctxmeter.warn .ctxlabel { color: var(--accent); }
 
 /* Chat input — lives inside fine‑tuned panel */
@@ -471,6 +479,11 @@ html, body {
           <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
         </div>
         <div style="display:flex;align-items:center;gap:4px;">
+          <!-- Eval bar: white share fills from the bottom; value + engine label on top. -->
+          <div class="eval-bar" id="evalBar" title="Position evaluation">
+            <div class="eval-fill" id="evalFill"></div>
+            <div class="eval-num" id="evalNum">0.00</div>
+          </div>
           <div class="board-labels" style="flex-direction:column;width:18px;gap:0;justify-content:space-around;height:min(70vh,560px);padding:4px 2px;font-size:10px;">
             <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
           </div>
@@ -486,6 +499,11 @@ html, body {
           <button class="btn btn-sm" onclick="ChessUI.newGame()">New Game</button>
           <button class="btn btn-sm" onclick="ChessUI.undo()">Undo</button>
           <button class="btn btn-sm" onclick="ChessUI.flipBoard()">Flip Board</button>
+          <span style="margin-left:auto;font-size:11px;color:var(--meta);">eval engine</span>
+          <select id="engineSel" class="btn btn-sm" style="padding:4px 8px;" onchange="EvalBar.setEngine(this.value)">
+            <option value="stockfish">Stockfish</option>
+            <option value="custom">Custom (LiquidChess)</option>
+          </select>
         </div>
         <div class="fen-row">
           <input id="fenInput" class="fen-input" placeholder="Paste a FEN to set up the board…"
@@ -761,7 +779,14 @@ const ChessUI = (() => {
   // so we skip reconcile (don't clobber their moves) and re-sync the backend to the
   // client instead. The board is never frozen during a model turn.
   let moveSeq = 0;
-  function bump() { moveSeq++; }
+  let _evalT = null;
+  function bump() {
+    moveSeq++;
+    // refresh the eval bar after the board settles (debounced; skips while a chat is busy
+    // so it doesn't fight the in-flight model sync).
+    clearTimeout(_evalT);
+    _evalT = setTimeout(() => { if (!(window.ChatUI && ChatUI.isBusy && ChatUI.isBusy())) EvalBar.refresh(); }, 350);
+  }
 
   function newGame() {
     state = {
@@ -929,6 +954,7 @@ const ChessUI = (() => {
   // history stays intact; fall back to loading the FEN for a position jump.
   function reconcile(st) {
     if (!st || !st.fen) return;
+    if (st.eval) EvalBar.render(st.eval);             // fresh backend eval -> update the bar
     const sameBoard = (a, b) => a.split(' ')[0] === b.split(' ')[0] && a.split(' ')[1] === b.split(' ')[1];
     if (sameBoard(getFEN(), st.fen)) return;          // board unchanged
     if (st.last_move && tryApplyUci(st.last_move) && sameBoard(getFEN(), st.fen)) return;  // model's move
@@ -1049,6 +1075,42 @@ const ChessUI = (() => {
 })();
 
 /* ═══════════════════════════════════════════════════════════════
+   Eval bar — white-POV evaluation from the selected engine (Stockfish | custom).
+   Renders from backend state.eval; refreshes after local moves by syncing + polling.
+   ═══════════════════════════════════════════════════════════════ */
+const EvalBar = (() => {
+  function render(ev) {
+    if (!ev) return;
+    const fill = document.getElementById('evalFill'), num = document.getElementById('evalNum');
+    if (!fill || !num) return;
+    const pct = (ev.bar == null) ? 50 : Math.max(2, Math.min(98, ev.bar));   // white's share
+    fill.style.height = pct + '%';
+    num.textContent = ev.text || '0.00';
+    const eng = ev.engine ? (ev.engine === 'custom' ? 'LiquidChess' : 'Stockfish') : '';
+    document.getElementById('evalBar').title = 'Evaluation' + (eng ? ' · ' + eng : '');
+  }
+  // Pull a fresh eval for the CURRENT client board (after a local drag/undo the backend
+  // hasn't seen the move yet) — mirror the board, then read /api/state's eval.
+  async function refresh() {
+    try {
+      await fetch('/api/sync', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(ChessUI.syncPayload()) });
+      const r = await fetch('/api/state'); const st = await r.json();
+      render(st.eval);
+    } catch (e) { /* leave the bar as-is */ }
+  }
+  async function setEngine(name) {
+    try {
+      const r = await fetch('/api/engine', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: name }) });
+      const j = await r.json();
+      if (j.state && j.state.eval) render(j.state.eval); else refresh();
+    } catch (e) {}
+  }
+  return { render, refresh, setEngine };
+})();
+
+/* ═══════════════════════════════════════════════════════════════
    Chat UI — input lives inside the fine‑tuned panel.
    When dual mode is on, messages broadcast to both panels.
    ═══════════════════════════════════════════════════════════════ */
@@ -1160,12 +1222,21 @@ const ChatUI = (() => {
   function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
     let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
+    let liveTok = 0, liveEl = null;
     const clean = (txt) => { const cut = txt.search(/<\|?/); return cut >= 0 ? txt.slice(0, cut) : txt; };
     const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
+    // Live token meter: count generated tokens AS THEY STREAM (every token/tool-decision
+    // token), shown ticking up; replaced by the authoritative context meter on done.
+    const liveMeter = () => {
+      if (!liveEl) { liveEl = document.createElement('div'); liveEl.className = 'live-tok'; container.appendChild(liveEl); }
+      liveEl.textContent = '⚡ generating · ' + liveTok + ' tokens';
+      container.scrollTop = container.scrollHeight;
+    };
 
     function handle(ev) {
       if (ev.type === 'token') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
+        liveTok++; liveMeter();
         streamed += ev.text; bubble(); tw.set(clean(streamed));
       } else if (ev.type === 'reply_chunk') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
@@ -1180,6 +1251,7 @@ const ChatUI = (() => {
         thinkEl = renderLiveThinking(container, calls, results, thinkEl);
       } else if (ev.type === 'done') {
         done = ev;
+        if (liveEl && liveEl.parentNode) liveEl.remove();   // authoritative context meter replaces it
       } else if (ev.type === 'error') {
         throw new Error(ev.error || 'stream error');
       }
@@ -1368,7 +1440,7 @@ const ChatUI = (() => {
   }
   init();
 
-  return { send, toggleDual, toggleCompare };
+  return { send, toggleDual, toggleCompare, isBusy: () => busy };
 })();
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -1763,6 +1835,18 @@ document.getElementById('navTabs').addEventListener('click', e => {
    ═══════════════════════════════════════════════════════════════ */
 SkillsUI.init();
 PluginsUI.init();
+
+// Eval bar: render the initial position eval and sync the engine selector to the backend.
+(async () => {
+  try {
+    const st = await (await fetch('/api/state')).json();
+    if (st && st.eval) {
+      EvalBar.render(st.eval);
+      const sel = document.getElementById('engineSel');
+      if (sel && st.eval.engine) sel.value = st.eval.engine;
+    }
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>

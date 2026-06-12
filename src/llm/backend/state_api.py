@@ -11,19 +11,23 @@ EVAL_DEPTH = 18
 
 
 def eval_bar(engine: Engine, board: chess.Board) -> dict:
-    """White-POV evaluation for the left eval bar. Returns cp and a 0-100 bar %."""
+    """White-POV evaluation for the eval bar from the SELECTED engine (Stockfish or our
+    custom evaluator). Returns cp, a 0-100 bar %, and which engine produced it."""
+    from . import eval_engines
+    who = eval_engines.current()
     if board.is_game_over():
-        return {"kind": "over", "cp": 0, "bar": 50, "text": _result_text(board)}
+        return {"kind": "over", "cp": 0, "bar": 50, "text": _result_text(board), "engine": who}
     if board.fen() == chess.STARTING_FEN:
-        return {"kind": "cp", "cp": 0, "bar": 50, "text": "0.00"}
-    kind, val = engine.eval_white_cp(board, EVAL_DEPTH)
+        return {"kind": "cp", "cp": 0, "bar": 50, "text": "0.00", "engine": who}
+    evaluator = eval_engines.bar_engine(engine)
+    kind, val = evaluator.eval_white_cp(board, EVAL_DEPTH)
     if kind == "mate":
         side, n = val
         pct = 100 if side == "white" else 0
-        return {"kind": "mate", "side": side, "n": n, "bar": pct, "text": f"M{n} {side}"}
+        return {"kind": "mate", "side": side, "n": n, "bar": pct, "text": f"M{n} {side}", "engine": who}
     cp = int(val)
     bar = 1 / (1 + pow(10, -cp / 400))  # logistic win-prob style mapping
-    return {"kind": "cp", "cp": cp, "bar": round(bar * 100, 1), "text": f"{cp/100:+.2f}"}
+    return {"kind": "cp", "cp": cp, "bar": round(bar * 100, 1), "text": f"{cp/100:+.2f}", "engine": who}
 
 
 def _result_text(board: chess.Board) -> str:
