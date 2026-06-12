@@ -26,13 +26,12 @@ def _loop(steps, game=None):
     return CoachLoop(ScriptedModel(steps), ToolExecutor(game or Game(), None))
 
 
-def test_wait_steer_then_model_complies():
+def test_model_proactive_multi_tool_then_reply():
     # "best move and the evaluation" -> required {best_move, eval}.
-    # Model gathers best_move, tries to answer, gets steered to eval, complies.
+    # Model proactively gathers BOTH itself, then replies — no forcing needed.
     out = _loop([
         "<tool>best_move top=3",      # gather best_move
-        "Here are the moves.",         # tries to answer (eval still outstanding) -> Wait steer
-        "<tool>eval depth=18",        # complies with the steer
+        "<tool>eval depth=18",        # gather eval (model-driven)
         "Final summary.",              # all covered -> final reply (mentions no fact)
     ]).respond([], "give me the best move and the evaluation")
     assert _names(out) == ["best_move", "eval"]
@@ -40,11 +39,10 @@ def test_wait_steer_then_model_complies():
     assert out["reply"].startswith("Final summary.")
 
 
-def test_backstop_force_routes_when_model_ignores_steer():
-    # required {eval}. Model never calls it, even after the steer -> force-routed.
+def test_force_routes_outstanding_when_model_stops_early():
+    # required {eval}. Model stops without it -> force-routed directly (no nudge round-trip).
     out = _loop([
-        "Just play e4.",               # tries to answer (eval outstanding) -> Wait steer
-        "Still just play e4.",         # ignores the steer -> backstop force-routes eval
+        "Just play e4.",               # stops; eval outstanding -> force-route eval
         "Okay, evaluation noted.",     # all covered -> final reply (states no number)
     ]).respond([], "how am I doing?")
     assert "eval" in _names(out)

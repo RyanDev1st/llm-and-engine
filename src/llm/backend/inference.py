@@ -285,7 +285,6 @@ class CoachLoop:
         tool_results: list[str] = []
         seen_calls: set[str] = set()   # full <tool> spans, for dedup (same call never re-runs)
         seen_names: set[str] = set()   # tool NAMES gathered, for coverage (best_move != best_move top=3)
-        nudged: set[str] = set()       # required tools already given one "Wait" steer
 
         for _ in range(MAX_TOOL_CALLS):
             raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>", "</tool_code>"]).strip()
@@ -309,13 +308,11 @@ class CoachLoop:
                         "turns": new_turns,
                         "context": ctx_stats.as_payload(),
                     }
-                tool = outstanding[0]
-                if tool not in nudged:  # s1 "Wait": steer the model to the missing tool first
-                    nudged.add(tool)
-                    convo.append({"role": "user", "content":
-                                  f"Wait — before answering, the user also needs this. Call it now: {required[tool]}"})
-                    continue
-                decision = required[tool]  # backstop: model ignored the steer -> force-route the tool
+                # A required intent is still ungathered: force-route it directly (deterministic
+                # coverage). We don't spend a generation "nudging" the model to call it — on a
+                # small model that retry is usually wasted; the model still does multi-tool on
+                # its own when proactive, and this guarantees the rest without the latency.
+                decision = required[outstanding[0]]
             # Dedup on the call itself, not the full text — a differing lead-in
             # ("Let me check" vs "I'll look") must not let the same call re-run and
             # re-hit the engine. Key = the <tool>…</tool> span.
