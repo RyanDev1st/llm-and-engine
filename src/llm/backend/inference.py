@@ -340,12 +340,16 @@ def extract_call(decision: str) -> str | None:
     # SKILLS, load_skill, "skill's body"), so the small model fabricates the wrapper. The
     # contract is <tool>; map it so the call EXECUTES instead of leaking as the reply.
     s = s.replace("<skill>", "<tool>").replace("</skill>", "</tool>")
-    # Some variants emit a channel-token form, e.g. "<|tool_call>call:board_state fields=all"
-    # (seen live). Strip the <|...|> channel tokens and a leading "call:" so the bare-name /
-    # malformed recovery below can canonicalize it instead of it leaking as the reply.
-    if "<|" in s or "call:" in s:
-        s = _re.sub(r"<\|[^>]*\|?>", "", s)
-        s = _re.sub(r"\bcall:\s*", "", s).strip()
+    # Strip model artifacts that pollute the call: channel tokens — ANY <...> containing a
+    # pipe, e.g. "<|tool_call>", "<tool_call|>" (both seen live; <tool>/</tool> have no pipe
+    # so they're left intact) — a leading "call:", and JSON-ish brace junk ({}, {...}). Seen
+    # live: "load_skill name=chess-coach{}<tool_call|>" parsed the skill name as
+    # "chess-coach{}<tool_call|>" -> unknown_skill. Cleaning these lets the real call run.
+    if "|" in s or "call:" in s or "{" in s:
+        s = _re.sub(r"<[^<>]*\|[^<>]*>", "", s)   # channel token with a pipe (either side)
+        s = _re.sub(r"\bcall:\s*", "", s)
+        s = _re.sub(r"\{[^{}]*\}", "", s)          # {} / {..} JSON artifact
+        s = s.strip()
     # Hallucinated gerund/spacing variants of a tool name, e.g. "loading_skill" /
     # "load skill" instead of "load_skill" (seen leaking as the whole reply). Map the
     # known ones so the bare-call recovery below canonicalizes + executes them.

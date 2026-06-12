@@ -196,6 +196,21 @@ def test_extract_call_recovers_skill_tag():
         "Let me load that. <tool>load_skill name=opening-advisor</tool>"
 
 
+def test_extract_call_strips_channel_and_brace_junk():
+    from backend.toolfmt import parse_call
+    # live bug: "load_skill name=chess-coach{}<tool_call|>" parsed the skill name as
+    # "chess-coach{}<tool_call|>" -> unknown_skill. Strip the channel token + brace junk.
+    out = extract_call("<tool>load_skill name=chess-coach{}<tool_call|></tool>")
+    assert parse_call(out) == ("load_skill", {"name": "chess-coach"})
+    # both channel-token orientations
+    assert parse_call(extract_call("<|tool_call>call:board_state fields=all")) == \
+        ("board_state", {"fields": "all"})
+    # a clean call and a FEN (no pipe/brace) must be untouched
+    assert extract_call("<tool>best_move depth=18</tool>") == "<tool>best_move depth=18</tool>"
+    fen = "<tool>load_fen fen=rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1</tool>"
+    assert extract_call(fen) == fen
+
+
 def test_moves_without_the_word_best_detected():
     # the prefix-probe gap: "5 next moves" / "suggest 5 moves" (no word "best")
     assert matched_tools("suggest 5 next moves and tell me how am I doing") == {"best_move", "eval"}
