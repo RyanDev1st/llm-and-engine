@@ -103,6 +103,14 @@ def test_extract_call_recovers_tagless_bare_call():
     assert extract_call("The best move here is e4.") is None
 
 
+def test_extract_call_recovers_channel_token_form():
+    # live leak: model emitted "<|tool_call>call:board_state fields=all" as the reply
+    assert extract_call("<|tool_call>call:board_state fields=all") == "<tool>board_state fields=all</tool>"
+    assert "<tool>eval depth=18" in extract_call("<|tool_call|>call: eval depth=18")
+    # a plain reply that merely contains "call:" but no tool pattern stays a reply
+    assert extract_call("Sure, you can call: that a solid opening.") is None
+
+
 # --- coverage set (deterministic multi-tool guarantee) ---
 from backend.tool_hints import matched_tools, matched_calls
 
@@ -132,6 +140,15 @@ def test_plural_best_moves_detected_with_count():
     assert matched_calls("show me the five best moves")["best_move"] == "<tool>best_move depth=18 top=5</tool>"
     # singular still works, no spurious top
     assert matched_calls("what's the best move?")["best_move"] == "<tool>best_move depth=18</tool>"
+
+
+def test_consecutive_moves_map_to_series_not_top():
+    # "consecutive / line / in a row" -> a LINE (series), not N alternatives (top)
+    assert "series=3" in matched_calls("give me the next 3 top moves, consecutive")["best_move"]
+    assert "series=3" in matched_calls("show me the best line")["best_move"]
+    assert "series=4" in matched_calls("4 moves in a row from here")["best_move"]
+    # plain "3 best moves" (no line words) stays top
+    assert "top=3" in matched_calls("give me the 3 best moves")["best_move"]
 
 
 def test_moves_without_the_word_best_detected():

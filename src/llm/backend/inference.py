@@ -246,6 +246,12 @@ def extract_call(decision: str) -> str | None:
     # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
     # <tool>. Map it so those calls execute instead of leaking into the reply.
     s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
+    # Some variants emit a channel-token form, e.g. "<|tool_call>call:board_state fields=all"
+    # (seen live). Strip the <|...|> channel tokens and a leading "call:" so the bare-name /
+    # malformed recovery below can canonicalize it instead of it leaking as the reply.
+    if "<|" in s or "call:" in s:
+        s = _re.sub(r"<\|[^>]*\|?>", "", s)
+        s = _re.sub(r"\bcall:\s*", "", s).strip()
     if "<tool>" in s:
         return normalize_tool_call(s)
     m = _MALFORMED.search(s)

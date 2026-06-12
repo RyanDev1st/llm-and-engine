@@ -131,9 +131,13 @@ def _match(msg: str) -> list[tuple[str, str, str]]:
     return hits
 
 
-_COUNT = re.compile(r"\b(?:top\s+)?([2-5])\s+(?:next\s+|good\s+|best\s+|candidate\s+)*moves?\b"
+_COUNT = re.compile(r"\b(?:top\s+)?([2-5])\s+(?:next\s+|good\s+|best\s+|candidate\s+|consecutive\s+)*moves?\b"
                     r"|\btop\s+([2-5])\b", re.I)
 _WORDNUM = {"two": 2, "three": 3, "four": 4, "five": 5}
+# "consecutive / in a row / a line / the sequence / continuation" => the user wants a
+# LINE (move, reply, move...) => best_move series=N, NOT N alternative candidate moves.
+_LINE = re.compile(r"\b(consecutive|in a row|sequence|continuation|line|"
+                   r"principal variation|next few moves)\b", re.I)
 
 
 def _move_count(msg: str) -> int | None:
@@ -142,7 +146,7 @@ def _move_count(msg: str) -> int | None:
     if m:
         return int(m.group(1) or m.group(2))
     for word, n in _WORDNUM.items():
-        if re.search(rf"\b{word}\s+(?:next\s+|best\s+|good\s+)*moves?\b", msg, re.I):
+        if re.search(rf"\b{word}\s+(?:next\s+|best\s+|good\s+|consecutive\s+)*moves?\b", msg, re.I):
             return n
     return None
 
@@ -150,13 +154,15 @@ def _move_count(msg: str) -> int | None:
 def matched_calls(user_message: str) -> dict[str, str]:
     """tool name -> the canonical `<tool>…</tool>` call the user's words map to.
     The deterministic coverage set: every detected intent must be gathered before
-    the loop narrates. Pure intent match (game-over handling is the caller's). When
-    the user asked for N best moves, the best_move call carries top=N so the backstop
-    returns that many."""
-    calls = {tool: call for tool, _phrase, call in _match(user_message or "")}
+    the loop narrates. For best_move, honor the requested COUNT and distinguish a LINE
+    (consecutive moves -> series=N) from ALTERNATIVES (N candidate moves -> top=N)."""
+    msg = user_message or ""
+    calls = {tool: call for tool, _phrase, call in _match(msg)}
     if "best_move" in calls:
-        n = _move_count(user_message or "")
-        if n:
+        n = _move_count(msg)
+        if _LINE.search(msg):                      # consecutive line: move -> reply -> move
+            calls["best_move"] = f"<tool>best_move depth=18 series={n or 3}</tool>"
+        elif n:                                     # N alternative candidate moves
             calls["best_move"] = f"<tool>best_move depth=18 top={n}</tool>"
     return calls
 
