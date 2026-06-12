@@ -252,7 +252,8 @@ class CoachLoop:
         self.plugin_context = plugin_context
         self.window = _build_window(model)
 
-    def respond(self, history: list[dict], user_message: str, coverage: bool = True) -> dict:
+    def respond(self, history: list[dict], user_message: str, coverage: bool = True,
+                on_event=None) -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
         display fields (tool_call, tool_result), and the context-window stats.
 
@@ -325,6 +326,8 @@ class CoachLoop:
                 seen_names.add(name)
             tool_calls.append(decision)
             tool_results.append(tool_result)
+            if on_event:  # live progress: surface each tool step as it completes (streaming UI)
+                on_event({"type": "tool", "name": name, "call": decision, "result": tool_result})
             convo += [{"role": "assistant", "content": decision},
                       {"role": "tool", "content": tool_result}]
             new_turns += [{"role": "assistant", "content": decision},

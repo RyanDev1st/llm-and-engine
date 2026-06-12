@@ -1081,16 +1081,24 @@ const ChatUI = (() => {
       // tell, on return, whether the user kept playing.
       await api('/api/sync', ChessUI.syncPayload());
       const seqAtSend = ChessUI.moveSeq();
-      const variant = compareMode ? 'coverage' : (dualMode ? 'both' : 'sft');
-      const res = await api('/api/chat', { message: text, variant, coverage: true });
-      if (compareMode && res.on) {
-        renderReply(document.getElementById('msgs-ft'), res.on, waitFT, 'ft-msg');
-        renderReply(document.getElementById('msgs-base'), res.off, waitBase, '');
-      } else if (dualMode && res.sft) {
-        renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
-        renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
+      let res;
+      if (compareMode || dualMode) {
+        const variant = compareMode ? 'coverage' : 'both';
+        res = await api('/api/chat', { message: text, variant, coverage: true });
+        if (compareMode && res.on) {
+          renderReply(document.getElementById('msgs-ft'), res.on, waitFT, 'ft-msg');
+          renderReply(document.getElementById('msgs-base'), res.off, waitBase, '');
+        } else if (res.sft) {
+          renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
+          renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
+        }
       } else {
-        renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
+        // Single (product) path: stream each tool step live, then render the reply.
+        res = await streamChat(text, waitFT);
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        const c = document.getElementById('msgs-ft');
+        appendMsg(c, (res && res.reply) || '(no reply)', 'ai', 'ft-msg');
+        addContextMeter(c, res && res.context);
       }
       // Reconcile the model's move/FEN onto the board ONLY if the user didn't move
       // while the model thought. If they did, the client board is newer and
@@ -1098,13 +1106,68 @@ const ChatUI = (() => {
       // next analysis sees the real position (optimistic queue, no freeze).
       if (ChessUI.moveSeq() !== seqAtSend) {
         api('/api/sync', ChessUI.syncPayload()).catch(() => {});
-      } else if (res.state) {
+      } else if (res && res.state) {
         ChessUI.reconcile(res.state);
       }
     } catch (e) {
-      waitFT.remove(); if (waitBase) waitBase.remove();
+      if (waitFT && waitFT.parentNode) waitFT.remove(); if (waitBase) waitBase.remove();
       appendMsg(document.getElementById('msgs-ft'), 'Could not reach the coach backend.', 'ai', 'ft-msg');
     } finally { busy = false; input.focus(); }
+  }
+
+  // SSE stream of the single (product) chat: render each tool step live as it
+  // completes (so the user sees motion instead of one long wait), then return the
+  // final 'done' event with the reply + board state.
+  async function streamChat(text, waitFT) {
+    const resp = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }) });
+    if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+    const reader = resp.body.getReader(), dec = new TextDecoder();
+    const container = document.getElementById('msgs-ft');
+    let buf = '', calls = [], results = [], thinkEl = null, done = null;
+    for (;;) {
+      const r = await reader.read();
+      if (r.done) break;
+      buf += dec.decode(r.value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        if (ev.type === 'tool') {
+          calls.push(ev.call); results.push(ev.result);
+          if (waitFT && waitFT.parentNode) waitFT.remove();
+          thinkEl = renderLiveThinking(container, calls, results, thinkEl);
+        } else if (ev.type === 'done') {
+          done = ev;
+        } else if (ev.type === 'error') {
+          throw new Error(ev.error || 'stream error');
+        }
+      }
+    }
+    return done;
+  }
+
+  // Maintain a single live "thinking" panel that grows as tool steps stream in.
+  function renderLiveThinking(container, calls, results, el) {
+    if (!el) {
+      el = document.createElement('details');
+      el.className = 'thinking'; el.open = true;
+      el.innerHTML = '<summary></summary>';
+      container.appendChild(el);
+    }
+    el.querySelector('summary').textContent = '🧠 thinking · ' + calls.length +
+      ' step' + (calls.length > 1 ? 's' : '');
+    el.querySelectorAll('.think-step').forEach(n => n.remove());
+    calls.forEach((c, i) => {
+      const step = document.createElement('div');
+      step.className = 'think-step';
+      const s = typeof c === 'string' ? c : JSON.stringify(c);
+      step.textContent = s.replace(/\s+/g, ' ').trim() + '  →  ' + ((results && results[i]) || '');
+      el.appendChild(step);
+    });
+    container.scrollTop = container.scrollHeight;
+    return el;
   }
 
   function appendMsg(container, text, role, extraClass) {

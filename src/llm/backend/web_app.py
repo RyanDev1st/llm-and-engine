@@ -118,8 +118,9 @@ class App:
         bg.board = self.game.board.copy()
         bg.san_stack = list(self.game.san_stack)
 
-    def _run(self, loop: CoachLoop, history: list[dict], message: str, coverage: bool = True) -> dict:
-        result = loop.respond(history, message, coverage)
+    def _run(self, loop: CoachLoop, history: list[dict], message: str, coverage: bool = True,
+             on_event=None) -> dict:
+        result = loop.respond(history, message, coverage, on_event)
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
         # the final reply, so the reasoning scratchpad never pollutes future
@@ -130,7 +131,7 @@ class App:
                 "tool_results": result.get("tool_results", []),
                 "context": result.get("context")}
 
-    def chat(self, message: str, variant: str = "sft", coverage: bool = True) -> dict:
+    def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None) -> dict:
         if self.loop is None:
             return {"reply": f"(model not loaded: {self.model_error or 'no adapter'})",
                     "tool_calls": [], "tool_results": [], "state": self.state()}
@@ -147,7 +148,7 @@ class App:
             self._mirror_base()            # the OFF run uses a private copy
             off = self._run(self.loop_mirror, self.history_off, message, coverage=False)
             return {"on": on, "off": off, "state": board}
-        out = self._run(self.loop, self.history, message, coverage)
+        out = self._run(self.loop, self.history, message, coverage, on_event)
         return {**out, "tool_call": out["tool_calls"][-1] if out["tool_calls"] else None,
                 "tool_result": out["tool_results"][-1] if out["tool_results"] else None,
                 "state": self.state()}

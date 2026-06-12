@@ -49,6 +49,21 @@ def test_force_routes_outstanding_when_model_stops_early():
     assert out["reply"].startswith("Okay, evaluation noted.")  # eval fact appended after
 
 
+def test_on_event_fires_per_tool_for_streaming():
+    # Streaming progress: on_event must fire once per executed tool, in order, each
+    # carrying the tool name + result — so the UI can show steps live.
+    events = []
+    out = _loop([
+        "<tool>eval depth=18",
+        "<tool>best_move top=3",
+        "Done.",
+    ]).respond([], "give me the best move and the evaluation", on_event=events.append)
+    assert [e["type"] for e in events] == ["tool", "tool"]
+    assert [e["name"] for e in events] == ["eval", "best_move"]
+    assert all(e["result"] for e in events)        # each event carries the tool result
+    assert _names(out) == ["eval", "best_move"]     # non-streaming return shape unchanged
+
+
 def test_plural_best_moves_force_routed_after_eval():
     # The screenshot: "eval and the 5 next best moves" — model evals then stops to ask.
     # Coverage must force-route best_move (top=5) so both are gathered.

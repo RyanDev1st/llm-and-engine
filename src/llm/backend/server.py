@@ -71,6 +71,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not msg:
                     raise ValueError("empty message")
                 coverage = bool(body.get("coverage", True))
+                if body.get("stream"):  # SSE: emit each tool step live, then the final reply
+                    return self._chat_stream(msg, coverage)
                 return self._json({"ok": True, **APP.chat(msg, str(body.get("variant", "sft")), coverage)})
             if path == "/api/skill":
                 skill_admin.add_skill(str(body.get("name", "")), str(body.get("description", "")),
@@ -85,6 +87,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
         except Exception as exc:
             self._json({"ok": False, "error": str(exc)}, 500)
+
+    def _chat_stream(self, msg: str, coverage: bool) -> None:
+        """Server-Sent Events: stream one `data:` event per tool step as it completes
+        (so the UI shows progress live instead of a long spinner), then a final `done`
+        event with the reply + board state. Streams the product path (variant=sft)."""
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.send_header("cache-control", "no-cache")
+        self.end_headers()
+
+        def emit(ev: dict) -> None:
+            try:
+                self.wfile.write(b"data: " + json.dumps(ev).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+            except Exception:
+                pass  # client disconnected; let the turn finish server-side
+
+        try:
+            result = APP.chat(msg, "sft", coverage, on_event=emit)
+            emit({"type": "done", "ok": True, **result})
+        except Exception as exc:  # already streaming -> report via an event, not a 500
+            emit({"type": "error", "error": str(exc)})
 
     def _read(self) -> dict:
         n = int(self.headers.get("content-length", "0"))
