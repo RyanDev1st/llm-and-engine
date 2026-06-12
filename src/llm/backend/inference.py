@@ -17,6 +17,11 @@ from .toolfmt import parse_call
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 8  # headroom for the coverage "Wait" nudges (each can cost a step)
+# Per-generation token budget. The same call detects a tool decision OR produces the
+# final reply: tool calls stop early at </tool> (the stop seq), so this cap only ever
+# bounds a genuine final reply. 96 was truncating longer answers mid-sentence; 320
+# (~240 words) lets a coaching reply finish while still capping runaway generation.
+REPLY_TOKENS = 320
 DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limit
 # Serve == train: the catalog of installed skills + the official tool manifest are
 # rendered by the SAME build_system() the loader uses. Skills appear by name +
@@ -137,6 +142,27 @@ _LEADIN_ONLY = _re.compile(
 def _is_leadin_only(reply: str) -> bool:
     r = (reply or "").strip()
     return bool(r) and len(r) <= 70 and bool(_LEADIN_ONLY.match(r))
+
+
+# A leading sentence that ANNOUNCES a skill/tool action ("Loading the chess-coach
+# skill. <real answer>"). Training never puts skill/tool narration in the final reply
+# (finals.py: "skill loads / tool calls never appear here"), so strip a single such
+# leading sentence when real content follows it. Requires an explicit skill/tool word
+# so coaching prose ("Use your rook to...") is never touched. Whole-reply lead-ins are
+# handled by _is_leadin_only instead.
+_ANNOUNCE_LEAD = _re.compile(
+    r"^\s*((?:i'?(?:ve|ll|m)?\s+)?(?:now\s+)?(?:just\s+|then\s+)?"
+    r"(?:load(?:ing|ed)?|using|used?|call(?:ing|ed)?|invok(?:ing|ed)?|"
+    r"let me (?:load|use|call|invoke|grab|pull))\b"
+    r"[^.?!]*?\b(?:skill|skills|tool|tools|load_skill)\b[^.?!]*[.?!])\s+(?=\S)", _re.I)
+
+
+def _strip_announce_leadin(reply: str) -> str:
+    m = _ANNOUNCE_LEAD.match((reply or "").strip())
+    if not m:
+        return reply
+    rest = (reply or "").strip()[m.end():].strip()
+    return rest if rest else reply   # only strip when a real answer remains after it
 
 
 def _result_signal(result: str) -> str | None:
@@ -417,7 +443,7 @@ class CoachLoop:
             return self.model.generate(convo, mx, stop).strip()
 
         for _ in range(MAX_TOOL_CALLS):
-            raw = gen(96, ["</tool>", "</tool_code>"])
+            raw = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None:  # the model wants to give the final reply
                 outstanding = [t for t in required if t not in seen_names]
@@ -427,6 +453,9 @@ class CoachLoop:
                     # tools ran — is a non-answer; narrate the real tool result instead.
                     reply = raw if (raw and not (tool_calls and _is_leadin_only(raw))) \
                         else _fallback_reply(tool_calls, tool_results)
+                    # Strip a leading "Loading the X skill." announce sentence (trained out
+                    # of the final reply) BEFORE the grounding guards run on the text.
+                    reply = _strip_announce_leadin(reply)
                     # Number guard FIRST (fix a fabricated eval number -> the real one),
                     # then answer-coverage (append any required fact still missing). Order
                     # matters: a corrected number then reads as present, so it isn't doubled.
@@ -472,11 +501,12 @@ class CoachLoop:
         # Budget forcing (s1): out of tool steps, the user is waiting — answer now.
         convo.append({"role": "user", "content":
                       "You're out of tool steps and the user is waiting — give your best answer now using the results you have."})
-        reply = gen(160, [])
+        reply = gen(REPLY_TOKENS, [])
         if contains_tool_call(reply) or not reply or (tool_calls and _is_leadin_only(reply)):
             # leaked a tool tag, produced nothing, or stopped on a bare tool-intent lead-in
             # after tools ran — narrate the last fact so the user gets a real answer.
             reply = _fallback_reply(tool_calls, tool_results)
+        reply = _strip_announce_leadin(reply)               # drop a leading skill/tool announce
         reply = _correct_eval_number(reply, tool_results)   # fix a fabricated eval number first
         reply = _correct_move_names(reply, tool_results)     # then a fabricated move list
         reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
