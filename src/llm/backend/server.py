@@ -39,8 +39,18 @@ from . import skill_admin
 from .web_app import App
 
 WEB = Path(__file__).resolve().parents[1] / "gemma_chat_site" / "static"
+BACKEND_DIR = Path(__file__).resolve().parent
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8"}
+
+
+def _dev_reload_token() -> float:
+    """Newest mtime across the served frontend + backend code. The page polls this in
+    dev; when it changes (you saved a file — dev_serve also restarts the app on backend
+    saves) the browser reloads itself. Cheap; harmless in prod (just a number)."""
+    files = list(WEB.glob("*.html")) + list(WEB.glob("*.js")) + list(WEB.glob("*.css")) \
+        + list(BACKEND_DIR.glob("*.py"))
+    return max((p.stat().st_mtime for p in files), default=0.0)
 
 
 def bind_address() -> tuple[str, int]:
@@ -60,6 +70,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/state":
             return self._json(APP.state())
+        if path == "/api/dev/reload-token":  # live-reload: newest mtime of static+backend
+            return self._json({"token": _dev_reload_token()})
         if path == "/api/skills":
             return self._json(APP.skills_payload())
         if path in ("/", "/index.html"):

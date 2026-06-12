@@ -4,7 +4,9 @@
   "private": true,
   "description": "Gemma-4 E2B chess-coach LoRA + Stockfish + 3-panel SPA",
   "scripts": {
-    "dev": "cd src/llm && python -u -m backend.server ../../runs/gemma4_chess",
+    "server": "cd src/llm && python -u -m backend.model_server",
+    "dev": "cd src/llm && python -u -m backend.dev_serve",
+    "dev:solo": "cd src/llm && python -u -m backend.server ../../runs/gemma4_chess",
     "dev:no-model": "cd src/llm && python -u -m backend.server",
     "start": "npm run dev",
     "build:dataset": "cd src/llm && python -m llm_dataset.build.assemble",

@@ -1847,6 +1847,22 @@ PluginsUI.init();
     }
   } catch (e) {}
 })();
+
+// Dev live-reload: on localhost only, poll the backend's reload token (newest mtime of
+// frontend+backend files). When it changes — you saved index.html, or dev_serve
+// restarted the app after a backend edit — refresh the page so the web is always live.
+(function devLiveReload() {
+  if (!/^(127\.0\.0\.1|localhost)$/.test(location.hostname)) return;  // never in prod
+  let baseline = null;
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/dev/reload-token', { cache: 'no-store' });
+      const { token } = await r.json();
+      if (baseline === null) { baseline = token; return; }   // first read = baseline
+      if (token !== baseline) location.reload();
+    } catch (e) { /* app mid-restart — ignore, retry next tick */ }
+  }, 1000);
+})();
 </script>
 </body>
 </html>
