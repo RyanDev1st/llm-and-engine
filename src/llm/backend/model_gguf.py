@@ -25,7 +25,7 @@ def gguf_runtime_config() -> tuple[int, int]:
 class GGUFModel:
     def __init__(self, gguf: str | Path | None = None, n_gpu_layers: int = -1,
                  n_ctx: int = 4096, temperature: float = 0.5) -> None:
-        from llama_cpp import Llama
+        from llama_cpp import Llama, LlamaRAMCache
         self.temperature = temperature
         path = Path(gguf) if gguf is not None else default_gguf_path()
         if not path.exists():
@@ -33,6 +33,14 @@ class GGUFModel:
         self.llm = Llama(
             model_path=str(path), n_gpu_layers=n_gpu_layers, n_ctx=n_ctx,
             n_batch=256, verbose=False, chat_format=None)
+        # Prefix/KV cache: the agentic loop calls generate() several times per turn
+        # with a GROWING prompt that shares a long prefix (system + history + earlier
+        # steps). The cache lets llama.cpp reuse the KV for that shared prefix instead
+        # of re-prefilling ~1000+ tokens every step — the main per-turn latency. On by
+        # default; CHESS_GGUF_CACHE=0 disables it for an A/B.
+        if os.environ.get("CHESS_GGUF_CACHE", "1") != "0":
+            cap = int(os.environ.get("CHESS_GGUF_CACHE_BYTES", str(1 << 30)))  # 1 GiB
+            self.llm.set_cache(LlamaRAMCache(capacity_bytes=cap))
 
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
         stops = list(stop or [])
