@@ -21,6 +21,12 @@ _PLAY = re.compile(r"\b(play|make|do|push|advance|move)\b", re.I)
 _CASTLE = re.compile(r"\bcastl", re.I)
 _QUEENSIDE = re.compile(r"\b(queenside|long)\b", re.I)
 
+# Benign fillers allowed between a request verb/count and "moves" (any run, incl. none).
+# WHITELIST only — so "legal/possible/available moves" is NOT swallowed by best_move and
+# stays routed to legal_moves. Keeps the matcher flexible without over-firing.
+_FILL = (r"(?:the\s+|a\s+|some\s+|my\s+|\d+\s+|next\s+|best\s+|good\s+|top\s+"
+         r"|consecutive\s+|few\s+|other\s+|more\s+|several\s+|strong\s+|candidate\s+)*")
+
 # tool -> (human phrase, canonical call shown, trigger). Order = display order;
 # move/best_move are made mutually exclusive in routing_hints().
 _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
@@ -29,9 +35,11 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
          r"\b(best moves?|candidate moves?|strongest moves?|best line|best continuation"
          r"|what should i play|what do i play|what to play|hint"
          r"|top \d+ moves?"                                          # "top 5 moves"
-         r"|\d+\s+(?:next |good |top |best )*moves?"                 # "5 next moves", "3 best moves"
-         r"|(?:suggest|recommend)\s+(?:me\s+)?(?:a |some |\d+ )?(?:next |best |good )*moves?"   # "suggest 5 next moves"
-         r"|(?:show|give|list)\s+me\s+(?:a |some |the |\d+ )?(?:next |best |good )*moves?)\b",  # "give me moves"
+         # a request verb (or a count) followed by any run of benign fillers then "moves".
+         # The filler class is whitelisted (the/a/some/N/next/best/good/consecutive/few/...)
+         # so it does NOT swallow "legal/possible/available moves" -> those stay legal_moves.
+         r"|(?:suggest|recommend|show|give|list|play)\s+(?:me\s+)?" + _FILL + r"moves?"
+         r"|\d+\s+" + _FILL + r"moves?)\b",                          # "3 consecutive moves"
          re.I)),
     ("eval", "evaluate who stands better", "<tool>eval depth=18</tool>",
      re.compile(r"\beval\b|\bevaluat\w*|\bassess\w*|\b(who'?s winning|am i winning|am i losing|how am i doing|how'?s my (game|position)|how do i stand|is (this|it) lost|am i better|am i worse)\b", re.I)),
@@ -131,8 +139,8 @@ def _match(msg: str) -> list[tuple[str, str, str]]:
     return hits
 
 
-_COUNT = re.compile(r"\b(?:top\s+)?([2-5])\s+(?:next\s+|good\s+|best\s+|candidate\s+|consecutive\s+)*moves?\b"
-                    r"|\btop\s+([2-5])\b", re.I)
+_COUNT = re.compile(r"\b([2-5])\s+" + _FILL + r"moves?\b"     # "3 moves", "3 consecutive moves"
+                    r"|\b(?:next|top)\s+([2-5])\b", re.I)    # "next 3", "top 3"
 _WORDNUM = {"two": 2, "three": 3, "four": 4, "five": 5}
 # "consecutive / in a row / a line / the sequence / continuation" => the user wants a
 # LINE (move, reply, move...) => best_move series=N, NOT N alternative candidate moves.

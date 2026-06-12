@@ -252,6 +252,11 @@ def extract_call(decision: str) -> str | None:
     if "<|" in s or "call:" in s:
         s = _re.sub(r"<\|[^>]*\|?>", "", s)
         s = _re.sub(r"\bcall:\s*", "", s).strip()
+    # Hallucinated gerund/spacing variants of a tool name, e.g. "loading_skill" /
+    # "load skill" instead of "load_skill" (seen leaking as the whole reply). Map the
+    # known ones so the bare-call recovery below canonicalizes + executes them.
+    s = _re.sub(r"\bloading[_ ]skill\b", "load_skill", s, flags=_re.I)
+    s = _re.sub(r"\bload skill\b", "load_skill", s, flags=_re.I)
     if "<tool>" in s:
         return normalize_tool_call(s)
     m = _MALFORMED.search(s)

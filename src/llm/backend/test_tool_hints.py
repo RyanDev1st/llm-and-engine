@@ -151,6 +151,24 @@ def test_consecutive_moves_map_to_series_not_top():
     assert "top=3" in matched_calls("give me the 3 best moves")["best_move"]
 
 
+def test_filler_words_dont_break_the_match():
+    # live leak: "suggest me the next 3 consecutive moves" matched NOTHING before
+    assert matched_calls("can you suggest me the next 3 consecutive moves")["best_move"] == \
+        "<tool>best_move depth=18 series=3</tool>"
+    assert "top=3" in matched_calls("show me 3 moves please")["best_move"]
+    assert "best_move" in matched_tools("give me a few good moves")
+    # the filler whitelist must NOT swallow legal/possible/available -> stay legal_moves
+    assert matched_tools("give me the legal moves") == {"legal_moves"}
+    assert "best_move" not in matched_tools("what are the possible moves")
+    assert matched_calls("nice moves you played") == {}      # prose, no request verb/count
+
+
+def test_extract_call_recovers_loading_skill_gerund():
+    # live leak: model emitted "loading_skill name=chess-coach" as the whole reply
+    assert extract_call("loading_skill name=chess-coach") == "<tool>load_skill name=chess-coach</tool>"
+    assert extract_call("load skill name=tactics") == "<tool>load_skill name=tactics</tool>"
+
+
 def test_moves_without_the_word_best_detected():
     # the prefix-probe gap: "5 next moves" / "suggest 5 moves" (no word "best")
     assert matched_tools("suggest 5 next moves and tell me how am I doing") == {"best_move", "eval"}
