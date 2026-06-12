@@ -27,8 +27,14 @@ def gguf_runtime_config() -> tuple[int, int]:
 
 
 class GGUFModel:
+    # GREEDY by default (temperature=0.0), matching training and the HF serve path
+    # (model_server/web_app build HFModel with temperature=0.0). The model was SFT'd so
+    # the trained tool-call format `<tool>NAME args</tool>` is the HIGHEST-probability
+    # continuation; greedy reproduces it. The old 0.5 default made GGUF SAMPLE, so a small
+    # E2B drifted off-format (emitting <skill_call>, <tool_call|>, {} it never trained on),
+    # re-rolled tools, and deflected. Sampling is opt-in via temperature=, not the default.
     def __init__(self, gguf: str | Path | None = None, n_gpu_layers: int = -1,
-                 n_ctx: int = 4096, temperature: float = 0.5) -> None:
+                 n_ctx: int = 4096, temperature: float = 0.0) -> None:
         from llama_cpp import Llama, LlamaRAMCache
         self.temperature = temperature
         path = Path(gguf) if gguf is not None else default_gguf_path()
