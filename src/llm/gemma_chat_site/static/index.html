@@ -1091,6 +1091,14 @@ const ChatUI = (() => {
         } else if (res.sft) {
           renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
           renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
+        } else {
+          // No dual-shaped response (e.g. GGUF runtime has no separate base/coverage
+          // loop). Server returned a single reply — render it; don't leave skeletons.
+          renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
+          if (waitBase && waitBase.parentNode) {
+            waitBase.remove();
+            appendMsg(document.getElementById('msgs-base'), 'Comparison not available for this runtime.', 'ai');
+          }
         }
       } else {
         // Single (product) path: thinking (tool steps) streams into the thinking panel;
@@ -1274,6 +1282,23 @@ const ChatUI = (() => {
       baseHdr.innerHTML = '<span class="dot base"></span> Gemma 4 Base';
     }
   }
+
+  // On load, ask the backend whether a separate base model exists (it doesn't for the
+  // GGUF runtime). If not, default to the single streaming path so the chat never waits
+  // on a comparison that can't happen, and reflect it in the toggle.
+  async function init() {
+    try {
+      const r = await fetch('/api/skills');
+      const ok = r.ok ? (await r.json()).compare_ready : false;
+      if (!ok) {
+        dualMode = false; compareMode = false;
+        document.getElementById('dualToggle').classList.remove('on');
+        document.getElementById('compareToggle').classList.remove('on');
+        syncPanels();
+      }
+    } catch (e) { /* leave defaults */ }
+  }
+  init();
 
   return { send, toggleDual, toggleCompare };
 })();
