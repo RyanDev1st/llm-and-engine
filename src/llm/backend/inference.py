@@ -394,6 +394,27 @@ class CoachLoop:
         executor.plugin_context = plugin_context
         self.window = _build_window(model)
 
+    @staticmethod
+    def _force_answer(convo: list[dict], gen, tool_calls: list[str]) -> str:
+        """The model loaded a skill (context) but then gave no real answer. Retry ONCE
+        with an explicit 'answer now' instruction so the loaded skill is USED to answer,
+        not left as a dead turn. Only fires when the turn produced context-only (skill
+        loads or nothing) — never when a fact tool ran (that has a grounded fallback).
+        Returns the answer, or '' if the retry still whiffs / leaks a tool call."""
+        only_context = (not tool_calls) or all("load_skill" in c for c in tool_calls)
+        if not only_context:
+            return ""
+        convo.append({"role": "user", "content":
+                      "Now answer my question directly in plain text using what you loaded. "
+                      "Do not call a tool, do not greet — just give the answer."})
+        try:
+            forced = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
+        finally:
+            convo.pop()  # the nudge is scaffolding; never persist it
+        if not forced or contains_tool_call(forced) or _is_leadin_only(forced):
+            return ""
+        return forced
+
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
                 on_event=None) -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
@@ -450,9 +471,18 @@ class CoachLoop:
                 if not outstanding:
                     # All required intents covered. An empty reply — or a bare tool-intent
                     # lead-in the model stopped on ("Loading the chess-coach skill.") after
-                    # tools ran — is a non-answer; narrate the real tool result instead.
-                    reply = raw if (raw and not (tool_calls and _is_leadin_only(raw))) \
-                        else _fallback_reply(tool_calls, tool_results)
+                    # tools ran — is a non-answer.
+                    whiffed = (not raw) or bool(tool_calls and _is_leadin_only(raw))
+                    if not whiffed:
+                        reply = raw
+                    else:
+                        # The model whiffed the answer. If it ONLY loaded context (skills),
+                        # a loaded skill must be FOLLOWED by the real answer — so retry once
+                        # with an explicit "answer now" nudge BEFORE falling back to a generic
+                        # greeting. This is the "explain chess -> loaded chess-coach skill ->
+                        # 'What would you like to look at?'" bug: the skill ate the turn.
+                        reply = self._force_answer(convo, gen, tool_calls) \
+                            or _fallback_reply(tool_calls, tool_results)
                     # Strip a leading "Loading the X skill." announce sentence (trained out
                     # of the final reply) BEFORE the grounding guards run on the text.
                     reply = _strip_announce_leadin(reply)

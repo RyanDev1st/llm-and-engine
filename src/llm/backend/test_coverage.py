@@ -104,6 +104,45 @@ def test_leadin_only_kept_when_no_tools_ran():
     assert out["reply"] == "Let me check that for you."
 
 
+def test_skill_load_then_whiff_retries_real_answer():
+    # The live bug: "explain chess" -> model loads chess-coach skill -> then gives an
+    # empty/greeting non-answer -> the generic "What would you like to look at?" replaced
+    # the real reply. A context-only (skill) load must be FOLLOWED by the answer: retry
+    # once with an explicit "answer now" nudge instead of greeting.
+    out = _loop([
+        "<tool>load_skill name=chess-coach",                       # loads context
+        "",                                                         # whiff: empty final reply
+        "Chess is a strategic board game between two players.",     # forced retry answers
+    ]).respond([], "explain chess in 8 sentences")
+    assert _names(out) == ["load_skill"]
+    assert out["reply"].startswith("Chess is a strategic")
+    assert "What would you like to look at" not in out["reply"]
+
+
+def test_skill_load_then_whiff_falls_back_if_retry_also_whiffs():
+    # If even the forced retry produces nothing usable, fall back to the greeting (last
+    # resort) — never hang or emit empty.
+    out = _loop([
+        "<tool>load_skill name=chess-coach",
+        "",          # whiff
+        "",          # forced retry also whiffs -> greeting fallback
+    ]).respond([], "explain chess in 8 sentences")
+    assert _names(out) == ["load_skill"]
+    assert out["reply"]                                            # never empty
+    assert out["reply"] == "What would you like to look at on the board?"
+
+
+def test_fact_tool_whiff_keeps_grounded_fallback_not_retry():
+    # When a FACT tool ran (not a skill), the grounded fallback narrates the real result;
+    # the answer-retry must NOT fire (we have a fact, don't risk a re-gen).
+    out = _loop([
+        "<tool>ask_chessbot query=explain chess",
+        "Loading the chess-coach skill.",   # leadin non-answer, but ask_chessbot has a result
+    ]).respond([], "explain chess in 8 sentences")
+    assert "ask_chessbot" in _names(out)
+    assert "Loading the chess-coach skill" not in out["reply"]
+
+
 def test_game_over_skips_coverage():
     g = Game()
     for san in ["f3", "e5", "g4", "Qh4#"]:
