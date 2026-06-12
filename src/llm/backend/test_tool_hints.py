@@ -31,6 +31,13 @@ def test_eval_intent_hints_eval():
         assert "eval" in _tools(msg), msg
 
 
+def test_casual_slang_assessment_routes_to_eval():
+    # live gaps: these never matched eval before -> model freelanced badly
+    for msg in ["am I fucked up?", "like my game, am I doing bad?", "am I cooked",
+                "how's it looking", "is my game bad", "rate my position", "am I doing well"]:
+        assert "eval" in matched_tools(msg), msg
+
+
 def test_other_default_tools():
     assert "threats" in _tools("any threats I should worry about?")
     assert "review_move" in _tools("did I blunder?")

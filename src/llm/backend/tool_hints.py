@@ -42,7 +42,18 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
          r"|\d+\s+" + _FILL + r"moves?)\b",                          # "3 consecutive moves"
          re.I)),
     ("eval", "evaluate who stands better", "<tool>eval depth=18</tool>",
-     re.compile(r"\beval\b|\bevaluat\w*|\bassess\w*|\b(who'?s winning|am i winning|am i losing|how am i doing|how'?s my (game|position)|how do i stand|is (this|it) lost|am i better|am i worse)\b", re.I)),
+     re.compile(
+         r"\beval\b|\bevaluat\w*|\bassess\w*"
+         r"|\b(who'?s winning|am i winning|am i losing|how am i doing|how'?s my (game|position)"
+         r"|how do i stand|is (this|it) lost|am i better|am i worse)\b"
+         # casual / slang self-assessment: "am I doing bad", "am I fucked/screwed/cooked",
+         # "how's it looking", "is my game good", "rate my position", "doing well?"
+         r"|\bam i (doing |playing )?(bad|badly|good|well|ok|okay|fine|poorly|great|terrible"
+         r"|cooked|fucked|screwed|toast|done|lost|winning|losing)\b"
+         r"|\b(how'?s|how is) (it|my game|my position|this) (going|looking)\b"
+         r"|\bis my (game|position) (good|bad|ok|okay|fine|winning|losing|lost)\b"
+         r"|\brate my (game|position|standing)\b"
+         r"|\b(doing|playing) (bad|badly|well|good|ok|poorly)\??$", re.I)),
     ("review_move", "review the move just played", "<tool>review_move depth=15</tool>",
      re.compile(r"\b(was that (a )?(good|ok|bad|blunder)|did i blunder|rate my (last )?move|how was (that|my) move|review (my|the|that) move|good move\??$)\b", re.I)),
     ("threats", "check the opponent's strongest threat", "<tool>threats depth=12</tool>",

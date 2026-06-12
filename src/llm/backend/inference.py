@@ -207,6 +207,45 @@ def _correct_eval_number(reply: str, tool_results: list[str]) -> str:
     return reply[:s] + eval_tokens[0] + reply[e:]
 
 
+# SAN move token (incl. castling). Used to compare the moves the reply names against the
+# real moves a best_move tool returned, to catch fabricated move lists.
+_SAN_TOK = __import__("re").compile(
+    r"\b(?:O-O-O|O-O|[KQRBN][a-h1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8])\b")
+
+
+def _best_move_sans(tool_results: list[str]) -> list[str] | None:
+    """The REAL moves from the most recent best_move/best_line/best_moves result, in order.
+    None if no such result this turn (then we don't touch move names)."""
+    for res in reversed(tool_results):
+        t = res.strip()
+        if t.startswith(("best_line:", "best:", "best_moves:")):
+            head = t.split(":", 1)[1].split(", score")[0].split("; best_line")[0]
+            sans = _SAN_TOK.findall(head)
+            return list(dict.fromkeys(sans)) if sans else None
+    return None
+
+
+def _correct_move_names(reply: str, tool_results: list[str]) -> str:
+    """Move-name guard: a best_move tool ran, but the reply names moves that the engine
+    did NOT return (the model fabricated a move list — e.g. tool gave 'e4 c6 d4', reply
+    said 'Nf3, e4, Nc3'). Append a short grounded correction with the REAL moves so the
+    truth is present and labeled. Conservative: fires only when a best_move result exists,
+    the reply names ≥1 SAN, and ≥1 named SAN is NOT in the real set. Append-only — never
+    mangles the sentence; the deterministic backstop the model's narration can't be trusted
+    to do itself."""
+    real = _best_move_sans(tool_results)
+    if not real:
+        return reply
+    named = _SAN_TOK.findall(reply)
+    if not named:
+        return reply
+    real_set = {m.rstrip("+#") for m in real}
+    if all(m.rstrip("+#") in real_set for m in named):
+        return reply  # every move the reply names is real -> nothing fabricated
+    correction = " (Engine's actual moves: " + ", ".join(real) + ".)"
+    return reply.rstrip() + correction
+
+
 def normalize_tool_call(text: str) -> str:
     # The trained shape is an optional lead-in sentence then ONE <tool>; the loop
     # stops at "</tool>", so close the tag if the stop trimmed it.
@@ -362,6 +401,7 @@ class CoachLoop:
                     # then answer-coverage (append any required fact still missing). Order
                     # matters: a corrected number then reads as present, so it isn't doubled.
                     reply = _correct_eval_number(reply, tool_results)
+                    reply = _correct_move_names(reply, tool_results)
                     reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
                     new_turns.append({"role": "assistant", "content": reply})
                     return {
@@ -408,6 +448,7 @@ class CoachLoop:
             # user never sees a raw tag or an empty bubble.
             reply = _fallback_reply(tool_calls, tool_results)
         reply = _correct_eval_number(reply, tool_results)   # fix a fabricated eval number first
+        reply = _correct_move_names(reply, tool_results)     # then a fabricated move list
         reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
         new_turns.append({"role": "assistant", "content": reply})
         return {

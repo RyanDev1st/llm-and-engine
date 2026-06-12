@@ -2,7 +2,7 @@
 tell), replace it with the real tool value. Conservative — single unmatched number vs a
 single eval source; never touches legit numbers (best_move scores, move SANs) or guesses
 when ambiguous."""
-from backend.inference import _correct_eval_number
+from backend.inference import _correct_eval_number, _correct_move_names
 
 
 def test_replaces_fabricated_eval_with_real():
@@ -48,6 +48,26 @@ def test_multiple_fabricated_numbers_noop():
     # two unmatched numbers -> too ambiguous to know which to fix -> leave both
     r = "Around -0.18, maybe -0.50."
     assert _correct_eval_number(r, ["score: +0.37 pawns from white POV, depth=18"]) == r
+
+
+def test_move_guard_appends_real_moves_when_fabricated():
+    # live bug: tool returned the line e4 c6 d4, model said "Nf3, e4, Nc3"
+    out = _correct_move_names("The top three moves: Nf3, e4, and Nc3.",
+                              ["best_line: e4 c6 d4, score: +0.49 pawns from white POV"])
+    assert out.endswith("(Engine's actual moves: e4, c6, d4.)")
+
+
+def test_move_guard_silent_when_moves_are_real():
+    r = "The line is e4 c6 d4."
+    assert _correct_move_names(r, ["best_line: e4 c6 d4, score: +0.49"]) == r
+    r2 = "Top moves: e4, d4, Nf3."
+    assert _correct_move_names(r2, ["best_moves: 1. e4 (+0.45); 2. d4 (+0.36); 3. Nf3 (+0.31)"]) == r2
+
+
+def test_move_guard_noop_without_best_move_result():
+    r = "Your best move is Nf3."
+    assert _correct_move_names(r, ["score: +0.20 pawns from white POV"]) == r   # no best_* result
+    assert _correct_move_names(r, []) == r
 
 
 def test_move_numbering_not_mistaken_for_eval():
