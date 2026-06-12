@@ -63,6 +63,9 @@ class ToolExecutor:
             if self.game.load_fen(fen):
                 return self._board_state("all")
             return "error: invalid_fen"
+        if name == "random_position":
+            from .positions import random_position
+            return random_position(self.game, args.get("kind", "puzzle"))
         if name == "undo":
             return self.game.undo()
         if name == "legal_moves":

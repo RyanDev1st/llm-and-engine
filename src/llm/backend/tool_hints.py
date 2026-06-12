@@ -66,6 +66,10 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
      re.compile(r"\b(what pieces|my pieces|list .* pieces|material count|what do i have left)\b", re.I)),
     ("load_fen", "set up the position from a FEN", "<tool>load_fen fen=<FEN></tool>",
      re.compile(r"\b(load fen|set up (the|this) (position|board)|use this fen)\b|[pnbrqkPNBRQK1-8]{2,}/[pnbrqkPNBRQK1-8/]+ [wb] ", re.I)),
+    ("random_position", "set up a fresh position (puzzle/scramble/random)", "<tool>random_position kind=puzzle</tool>",
+     re.compile(r"\b(give me a puzzle|make me a puzzle|a tactical puzzle|generate a puzzle|new puzzle"
+                r"|random (position|board|fen|game)|scramble (the|this)? ?(board|position)?"
+                r"|set up a (random|tactical) position|practice a tactic)\b", re.I)),
 ]
 
 
