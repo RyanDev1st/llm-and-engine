@@ -14,10 +14,10 @@ official is always on; the rest toggle via plugin_context["enabled"].
 """
 from __future__ import annotations
 
-from . import chess_official, openings, analysis
+from . import chess_official, openings, analysis, puzzles
 
 # All installed plugins. chess-official first (its core tools lead the manifest).
-REGISTRY = [chess_official, openings, analysis]
+REGISTRY = [chess_official, openings, analysis, puzzles]
 ALWAYS_ON = {"chess-official"}
 
 

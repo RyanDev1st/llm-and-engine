@@ -29,8 +29,8 @@ DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limi
 # Installed plugin bundles; `enabled` are active (contribute tools+skills to the served
 # surface). chess-official + openings + analysis on by default so cross-bundle routing is
 # testable out of the box. The Plugins panel toggles `enabled` live.
-PLUGIN_CONTEXT = {"installed": ["chess-official", "openings", "analysis"],
-                  "enabled": ["chess-official", "openings", "analysis"],
+PLUGIN_CONTEXT = {"installed": ["chess-official", "openings", "analysis", "puzzles"],
+                  "enabled": ["chess-official", "openings", "analysis", "puzzles"],
                   "marketplace": ["endgame-trainer", "study-notes"]}
 
 
