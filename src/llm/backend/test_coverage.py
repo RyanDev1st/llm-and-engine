@@ -33,10 +33,11 @@ def test_wait_steer_then_model_complies():
         "<tool>best_move top=3",      # gather best_move
         "Here are the moves.",         # tries to answer (eval still outstanding) -> Wait steer
         "<tool>eval depth=18",        # complies with the steer
-        "Final summary.",              # all covered -> final reply
+        "Final summary.",              # all covered -> final reply (mentions no fact)
     ]).respond([], "give me the best move and the evaluation")
     assert _names(out) == ["best_move", "eval"]
-    assert out["reply"] == "Final summary."
+    # the vague reply mentions neither fact -> answer-coverage appends both, grounded
+    assert out["reply"].startswith("Final summary.")
 
 
 def test_backstop_force_routes_when_model_ignores_steer():
@@ -44,10 +45,10 @@ def test_backstop_force_routes_when_model_ignores_steer():
     out = _loop([
         "Just play e4.",               # tries to answer (eval outstanding) -> Wait steer
         "Still just play e4.",         # ignores the steer -> backstop force-routes eval
-        "Okay, evaluation noted.",     # all covered -> final reply
+        "Okay, evaluation noted.",     # all covered -> final reply (states no number)
     ]).respond([], "how am I doing?")
     assert "eval" in _names(out)
-    assert out["reply"] == "Okay, evaluation noted."
+    assert out["reply"].startswith("Okay, evaluation noted.")  # eval fact appended after
 
 
 def test_coverage_off_lets_the_model_stop_early():
@@ -66,6 +67,30 @@ def test_game_over_skips_coverage():
         g.move(san)
     out = _loop(["That's checkmate — Black wins."], game=g).respond([], "how am I doing?")
     assert out["tool_calls"] == [] and "checkmate" in out["reply"].lower()
+
+
+def test_answer_coverage_appends_dropped_eval():
+    # The screenshot bug: model gathers eval AND best_move, but the final reply only
+    # narrates the moves. Answer-coverage must append the eval fact (grounded).
+    out = _loop([
+        "<tool>eval depth=18",          # required eval gathered
+        "<tool>best_move top=3",        # required best_move gathered
+        "The engine suggests e4, then d4 and c4. Want me to play e4?",  # drops the eval
+    ]).respond([], "suggest 3 next best moves and the eval")
+    assert set(_names(out)) == {"eval", "best_move"}
+    assert "e4" in out["reply"]                      # moves still there
+    # eval result at the start position is "score: 0.00 ... equal" -> appended fact
+    assert "0.00" in out["reply"] or "equal" in out["reply"].lower()
+
+
+def test_answer_coverage_no_double_when_already_mentioned():
+    # If the reply already states the eval number, don't append it again.
+    out = _loop([
+        "<tool>eval depth=18",
+        "<tool>best_move top=3",
+        "Position is 0.00 (equal); best is e4, then d4, c4.",
+    ]).respond([], "best moves and the eval")
+    assert out["reply"].count("0.00") == 1           # not duplicated
 
 
 def test_dedup_is_by_full_call_not_name():

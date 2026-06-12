@@ -43,6 +43,6 @@ def test_coverage_compare_returns_both_and_isolates_board():
     app.loop_mirror = CoachLoop(ScriptedModel(["OFF: just play e4."]), app.base_executor)
     out = app.chat("how am I doing?", variant="coverage", coverage=True)
     assert set(out) == {"on", "off", "state"}
-    assert out["on"]["reply"] == "ON: equal." and out["on"]["tool_calls"]      # coverage ran eval
+    assert out["on"]["reply"].startswith("ON: equal.") and out["on"]["tool_calls"]  # coverage ran eval
     assert out["off"]["reply"] == "OFF: just play e4." and out["off"]["tool_calls"] == []  # off: no tool
     assert app.game.board.fen() == chess.STARTING_FEN     # neither run advanced the real board

@@ -120,6 +120,55 @@ def _fallback_reply(tool_calls: list[str], tool_results: list[str]) -> str:
     return "What would you like to look at on the board?"
 
 
+def _result_signal(result: str) -> str | None:
+    """A short distinctive token the reply should contain IF it narrated this fact
+    (the eval number, the top move's SAN, the review label). Returns None when we
+    can't extract one — then we don't risk a spurious append."""
+    import re as _r
+    t = result.strip()
+    if t.startswith("score:"):
+        m = _r.search(r"[-+]?\d+\.\d+", t)          # the eval number, e.g. 0.00 / +0.44
+        return m.group(0) if m else None
+    if t.startswith(("best:", "best_line:", "best_moves:")):
+        m = _r.search(r"[KQRBN]?[a-h]?x?[a-h][1-8]", t)  # the first SAN move
+        return m.group(0) if m else None
+    if t.startswith("review:"):
+        m = _r.search(r"label=(\w+)", t)
+        return m.group(1) if m else None
+    return None
+
+
+def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
+                              tool_results: list[str]) -> str:
+    """Answer-coverage: tool-coverage guarantees the required tools RAN; this
+    guarantees their results are REFLECTED in the reply. For each required tool
+    whose fact the reply doesn't mention, append a grounded one-liner from the real
+    tool output (never fabricated). Fixes the model gathering eval then dropping it
+    from the answer on a compound request."""
+    if not required:
+        return reply
+    low = reply.lower()
+    additions: list[str] = []
+    for name in required:
+        res = next((r for c, r in zip(reversed(tool_calls), reversed(tool_results))
+                    if (parse_call(c)[0] or "") == name), None)
+        if not res or res.startswith("error"):
+            continue
+        sig = _result_signal(res)
+        if sig and sig.lower() not in low:          # required fact missing from the reply
+            additions.append(narrate_tool_result(res))
+    if not additions:
+        return reply
+    facts = " ".join(additions)
+    import re as _r
+    r = reply.rstrip()
+    if r.endswith("?"):  # slot the fact BEFORE the trailing guiding question, not after it
+        parts = _r.split(r"(?<=[.!?])\s+", r)
+        head = " ".join(parts[:-1])
+        return (head + " " if head else "") + facts + " " + parts[-1]
+    return r + " " + facts
+
+
 def normalize_tool_call(text: str) -> str:
     # The trained shape is an optional lead-in sentence then ONE <tool>; the loop
     # stops at "</tool>", so close the tag if the stop trimmed it.
@@ -235,6 +284,9 @@ class CoachLoop:
                     # All required intents covered. An empty final reply after tools ran
                     # would show a blank bubble — narrate the last fact instead.
                     reply = raw if raw else _fallback_reply(tool_calls, tool_results)
+                    # Answer-coverage: ensure each required fact is reflected in the reply
+                    # (the model gathers eval then drops it from the prose otherwise).
+                    reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
                     new_turns.append({"role": "assistant", "content": reply})
                     return {
                         "reply": reply,
@@ -279,6 +331,7 @@ class CoachLoop:
             # leaked a tool tag, or produced nothing — narrate the last fact so the
             # user never sees a raw tag or an empty bubble.
             reply = _fallback_reply(tool_calls, tool_results)
+        reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
         new_turns.append({"role": "assistant", "content": reply})
         return {
             "reply": reply,
