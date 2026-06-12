@@ -191,6 +191,11 @@ _MALFORMED = _re.compile(r"<(" + _NAME_ALT + r")\b([^<>]*?)(?:</tool>|(?:>|$)(?!
 # "move san=Nf3</tool>" from the routing hint. Anchor the name at a token boundary
 # so "remove</tool>" / "improve" can't false-match.
 _ECHO = _re.compile(r"(?:^|[\s:>\"'`])(" + _NAME_ALT + r")\b([^<>]*)</tool>")
+# Bare call with NO tags at all — the whole reply is a tool name + at least one
+# k=v arg, e.g. "review_move depth=1". Requiring args keeps prose ("undo that move")
+# and one-word replies from false-matching; a tool name followed only by k=v pairs
+# is unambiguously a leaked call, so recover + execute it instead of showing it.
+_BARE = _re.compile(r"^(" + _NAME_ALT + r")((?:\s+\w+=\S+)+)$")
 
 
 def extract_call(decision: str) -> str | None:
@@ -215,6 +220,9 @@ def extract_call(decision: str) -> str | None:
         name, rest = e.group(1), e.group(2).strip()
         canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
         return (s[:e.start(1)] + canon).strip()
+    b = _BARE.match(s)  # whole reply IS a tagless tool call, e.g. "review_move depth=1"
+    if b:
+        return f"<tool>{b.group(1)}{b.group(2).rstrip()}</tool>"
     return None
 
 

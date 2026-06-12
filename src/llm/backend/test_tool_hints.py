@@ -93,6 +93,16 @@ def test_extract_call_recovers_tool_code_and_echoes():
     assert extract_call("Your best move is Nf3.") is None                                # plain reply
 
 
+def test_extract_call_recovers_tagless_bare_call():
+    # live audit: model emitted "review_move depth=1" as the whole reply, no tags
+    assert extract_call("review_move depth=1") == "<tool>review_move depth=1</tool>"
+    assert extract_call("eval depth=18") == "<tool>eval depth=18</tool>"
+    # prose / one-word replies must NOT be mistaken for a bare call (no k=v args)
+    assert extract_call("undo that move when you can") is None
+    assert extract_call("eval looks roughly equal to me") is None
+    assert extract_call("The best move here is e4.") is None
+
+
 # --- coverage set (deterministic multi-tool guarantee) ---
 from backend.tool_hints import matched_tools, matched_calls
 
