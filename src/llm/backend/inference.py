@@ -169,6 +169,44 @@ def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
     return r + " " + facts
 
 
+_NUM = __import__("re").compile(r"[-+]?\d+\.\d+")  # signed decimal (eval-like; ignores depth=18 etc.)
+
+
+def _eval_numbers(tool_results: list[str]) -> tuple[list[float], list[str]]:
+    """(every numeric value that legitimately appears in ANY tool result, as floats;
+    the rendered token of each `score:` eval, e.g. '+0.37'). The first set is what the
+    reply is ALLOWED to contain; the second identifies the single eval to correct toward."""
+    true_nums: list[float] = []
+    eval_tokens: list[str] = []
+    for res in tool_results:
+        for m in _NUM.finditer(res):
+            true_nums.append(float(m.group(0)))
+        if res.strip().startswith("score:"):
+            m = _NUM.search(res)
+            if m:
+                eval_tokens.append(m.group(0))
+    return true_nums, eval_tokens
+
+
+def _correct_eval_number(reply: str, tool_results: list[str]) -> str:
+    """Number-consistency guard: if the reply states an eval-like number that matches NO
+    real tool number (i.e. the model fabricated it — coarse quant like Q4_0 can do this)
+    and there is exactly ONE eval result, replace that fabricated number with the real
+    eval value. Conservative: acts only on a SINGLE unmatched number against a SINGLE eval
+    source — 0 unmatched means nothing's wrong; >1 is ambiguous, so we never guess. Legit
+    numbers the model quoted from any tool (e.g. best_move scores) are in true_nums and so
+    are never touched."""
+    true_nums, eval_tokens = _eval_numbers(tool_results)
+    if len(eval_tokens) != 1:
+        return reply  # no single eval to correct toward -> leave it
+    bad = [(m.start(), m.end()) for m in _NUM.finditer(reply)
+           if not any(abs(float(m.group(0)) - t) <= 0.01 for t in true_nums)]
+    if len(bad) != 1:
+        return reply  # nothing fabricated, or too ambiguous to correct safely
+    s, e = bad[0]
+    return reply[:s] + eval_tokens[0] + reply[e:]
+
+
 def normalize_tool_call(text: str) -> str:
     # The trained shape is an optional lead-in sentence then ONE <tool>; the loop
     # stops at "</tool>", so close the tag if the stop trimmed it.
@@ -296,8 +334,10 @@ class CoachLoop:
                     # All required intents covered. An empty final reply after tools ran
                     # would show a blank bubble — narrate the last fact instead.
                     reply = raw if raw else _fallback_reply(tool_calls, tool_results)
-                    # Answer-coverage: ensure each required fact is reflected in the reply
-                    # (the model gathers eval then drops it from the prose otherwise).
+                    # Number guard FIRST (fix a fabricated eval number -> the real one),
+                    # then answer-coverage (append any required fact still missing). Order
+                    # matters: a corrected number then reads as present, so it isn't doubled.
+                    reply = _correct_eval_number(reply, tool_results)
                     reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
                     new_turns.append({"role": "assistant", "content": reply})
                     return {
@@ -343,6 +383,7 @@ class CoachLoop:
             # leaked a tool tag, or produced nothing — narrate the last fact so the
             # user never sees a raw tag or an empty bubble.
             reply = _fallback_reply(tool_calls, tool_results)
+        reply = _correct_eval_number(reply, tool_results)   # fix a fabricated eval number first
         reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
         new_turns.append({"role": "assistant", "content": reply})
         return {
