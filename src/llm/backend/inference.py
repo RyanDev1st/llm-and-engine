@@ -20,7 +20,12 @@ DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limi
 # Serve == train: the catalog of installed skills + the official tool manifest are
 # rendered by the SAME build_system() the loader uses. Skills appear by name +
 # description only (progressive disclosure); load_skill pulls the body on demand.
-PLUGIN_CONTEXT = {"installed": ["chess-official"], "enabled": ["chess-official"], "marketplace": []}
+# Installed plugin bundles; `enabled` are active (contribute tools+skills to the served
+# surface). chess-official + openings + analysis on by default so cross-bundle routing is
+# testable out of the box. The Plugins panel toggles `enabled` live.
+PLUGIN_CONTEXT = {"installed": ["chess-official", "openings", "analysis"],
+                  "enabled": ["chess-official", "openings", "analysis"],
+                  "marketplace": ["endgame-trainer", "study-notes"]}
 
 
 class ModelBackend(Protocol):
@@ -314,20 +319,29 @@ def extract_call(decision: str) -> str | None:
     return None
 
 
-def serving_skills_index() -> list[dict]:
-    """All installed SKILL.md as catalog entries (name + description only)."""
-    return [
+def serving_skills_index(plugin_context: dict | None = None) -> list[dict]:
+    """Catalog entries (name + description) for every skill the model may load: the
+    SKILL.md files from the skills dir PLUS the skills bundled by enabled plugins."""
+    from . import plugins
+    base = [
         {"name": skill.name, "description": skill.description,
          "plugin": "chess-official", "source": "official_plugin", "enabled": True}
         for skill in load_skills()
     ]
+    return base + plugins.plugin_skills(plugin_context)
+
+
+def serving_tool_manifest(plugin_context: dict | None = None) -> list[dict]:
+    """The full callable tool manifest: official catalog tools + enabled plugins' tools."""
+    from . import plugins
+    return official_tools() + plugins.plugin_tools(plugin_context)
 
 
 def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None) -> str:
-    base = build_system(serving_skills_index(), official_tools(),
-                        plugin_context or PLUGIN_CONTEXT, agent_overlay)
+    pc = plugin_context or PLUGIN_CONTEXT
+    base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay)
     from . import plugins  # prompt-start hooks: pre-load always-on plugin context
-    hook = plugins.prompt_start({"game": game})
+    hook = plugins.prompt_start({"game": game}, pc)
     return base + (("\n\n" + hook) if hook else "")
 
 
@@ -338,6 +352,8 @@ class CoachLoop:
         self.executor = executor
         self.agent_overlay = agent_overlay
         self.plugin_context = plugin_context
+        # the executor dispatches plugin tools + loads plugin skills against this context
+        executor.plugin_context = plugin_context
         self.window = _build_window(model)
 
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
@@ -362,7 +378,7 @@ class CoachLoop:
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game) + routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
-            system += skill_hints(user_message, serving_skills_index())
+            system += skill_hints(user_message, serving_skills_index(self.plugin_context))
         # Coverage set: tool -> canonical call for each detected intent. Empty on a
         # finished game or when coverage is off.
         required = {} if (game_over or not coverage) else matched_calls(user_message)

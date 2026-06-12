@@ -16,6 +16,11 @@ from llm_dataset.v1.catalog import official_tools
 from ..skills import load_skills
 
 NAME = "chess-official"
+# chess-official's tools come from the official catalog and its skills from the skills
+# dir (load_skills), so TOOLS/SKILLS are empty here — the registry skips them. handle()
+# is None: its tools dispatch through the core ToolExecutor, not the plugin path.
+TOOLS: list[dict] = []
+SKILLS: list[dict] = []
 
 
 def tools() -> list[dict]:

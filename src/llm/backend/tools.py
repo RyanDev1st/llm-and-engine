@@ -36,9 +36,12 @@ def format_score(kind: str, val) -> str:
 
 
 class ToolExecutor:
-    def __init__(self, game: Game, engine: Engine) -> None:
+    def __init__(self, game: Game, engine: Engine, plugin_context: dict | None = None) -> None:
         self.game = game
         self.engine = engine
+        # Which plugin bundles are enabled — gates which plugin tools dispatch + which
+        # plugin skill bodies load_skill can fetch. Set by the loop/web_app.
+        self.plugin_context = plugin_context
 
     def execute(self, tool_call: str) -> str:
         name, args = parse_call(tool_call)
@@ -86,21 +89,31 @@ class ToolExecutor:
             return self._review(clamp_depth(args, 15))
         if name == "threats":
             return self._threats(clamp_depth(args, 12))
+        # Enabled plugins' tools (openings/analysis/...) — the registry routes to the
+        # plugin that owns the name. This is the surface that tests cross-bundle routing.
+        from . import plugins
+        plugin_res = plugins.dispatch(name, args, self, self.plugin_context)
+        if plugin_res is not None:
+            return plugin_res
         # A skill is NOT a tool. The harness contract is load_skill name=<skill>.
         # If the model calls a known skill BY NAME as a tool
         # (<tool>chess-coach</tool>), do NOT silently accept it — that would mask
         # the protocol violation. Return a corrective error naming the right
         # call so the loop retries with load_skill (self-correction, enforced).
-        if name in {s.name for s in load_skills()}:
+        plugin_skill_names = {s["name"] for s in plugins.plugin_skills(self.plugin_context)}
+        if name in {s.name for s in load_skills()} | plugin_skill_names:
             return f"error: '{name}' is a skill, not a tool — call load_skill name={name}"
         return "error: invalid_syntax"
 
     def _load_skill(self, name: str) -> str:
         """Progressive disclosure: return the named skill's full SKILL.md body so
-        the model can follow it. Mirrors the trained contract (load_skill is a
-        tool whose result is the body)."""
+        the model can follow it. Checks the skills dir first, then enabled plugins'
+        bundled skills (openings/analysis/...)."""
         bodies = {skill.name: skill.content for skill in load_skills()}
-        body = bodies.get(name)
+        if name in bodies:
+            return bodies[name]
+        from . import plugins
+        body = plugins.skill_body(name, self.plugin_context)
         return body if body is not None else "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:

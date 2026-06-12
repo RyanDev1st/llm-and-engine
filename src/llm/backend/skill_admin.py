@@ -70,11 +70,14 @@ def apply_plugin(plugin_context: dict, body: dict) -> dict:
 
 
 def catalog_payload(plugin_context: dict) -> dict:
-    """Current served catalog (incl. runtime skills) + the live plugin_context."""
+    """Current served catalog (incl. runtime + plugin skills), the installed plugin
+    bundles (name + the tools/skills each contributes), and the live plugin_context."""
     from .inference import serving_skills_index
-    skills = [{"name": s["name"], "description": s["description"], "source": s.get("source", "")}
-              for s in serving_skills_index()]
+    from . import plugins
+    skills = [{"name": s["name"], "description": s["description"],
+               "source": s.get("source", ""), "plugin": s.get("plugin", "")}
+              for s in serving_skills_index(plugin_context)]
     runtime = {p.parent.name for p in RUNTIME_DIR.glob("*/SKILL.md")}
     for s in skills:
         s["runtime"] = s["name"] in runtime
-    return {"skills": skills, "plugin_context": plugin_context}
+    return {"skills": skills, "plugins": plugins.catalog(), "plugin_context": plugin_context}
