@@ -1152,53 +1152,63 @@ const ChatUI = (() => {
     };
   }
 
-  // SSE stream of the single (product) chat. `tool` events fill the THINKING panel;
-  // `token`/`reply_chunk` feed the CHAT typewriter. Resolves AFTER the reply finishes
-  // typing (so the timer/context render only once the text is fully shown).
-  async function streamChat(text, waitFT) {
-    const resp = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }) });
-    if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
-    const reader = resp.body.getReader(), dec = new TextDecoder();
+  // SSE stream of the single (product) chat via XHR.onprogress — XHR delivers
+  // responseText incrementally in EVERY browser (Edge/Chrome's fetch().getReader()
+  // can buffer the body and hand it over in one read at the end, which made the reply
+  // "wait then snap"). `tool` events fill the THINKING panel; `token`/`reply_chunk`
+  // feed the CHAT typewriter. Resolves after the reply finishes typing.
+  function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
-    let buf = '', calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
+    let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
     const clean = (txt) => { const cut = txt.search(/<\|?/); return cut >= 0 ? txt.slice(0, cut) : txt; };
     const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
-    for (;;) {
-      const r = await reader.read();
-      if (r.done) break;
-      buf += dec.decode(r.value, { stream: true });
-      let i;
-      while ((i = buf.indexOf('\n\n')) >= 0) {
-        const line = buf.slice(0, i); buf = buf.slice(i + 2);
-        if (!line.startsWith('data: ')) continue;
-        let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
-        if (ev.type === 'token') {                                  // CHAT stream
-          if (waitFT && waitFT.parentNode) waitFT.remove();
-          streamed += ev.text; bubble(); tw.set(clean(streamed));
-        } else if (ev.type === 'reply_chunk') {                     // fallback (non-streaming model)
-          if (waitFT && waitFT.parentNode) waitFT.remove();
-          streamed += (streamed ? ' ' : '') + ev.text; bubble(); tw.set(clean(streamed));
-        } else if (ev.type === 'tool') {                            // THINKING stream
-          // tokens just streamed were this tool's decision -> belong in the thinking
-          // panel, not the chat. Drop the provisional bubble + typewriter.
-          if (replyEl && replyEl.parentNode) replyEl.remove();
-          replyEl = null; tw = null; streamed = '';
-          calls.push(ev.call); results.push(ev.result);
-          if (waitFT && waitFT.parentNode) waitFT.remove();
-          thinkEl = renderLiveThinking(container, calls, results, thinkEl);
-        } else if (ev.type === 'done') {
-          done = ev;
-        } else if (ev.type === 'error') {
-          throw new Error(ev.error || 'stream error');
-        }
+
+    function handle(ev) {
+      if (ev.type === 'token') {
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        streamed += ev.text; bubble(); tw.set(clean(streamed));
+      } else if (ev.type === 'reply_chunk') {
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        streamed += (streamed ? ' ' : '') + ev.text; bubble(); tw.set(clean(streamed));
+      } else if (ev.type === 'tool') {
+        // the tokens just streamed were this tool's DECISION -> belong in the thinking
+        // panel, not chat. Drop the provisional bubble + typewriter.
+        if (replyEl && replyEl.parentNode) replyEl.remove();
+        replyEl = null; tw = null; streamed = '';
+        calls.push(ev.call); results.push(ev.result);
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        thinkEl = renderLiveThinking(container, calls, results, thinkEl);
+      } else if (ev.type === 'done') {
+        done = ev;
+      } else if (ev.type === 'error') {
+        throw new Error(ev.error || 'stream error');
       }
     }
-    // Reveal the AUTHORITATIVE final reply (guard-corrected) via the typewriter, then resolve.
-    const finalText = (done && done.reply) || streamed || '(no reply)';
-    if (!replyEl) { if (waitFT && waitFT.parentNode) waitFT.remove(); bubble(); }
-    await new Promise((res) => tw.finish(finalText, res));
-    return { done: done, replyEl: replyEl };
+    // Parse any complete "\n\n"-terminated SSE events newly present in responseText.
+    function drain(textSoFar) {
+      let block = textSoFar.slice(cursor), idx;
+      while ((idx = block.indexOf('\n\n')) >= 0) {
+        const line = block.slice(0, idx); block = block.slice(idx + 2); cursor += idx + 2;
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        handle(ev);
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/chat');
+      xhr.setRequestHeader('content-type', 'application/json');
+      xhr.onprogress = () => { try { drain(xhr.responseText); } catch (e) { /* keep going */ } };
+      xhr.onload = () => {
+        try { drain(xhr.responseText); } catch (e) {}
+        const finalText = (done && done.reply) || streamed || '(no reply)';
+        if (!replyEl) { if (waitFT && waitFT.parentNode) waitFT.remove(); bubble(); }
+        tw.finish(finalText, () => resolve({ done: done, replyEl: replyEl }));   // type the rest, then resolve
+      };
+      xhr.onerror = () => reject(new Error('stream transport error'));
+      xhr.send(JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }));
+    });
   }
 
   // Maintain a single live "thinking" panel that grows as tool steps stream in.
