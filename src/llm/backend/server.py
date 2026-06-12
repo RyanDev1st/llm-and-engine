@@ -11,10 +11,29 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+def chunk_reply(text: str) -> list[str]:
+    """Split a finished reply into sentence/clause chunks for paced streaming reveal.
+    Boundary = . ! ? FOLLOWED BY whitespace (so decimals like +0.34 stay intact); a long
+    sentence is further broken on , ; : — not letter-by-letter, not all-at-once."""
+    text = (text or "").strip()
+    # boundary = .!? + whitespace, but NOT after a digit-period ("1." "2." list markers,
+    # and decimals already lack the trailing space) so numbered move lists stay intact.
+    sents = [s for s in re.split(r"(?<=[.!?])(?<![0-9]\.)\s+", text) if s.strip()]
+    chunks: list[str] = []
+    for s in sents:
+        if len(s) <= 90:
+            chunks.append(s)
+        else:
+            chunks += [c for c in re.split(r"(?<=[,;:])\s+", s) if c.strip()]
+    return chunks
 
 from . import skill_admin
 from .web_app import App
@@ -105,7 +124,16 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # client disconnected; let the turn finish server-side
 
         try:
+            # During generation: tool steps stream live as `tool` events (the THINKING
+            # stream — the frontend shows these in the collapsible thinking panel).
             result = APP.chat(msg, "sft", coverage, on_event=emit)
+            # After: reveal the finished, grounded reply in sentence/clause chunks (the
+            # CHAT stream). Reply is already guard-corrected, so chunking is purely visual
+            # and never shows a number the guard would later fix.
+            for chunk in chunk_reply(result.get("reply") or ""):
+                emit({"type": "reply_chunk", "text": chunk})
+                time.sleep(0.05)  # gentle pacing so it reads as streaming, not a dump
+            # `done` carries the authoritative full reply + board state (frontend swaps it in).
             emit({"type": "done", "ok": True, **result})
         except Exception as exc:  # already streaming -> report via an event, not a 500
             emit({"type": "error", "error": str(exc)})

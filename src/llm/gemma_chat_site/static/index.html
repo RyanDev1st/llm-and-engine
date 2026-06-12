@@ -1093,11 +1093,15 @@ const ChatUI = (() => {
           renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
         }
       } else {
-        // Single (product) path: stream each tool step live, then render the reply.
-        res = await streamChat(text, waitFT);
-        if (waitFT && waitFT.parentNode) waitFT.remove();
+        // Single (product) path: thinking (tool steps) streams into the thinking panel;
+        // the reply streams into its own bubble sentence-by-sentence. streamChat builds
+        // both live and returns the final event + the reply bubble for the authoritative swap.
+        const s = await streamChat(text, waitFT);
+        res = s.done;
         const c = document.getElementById('msgs-ft');
-        appendMsg(c, (res && res.reply) || '(no reply)', 'ai', 'ft-msg');
+        const finalText = (res && res.reply) || s.streamed || '(no reply)';
+        if (s.replyEl) s.replyEl.textContent = finalText;          // swap to guard-corrected reply
+        else appendMsg(c, finalText, 'ai', 'ft-msg');              // no chunks arrived -> append
         addContextMeter(c, res && res.context);
       }
       // Reconcile the model's move/FEN onto the board ONLY if the user didn't move
@@ -1115,16 +1119,17 @@ const ChatUI = (() => {
     } finally { busy = false; input.focus(); }
   }
 
-  // SSE stream of the single (product) chat: render each tool step live as it
-  // completes (so the user sees motion instead of one long wait), then return the
-  // final 'done' event with the reply + board state.
+  // SSE stream of the single (product) chat. TWO separated streams:
+  //  - `tool` events  -> the THINKING panel (collapsible, shows tool steps as they run)
+  //  - `reply_chunk`  -> the CHAT bubble, revealed sentence-by-sentence
+  // Returns { done, replyEl, streamed } so the caller swaps in the authoritative reply.
   async function streamChat(text, waitFT) {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }) });
     if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
     const reader = resp.body.getReader(), dec = new TextDecoder();
     const container = document.getElementById('msgs-ft');
-    let buf = '', calls = [], results = [], thinkEl = null, done = null;
+    let buf = '', calls = [], results = [], thinkEl = null, done = null, replyEl = null, streamed = '';
     for (;;) {
       const r = await reader.read();
       if (r.done) break;
@@ -1134,10 +1139,16 @@ const ChatUI = (() => {
         const line = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!line.startsWith('data: ')) continue;
         let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
-        if (ev.type === 'tool') {
+        if (ev.type === 'tool') {                                   // THINKING stream
           calls.push(ev.call); results.push(ev.result);
           if (waitFT && waitFT.parentNode) waitFT.remove();
           thinkEl = renderLiveThinking(container, calls, results, thinkEl);
+        } else if (ev.type === 'reply_chunk') {                     // CHAT stream
+          if (waitFT && waitFT.parentNode) waitFT.remove();
+          if (!replyEl) replyEl = appendMsg(container, '', 'ai', 'ft-msg');
+          streamed += (streamed ? ' ' : '') + ev.text;
+          replyEl.textContent = streamed;
+          container.scrollTop = container.scrollHeight;
         } else if (ev.type === 'done') {
           done = ev;
         } else if (ev.type === 'error') {
@@ -1145,7 +1156,7 @@ const ChatUI = (() => {
         }
       }
     }
-    return done;
+    return { done: done, replyEl: replyEl, streamed: streamed };
   }
 
   // Maintain a single live "thinking" panel that grows as tool steps stream in.
