@@ -235,9 +235,12 @@ def serving_skills_index() -> list[dict]:
     ]
 
 
-def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None) -> str:
-    return build_system(serving_skills_index(), official_tools(),
+def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None) -> str:
+    base = build_system(serving_skills_index(), official_tools(),
                         plugin_context or PLUGIN_CONTEXT, agent_overlay)
+    from . import plugins  # prompt-start hooks: pre-load always-on plugin context
+    hook = plugins.prompt_start({"game": game})
+    return base + (("\n\n" + hook) if hook else "")
 
 
 class CoachLoop:
@@ -267,7 +270,8 @@ class CoachLoop:
         # remind the model of it explicitly (fixes small-model routing slips like
         # narrating "I'll play b3" without calling move, or stopping before eval).
         game_over = self.executor.game.over_status()
-        system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message, game_over)
+        system = build_system_prompt(self.agent_overlay, self.plugin_context,
+                                     self.executor.game) + routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index())
         # Coverage set: tool -> canonical call for each detected intent. Empty on a
