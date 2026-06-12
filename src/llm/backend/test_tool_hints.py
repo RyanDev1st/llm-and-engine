@@ -50,6 +50,14 @@ def test_silent_when_no_intent():
     assert routing_hints("") == ""
 
 
+def test_game_over_short_circuits_to_state_hint():
+    # On a finished game the model should state the result, not call analysis tools.
+    h = routing_hints("how am I doing?", game_over="checkmate")
+    assert "GAME STATE" in h and "checkmate" in h
+    assert "ROUTING HINT" not in h          # eval hint suppressed
+    assert "<tool>eval" not in h
+
+
 # --- extract_call recovery (regressions from the live audit) ---
 from backend.inference import extract_call
 

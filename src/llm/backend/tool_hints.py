@@ -59,10 +59,15 @@ def _move_hint(msg: str) -> tuple[str, str, str] | None:
     return None
 
 
-def routing_hints(user_message: str) -> str:
+def routing_hints(user_message: str, game_over: str = "") -> str:
     """Return a system-prompt addendum reminding the model of the tool(s) the
     user's words map to, or '' if nothing matched. Empty by default — no nudge,
-    no change."""
+    no change. `game_over` (e.g. "checkmate"/"stalemate"/"draw") short-circuits to
+    a state hint so the model states the result instead of calling analysis tools
+    on a finished game."""
+    if game_over:
+        return ("\n\nGAME STATE: the game is over (" + game_over + "). Do NOT call "
+                "analysis tools — state the result plainly and offer a new game.")
     msg = user_message or ""
     hits: list[tuple[str, str, str]] = []
     mv = _move_hint(msg)

@@ -52,6 +52,22 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     assert ctx["turns_kept"] + ctx["turns_evicted"] == ctx["turns_total"]
 
 
+def test_game_over_is_detected_and_loop_states_result():
+    # Fool's mate: after 1.f3 e5 2.g4 Qh4# White is checkmated.
+    game = Game()
+    for san in ["f3", "e5", "g4", "Qh4#"]:
+        assert game.move(san).startswith("success:"), san
+    assert game.over_status() == "checkmate"          # deterministic, board-derived
+    # On a finished game the loop must still run; the model states the result
+    # (no analysis tool is forced — the routing layer short-circuits to a state hint).
+    loop = CoachLoop(ScriptedModel(["That's checkmate — Black wins. Want a new game?"]),
+                     ToolExecutor(game, None))
+    out = loop.respond([], "how am I doing?")
+    assert out["tool_calls"] == []                     # no eval/analysis call on a dead game
+    assert "<tool>" not in out["reply"]
+    assert out["reply"]
+
+
 def test_dropped_in_skill_is_discoverable_and_loadable():
     demo = SKILLS_DIR / "_smoke_demo"
     demo.mkdir(parents=True, exist_ok=True)

@@ -52,14 +52,21 @@ class Game:
         self.san_stack.append(clean)
         return f"success: {clean}{self._game_over_suffix()}"
 
-    def _game_over_suffix(self) -> str:
+    def over_status(self) -> str:
+        """'checkmate' / 'stalemate' / 'draw' if the game has ended, else ''.
+        Used by the routing layer to stop the model calling analysis tools on a
+        finished game (it should state the result instead)."""
         if self.board.is_checkmate():
-            return ", game_over=checkmate"
+            return "checkmate"
         if self.board.is_stalemate():
-            return ", game_over=stalemate"
+            return "stalemate"
         if self.board.is_insufficient_material() or self.board.is_seventyfive_moves() or self.board.is_fivefold_repetition():
-            return ", game_over=draw"
+            return "draw"
         return ""
+
+    def _game_over_suffix(self) -> str:
+        status = self.over_status()
+        return f", game_over={status}" if status else ""
 
     def _options(self, san: str) -> list[str]:
         target = "".join(c for c in san if c not in "+#")[-2:]

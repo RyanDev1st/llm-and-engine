@@ -752,6 +752,13 @@ const ChessUI = (() => {
   // true = position reached from the standard start via moveHistory (sync by move
   // list, preserves review/undo); false = FEN-loaded snapshot (sync by FEN).
   let originFromStart = true;
+  // Monotonic counter bumped on EVERY client-side board mutation. The chat send()
+  // captures it before a turn; if it changed by the time the reply returns, the
+  // user kept playing while the model thought — the client board is authoritative,
+  // so we skip reconcile (don't clobber their moves) and re-sync the backend to the
+  // client instead. The board is never frozen during a model turn.
+  let moveSeq = 0;
+  function bump() { moveSeq++; }
 
   function newGame() {
     state = {
@@ -763,6 +770,7 @@ const ChessUI = (() => {
     // Also clear the backend board + conversation history, else the model keeps
     // the old game's context and references positions from the finished game.
     try { fetch('/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {}); } catch (e) {}
+    bump();
     render();
   }
 
@@ -863,7 +871,7 @@ const ChessUI = (() => {
     if (selectedR >= 0 && clickedLegal) {
       var result = Chess.makeMove(state, selectedR, selectedC, r, c);
       if (!result || !result.board) { clearSel(); render(); return; }
-      state = result;
+      state = result; bump();
       clearSel(); render();
       if (!state.gameOver) setTimeout(autoOpponent, 300);
       return;
@@ -902,6 +910,7 @@ const ChessUI = (() => {
     state.inCheck = !!(k && Chess.isAttacked(board, k.r, k.c, Chess.oppColor(turn)));
     if (!Chess.hasLegalMoves(board, turn, castlingRights, ep)) state.gameOver = state.inCheck ? 'checkmate' : 'stalemate';
     originFromStart = false;  // a FEN snapshot — sync by FEN from here
+    bump();
     clearSel(); render();
     return true;
   }
@@ -934,6 +943,7 @@ const ChessUI = (() => {
     const dests = Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget);
     if (!dests.some(d => d.r === toR && d.c === toC)) return false;
     state = Chess.makeMove(state, fromR, fromC, toR, toC);
+    bump();
     clearSel(); render();
     return true;
   }
@@ -949,6 +959,7 @@ const ChessUI = (() => {
     if (allMoves.length) {
       const m = allMoves[Math.floor(Math.random() * allMoves.length)];
       state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
+      bump();
       clearSel();
       render();
     }
@@ -966,6 +977,7 @@ const ChessUI = (() => {
       const d = dests.find(d => d.r === m.toR && d.c === m.toC);
       if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
     }
+    bump();
     render();
     if (state.turn !== state.playerColor && !state.gameOver) setTimeout(autoOpponent, 400);
   }
@@ -1030,7 +1042,7 @@ const ChessUI = (() => {
 
   document.getElementById('board').addEventListener('click', handleBoardClick);
   newGame();
-  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci, syncPayload, reconcile };
+  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci, syncPayload, reconcile, moveSeq: () => moveSeq };
 })();
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1060,8 +1072,11 @@ const ChatUI = (() => {
     const waitBase = dualMode ? appendLoading(document.getElementById('msgs-base')) : null;
     try {
       // Mirror the live (client-authoritative) board to the backend so the
-      // analysis tools see the real position, then ask the model.
+      // analysis tools see the real position, then ask the model. The board stays
+      // interactive while the model thinks — snapshot the move counter so we can
+      // tell, on return, whether the user kept playing.
       await api('/api/sync', ChessUI.syncPayload());
+      const seqAtSend = ChessUI.moveSeq();
       const res = await api('/api/chat', { message: text, variant: dualMode ? 'both' : 'sft' });
       if (dualMode && res.sft) {
         renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
@@ -1069,8 +1084,15 @@ const ChatUI = (() => {
       } else {
         renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
       }
-      // The model may have played a move or set a FEN — reflect it on the board.
-      if (res.state) ChessUI.reconcile(res.state);
+      // Reconcile the model's move/FEN onto the board ONLY if the user didn't move
+      // while the model thought. If they did, the client board is newer and
+      // authoritative — don't clobber it; re-sync the backend to the client so the
+      // next analysis sees the real position (optimistic queue, no freeze).
+      if (ChessUI.moveSeq() !== seqAtSend) {
+        api('/api/sync', ChessUI.syncPayload()).catch(() => {});
+      } else if (res.state) {
+        ChessUI.reconcile(res.state);
+      }
     } catch (e) {
       waitFT.remove(); if (waitBase) waitBase.remove();
       appendMsg(document.getElementById('msgs-ft'), 'Could not reach the coach backend.', 'ai', 'ft-msg');

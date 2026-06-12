@@ -133,7 +133,10 @@ import re as _re
 # Known tool names, longest-first so e.g. best_move matches before a prefix.
 _TOOL_NAMES = sorted({t["name"] for t in official_tools()} | {"load_skill"}, key=len, reverse=True)
 _NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
-_MALFORMED = _re.compile(r"<(" + _NAME_ALT + r")\b([^<>]*?)(?:</tool>|>|$)")
+# </tool> always closes a call; the bare > / end-of-string forms (for a stop-
+# trimmed call like "<move san=b3") only count when NOT followed by a word char,
+# so prose like "<eval>ated badly" can't be mistaken for an eval call.
+_MALFORMED = _re.compile(r"<(" + _NAME_ALT + r")\b([^<>]*?)(?:</tool>|(?:>|$)(?!\w))")
 # Echo of a hint example with the OPENING <tool> dropped, e.g. the model copies
 # "move san=Nf3</tool>" from the routing hint. Anchor the name at a token boundary
 # so "remove</tool>" / "improve" can't false-match.
@@ -198,7 +201,8 @@ class CoachLoop:
         # Deterministic routing layer: if the user's words clearly map to a tool,
         # remind the model of it explicitly (fixes small-model routing slips like
         # narrating "I'll play b3" without calling move, or stopping before eval).
-        system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message)
+        game_over = self.executor.game.over_status()
+        system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message, game_over)
         kept_history, ctx_stats = self.window.fit(system, history, user_message)
         convo = [{"role": "system", "content": system}, *kept_history,
                  {"role": "user", "content": user_message}]
