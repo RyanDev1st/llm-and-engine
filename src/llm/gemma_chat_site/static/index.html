@@ -519,6 +519,10 @@ html, body {
         <div class="chat-dual-toggle">
           <label>Dual Model Comparison</label>
           <button class="toggle-switch on" id="dualToggle" onclick="ChatUI.toggleDual()"></button>
+          <label style="margin-left:16px;">Thinking mode</label>
+          <button class="toggle-switch" id="thinkToggle" onclick="ChatUI.toggleThinking()"></button>
+          <label style="margin-left:16px;">Compare staged vs single</label>
+          <button class="toggle-switch" id="compareToggle" onclick="ChatUI.toggleCompare()"></button>
         </div>
         <div class="chat-panels" id="chatPanels">
           <div class="chat-panel" id="panel-ft">
@@ -1051,6 +1055,8 @@ const ChessUI = (() => {
    ═══════════════════════════════════════════════════════════════ */
 const ChatUI = (() => {
   let dualMode = true;
+  let thinkingMode = false;   // staged engine on/off
+  let compareMode = false;    // staged-vs-single side by side
   let busy = false;
 
   async function api(path, body) {
@@ -1067,9 +1073,10 @@ const ChatUI = (() => {
     if (!text) return;
     input.value = ''; busy = true;
     appendMsg(document.getElementById('msgs-ft'), text, 'user');
-    if (dualMode) appendMsg(document.getElementById('msgs-base'), text, 'user');
+    const showRight = dualMode || compareMode;
+    if (showRight) appendMsg(document.getElementById('msgs-base'), text, 'user');
     const waitFT = appendLoading(document.getElementById('msgs-ft'));
-    const waitBase = dualMode ? appendLoading(document.getElementById('msgs-base')) : null;
+    const waitBase = showRight ? appendLoading(document.getElementById('msgs-base')) : null;
     try {
       // Mirror the live (client-authoritative) board to the backend so the
       // analysis tools see the real position, then ask the model. The board stays
@@ -1077,8 +1084,13 @@ const ChatUI = (() => {
       // tell, on return, whether the user kept playing.
       await api('/api/sync', ChessUI.syncPayload());
       const seqAtSend = ChessUI.moveSeq();
-      const res = await api('/api/chat', { message: text, variant: dualMode ? 'both' : 'sft' });
-      if (dualMode && res.sft) {
+      const variant = compareMode ? 'thinking' : (dualMode ? 'both' : 'sft');
+      const thinking = thinkingMode ? 'staged' : 'single';
+      const res = await api('/api/chat', { message: text, variant, thinking });
+      if (compareMode && res.staged) {
+        renderReply(document.getElementById('msgs-ft'), res.staged, waitFT, 'ft-msg');
+        renderReply(document.getElementById('msgs-base'), res.single, waitBase, '');
+      } else if (dualMode && res.sft) {
         renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
         renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
       } else {
@@ -1166,13 +1178,39 @@ const ChatUI = (() => {
 
   function toggleDual() {
     dualMode = !dualMode;
-    const toggle = document.getElementById('dualToggle');
-    const panelBase = document.getElementById('panel-base');
-    toggle.classList.toggle('on', dualMode);
-    panelBase.style.display = dualMode ? 'flex' : 'none';
+    if (dualMode) { compareMode = false; document.getElementById('compareToggle').classList.remove('on'); }
+    document.getElementById('dualToggle').classList.toggle('on', dualMode);
+    syncPanels();
   }
 
-  return { send, toggleDual };
+  function toggleThinking() {
+    thinkingMode = !thinkingMode;
+    document.getElementById('thinkToggle').classList.toggle('on', thinkingMode);
+  }
+
+  function toggleCompare() {
+    compareMode = !compareMode;
+    if (compareMode) { dualMode = false; document.getElementById('dualToggle').classList.remove('on'); }
+    document.getElementById('compareToggle').classList.toggle('on', compareMode);
+    syncPanels();
+  }
+
+  function syncPanels() {
+    // The right panel is shown for either comparison; relabel its header to match.
+    const showRight = dualMode || compareMode;
+    document.getElementById('panel-base').style.display = showRight ? 'flex' : 'none';
+    const ftHdr = document.querySelector('#panel-ft .chat-panel-header');
+    const baseHdr = document.querySelector('#panel-base .chat-panel-header');
+    if (compareMode) {
+      ftHdr.innerHTML = '<span class="dot ft"></span> Staged thinking';
+      baseHdr.innerHTML = '<span class="dot base"></span> Single-prompt';
+    } else {
+      ftHdr.innerHTML = '<span class="dot ft"></span> Gemma 4 with Trained Weights';
+      baseHdr.innerHTML = '<span class="dot base"></span> Gemma 4 Base';
+    }
+  }
+
+  return { send, toggleDual, toggleThinking, toggleCompare };
 })();
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
