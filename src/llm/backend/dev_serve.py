@@ -38,6 +38,14 @@ def main() -> None:
             if now != last:
                 changed = [p.name for p in now if last.get(p) != now.get(p)]
                 print(f"dev_serve: changed {changed or '(files added/removed)'} -> restarting app", flush=True)
+                # Model-layer files run INSIDE the persistent model service (model_server),
+                # which this app-restart does NOT reload. Warn loudly so a model fix isn't
+                # silently stale — the footgun behind "I patched it but nothing changed."
+                model_files = {"model_gguf.py", "model_hf.py", "model_server.py", "model_remote.py"}
+                if model_files & set(changed):
+                    print("  *** dev_serve: a MODEL-layer file changed — these run in the "
+                          "weights process. Restart `npm run server` to apply (npm run dev "
+                          "only reloads the app). ***", flush=True)
                 if proc.poll() is None:
                     proc.terminate()
                     proc.wait()
