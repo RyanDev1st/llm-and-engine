@@ -66,12 +66,64 @@ otherwise the existing single-prompt loop runs unchanged.
 respond(history, user_message):
   goal  = user_message            # the request to satisfy this turn
   facts = []                      # tool results gathered THIS turn (compact)
-  for step in 1..MAX_STEPS(6):
+  for step in 1..MAX_STEPS(10):
      action = CONTROLLER(goal, facts_summary, board_facts, tools+hints)   # ONE model call: verify-then-route
      if action is DONE: break                       # goal fact-checked as satisfied -> narrate
      if action.tool seen before (dedup): break      # repeated tool -> stop, narrate what we have
      facts.append(execute(action.tool))             # deterministic; extract_call recovery reused
   return NARRATOR(goal, facts_summary)                               # dedicated prompt #2
+```
+
+Flow (three exits to the Narrator: `DONE`, dedup, or the MAX_STEPS cap):
+
+```
+ user message
+      |
+      v
+ goal = user_message ;  facts = []
+      |
+      v
+ step = 1
+      |
+      v
++=============================================+
+|  CONTROLLER   (ONE model call)              |   <- dedicated prompt #1
+|  sees: goal + facts_summary + board facts   |
+|        + tool/skill manifest + hints        |
+|  FORCED first: is the goal already reached? |
+|  emits:   DONE    |    <tool>NAME args</tool>|
++=============================================+
+      |
+      v
+   parse action
+      |
+      +-------------------< DONE? >----------------- yes --+
+      | no                                                 |
+      v                                                    |
+  < tool already run this turn? >------- yes ------------->|   (dedup: stop)
+      | no                                                 |
+      v                                                    |
+  execute(tool)  ->  append result to facts                |
+      |                                                    |
+      v                                                    |
+  < step >= MAX_STEPS (10)? >----------- yes ------------->|   (cap: stop)
+      | no                                                 |
+      v                                                    |
+   step = step + 1                                         |
+      |                                                    |
+      +-----------> back to CONTROLLER (loop)              |
+                                                           |
+      +----------------------------------------------------+
+      v
++=============================================+
+|  NARRATOR   (ONE model call)                |   <- dedicated prompt #2
+|  sees: goal + facts_summary   (no tools)    |
+|  emits: grounded reply (+ guiding question) |
+|  backstop: empty/leak -> fallback narrate   |
++=============================================+
+      |
+      v
+  reply to user
 ```
 
 - **The fact-check is forced and free of an extra call:** every step the Controller
@@ -129,7 +181,7 @@ minimal header (no tool manifest — it cannot route).
 
 | Condition | Behavior |
 |---|---|
-| `MAX_STEPS` (6) exceeded | force the Narrator on the facts gathered so far |
+| `MAX_STEPS` (10) exceeded | force the Narrator on the facts gathered so far |
 | Controller output is neither a tool nor `DONE` | `extract_call` recovery first; if a tool is recovered, run it; else treat as `DONE` (stop + narrate) |
 | Controller routes a tool already run this turn (dedup) | break to Narrator |
 | First step is `DONE` with no facts (greeting / out-of-scope) | Narrator replies from the goal alone |
