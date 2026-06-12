@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 import os
 
+from llm_training.chat_format import remap_tool_messages
+
 LLM_DIR = Path(__file__).resolve().parents[1]
 REPO = LLM_DIR.parent.parent
 # Q5_K_M (not Q4_0): better number/interpretation fidelity for the eval-grounding the
@@ -48,6 +50,7 @@ class GGUFModel:
                  on_token=None) -> str:
         if on_token is not None:   # true token streaming (overlaps generation with delivery)
             return self.generate_stream(messages, max_new_tokens, stop, on_token)
+        messages = remap_tool_messages(messages)   # see generate_stream — same train/HF fix
         stops = list(stop or [])
         out = self.llm.create_chat_completion(
             messages=messages, max_tokens=max_new_tokens,
@@ -62,6 +65,13 @@ class GGUFModel:
                         on_token) -> str:
         """Stream tokens as llama.cpp produces them, calling on_token(delta) per chunk;
         returns the full text. Lets the UI show output live instead of after the block."""
+        # ROOT FIX: Gemma's chat template (embedded in the GGUF, used by create_chat_completion)
+        # silently DROPS role="tool" turns — so without this the GGUF-served model never sees
+        # its own tool results and fabricates outcomes ("skill loaded", invented evals) while
+        # its tool format degrades to pretrained Gemma tokens (<tool_call>, {}). remap_tool_
+        # messages rewrites tool turns to rendered user turns, identically to training and the
+        # HF serve path (model_hf), so GGUF == HF == train.
+        messages = remap_tool_messages(messages)
         stops = list(stop or [])
         full = ""
         for chunk in self.llm.create_chat_completion(

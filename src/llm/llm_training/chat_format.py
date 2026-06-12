@@ -8,9 +8,13 @@ numbers and moves it cannot see.
 
 The fix maps each tool turn to a user turn wrapped in <tool_result> markers,
 which the template renders reliably. It MUST be applied identically at train
-(data_pipeline) and serve (model_hf) so the model sees the same shape both
-times. Keep the loop/corpus semantics on role="tool"; remap only here, at the
-single tokenization boundary.
+(data_pipeline) and at EVERY serve path — model_hf (apply_chat_template) AND
+model_gguf (llama.cpp create_chat_completion uses the GGUF's embedded Gemma
+template, which drops role="tool" the same way) — so the model sees the same
+shape it trained on. A serve path that forgets this leaves the model blind to
+its tool results: it fabricates outcomes and its tool-call format degrades to
+pretrained Gemma tokens. Keep the loop/corpus semantics on role="tool"; remap
+only here, at the single tokenization boundary.
 """
 from __future__ import annotations
 
