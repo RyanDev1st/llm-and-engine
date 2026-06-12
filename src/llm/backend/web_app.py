@@ -25,6 +25,10 @@ class App:
         self.game = Game()
         self.engine = Engine()
         self.executor = ToolExecutor(self.game, self.engine)
+        # The base (untrained) loop runs on its OWN board so a base move/undo/
+        # load_fen can never mutate the real, displayed game. It is mirrored from
+        # the real board right before each base turn (see _mirror_base).
+        self.base_executor = ToolExecutor(Game(), self.engine)
         self.history: list[dict] = []
         self.history_base: list[dict] = []
         self.loop: CoachLoop | None = None       # SFT (adapter on)
@@ -43,7 +47,7 @@ class App:
                 model = HFModel(adapter=adapter, temperature=0.0)
                 ov, pc = agent_overlay(), self.plugin_context
                 self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
-                self.loop_base = CoachLoop(AdapterView(model, False), self.executor, ov, pc)
+                self.loop_base = CoachLoop(AdapterView(model, False), self.base_executor, ov, pc)
                 print(f"model loaded (HF base + adapter {adapter}; compare ready)", flush=True)
                 return
             except Exception as exc:
@@ -69,9 +73,18 @@ class App:
     def reset(self) -> dict:
         self.game = Game()
         self.executor.game = self.game
+        self.base_executor.game = Game()
         self.history = []
         self.history_base = []
         return self.state()
+
+    def _mirror_base(self) -> None:
+        """Copy the real board onto the base loop's private board so the base
+        model analyzes the SAME position as SFT but cannot mutate the displayed
+        game. board.copy() carries the move stack so review_move/undo still work."""
+        bg = self.base_executor.game
+        bg.board = self.game.board.copy()
+        bg.san_stack = list(self.game.san_stack)
 
     def _run(self, loop: CoachLoop, history: list[dict], message: str) -> dict:
         result = loop.respond(history, message)
@@ -92,6 +105,7 @@ class App:
         if variant == "both" and self.loop_base is not None:
             sft = self._run(self.loop, self.history, message)
             board = self.state()  # the visible board follows OUR model, snapshot before base runs
+            self._mirror_base()   # base runs on a private copy — never touches the real board
             base = self._run(self.loop_base, self.history_base, message)
             return {"sft": sft, "base": base, "state": board}
         out = self._run(self.loop, self.history, message)

@@ -12,15 +12,22 @@ class Game:
         self.san_stack: list[str] = []
 
     def load_uci_moves(self, moves: list[str]) -> bool:
-        """Reset to the start and replay a UCI move list (from the client-side
-        board, which stays authoritative for smooth play). Replaying — rather
-        than loading a FEN — preserves move_stack + san_stack so review_move and
-        undo keep working. Returns False on the first illegal move."""
-        self.board = chess.Board()
-        self.san_stack = []
+        """Replay a UCI move list from the start (the client-side board stays
+        authoritative for smooth play). Replaying — rather than loading a FEN —
+        preserves move_stack + san_stack so review_move and undo keep working.
+        Atomic: builds on a scratch board and only commits if EVERY move is legal,
+        so a bad list returns False without leaving the live board half-replayed."""
+        board, san_stack = chess.Board(), []
         for uci in moves:
-            if not self.move_uci(str(uci)):
+            try:
+                mv = chess.Move.from_uci(str(uci))
+            except ValueError:
                 return False
+            if mv not in board.legal_moves:
+                return False
+            san_stack.append(board.san(mv))
+            board.push(mv)
+        self.board, self.san_stack = board, san_stack
         return True
 
     def load_fen(self, fen: str) -> bool:

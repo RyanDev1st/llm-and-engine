@@ -68,6 +68,16 @@ def test_game_over_is_detected_and_loop_states_result():
     assert out["reply"]
 
 
+def test_load_uci_moves_is_atomic_on_a_bad_list():
+    game = Game()
+    assert game.load_uci_moves(["e2e4", "e7e5"]) is True
+    assert game.san_stack == ["e4", "e5"]
+    good_fen = game.board.fen()
+    # a list with an illegal move must NOT half-replay onto the live board
+    assert game.load_uci_moves(["e2e4", "e7e5", "zzzz"]) is False
+    assert game.board.fen() == good_fen and game.san_stack == ["e4", "e5"]
+
+
 def test_dropped_in_skill_is_discoverable_and_loadable():
     demo = SKILLS_DIR / "_smoke_demo"
     demo.mkdir(parents=True, exist_ok=True)
