@@ -26,7 +26,7 @@ The product is a **chess-coach agent** = an LLM that **routes user intent to too
 | `src/llm/llm_dataset/v1/` | **ACTIVE** SFT generator. Spec = `contracts.py`; `profiles.py` writes the v1_2 corpus. Source of truth for harness behavior |
 | `data/sft/v1_2_train.jsonl`, `data/sft/v1_2_val.jsonl`, `data/sft/v1_2/` | **ACTIVE** SFT corpus (split + accepted/rejected). The ONLY corpus trainers read |
 | `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py` |
-| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server. Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`) |
+| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server. Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`) |
 | `src/llm/skills_demo/` | 40 chess SKILL.md fixtures for routing tests + presentation demo. `_specs.py` (data) + `_generate.py` (renderer); NOT auto-loaded by the backend (pass as `load_skills` root) |
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
 | `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |

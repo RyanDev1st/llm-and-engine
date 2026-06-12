@@ -12,6 +12,32 @@ prompt, the tool manifest, the skill/plugin model, the deterministic robustness
 layers, and a concrete end-to-end turn trace. It is model-agnostic — the same
 harness drives the local GGUF model and the HF LoRA adapter.
 
+## Dev runtime — live reload without reloading weights
+
+The heavy model loads in ~15-30s; restarting the whole server to test a logic change
+is the slow part. So the model is split into a **persistent service** and the app is
+**weightless** when pointed at it:
+
+- `backend/model_server.py` — loads the model ONCE on the GPU, serves
+  `generate` / `count_tokens` / `context_limit` over `http://127.0.0.1:7861`. Leave it up.
+- `backend/model_remote.py` (`RemoteModel`) — a drop-in for `HFModel`/`GGUFModel` that
+  forwards to the service. When `CHESS_MODEL_SERVER` is set, `web_app.load_model`
+  builds the loops against it and loads **no weights** (so it starts in ~1s).
+- `backend/dev_serve.py` — watches `backend/*.py` and auto-restarts the weightless app
+  on save. The model service is untouched across restarts.
+
+```
+Terminal A (once):  python -m backend.model_server "A:/Download/gemma4_chess_kaggle_adapter (1)"
+Terminal B (live):  python -m backend.dev_serve
+```
+
+Edit `inference.py` / `tool_hints.py` / … → the app restarts itself in ~1s, weights
+stay hot in the service. Frontend (`index.html`) needs no restart — it's served
+`no-store`; just refresh. (Vite is not used: it hot-reloads browser assets, not a
+Python process holding weights — the wrong tool for this bottleneck.) Production /
+single-process still works unchanged: leave `CHESS_MODEL_SERVER` unset and run
+`python -m backend.server <adapter>` as before.
+
 ---
 
 ## 1. Big picture

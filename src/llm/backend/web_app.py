@@ -40,6 +40,15 @@ class App:
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
 
     def load_model(self) -> None:
+        # Dev mode: a persistent model service holds the weights, so this server is
+        # weightless and restarts in ~1s. Set CHESS_MODEL_SERVER to its URL.
+        if os.environ.get("CHESS_MODEL_SERVER"):
+            try:
+                self._connect_model_service()
+                return
+            except Exception as exc:  # service down -> fall through to in-process load
+                self.model_error = str(exc)
+                print(f"model service unreachable ({exc}); loading in-process", flush=True)
         adapter = self._adapter or os.environ.get("CHESS_HF_ADAPTER", "")
         if adapter:
             try:
@@ -70,6 +79,24 @@ class App:
         except Exception as exc:  # board + eval still work without the model
             self.model_error = str(exc)
             print(f"model unavailable ({exc}); board/eval still work", flush=True)
+
+    def _connect_model_service(self) -> None:
+        """Build the loops against the remote model service (no weights here). Same
+        loop wiring as the HF path: adapter on (SFT) + adapter off (base) + the
+        isolated coverage-off mirror, all proxied to the one persistent service."""
+        from .model_remote import RemoteModel, server_has_adapter, server_url
+        has = server_has_adapter()
+        ov, pc = agent_overlay(), self.plugin_context
+        if has:
+            model = RemoteModel(has_adapter=True)
+            self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
+            self.loop_base = CoachLoop(AdapterView(model, False), self.base_executor, ov, pc)
+            self.loop_mirror = CoachLoop(AdapterView(model, True), self.base_executor, ov, pc)
+        else:
+            model = RemoteModel(has_adapter=False)
+            self.loop = CoachLoop(model, self.executor, ov, pc)
+        self.model_error = None
+        print(f"connected to model service at {server_url()} (adapter={has})", flush=True)
 
     def state(self) -> dict:
         return state_api.snapshot(self.game, self.engine)
