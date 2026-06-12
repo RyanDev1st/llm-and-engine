@@ -11,7 +11,7 @@ from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
 from .skills import load_skills
-from .tool_hints import routing_hints
+from .tool_hints import routing_hints, skill_hints
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 6
@@ -203,6 +203,8 @@ class CoachLoop:
         # narrating "I'll play b3" without calling move, or stopping before eval).
         game_over = self.executor.game.over_status()
         system = build_system_prompt(self.agent_overlay, self.plugin_context) + routing_hints(user_message, game_over)
+        if not game_over:  # on a finished game, state the result — don't spin up a skill
+            system += skill_hints(user_message, serving_skills_index())
         kept_history, ctx_stats = self.window.fit(system, history, user_message)
         convo = [{"role": "system", "content": system}, *kept_history,
                  {"role": "user", "content": user_message}]

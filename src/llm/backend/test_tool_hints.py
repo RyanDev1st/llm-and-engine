@@ -1,6 +1,6 @@
 """The deterministic routing layer must fire on clear intent and stay silent
 otherwise (no nudge when the user's words don't map to a tool)."""
-from backend.tool_hints import routing_hints
+from backend.tool_hints import routing_hints, skill_hints
 
 
 def _tools(msg):
@@ -56,6 +56,29 @@ def test_game_over_short_circuits_to_state_hint():
     assert "GAME STATE" in h and "checkmate" in h
     assert "ROUTING HINT" not in h          # eval hint suppressed
     assert "<tool>eval" not in h
+
+
+# --- skill-routing layer (generic, fires only on a distinctive skill name) ---
+_TACTICS = {"name": "tactical-puzzles", "description": "solve and explain tactical puzzles"}
+_ENDGAME = {"name": "endgame-drills", "description": "drill king-and-pawn endgames"}
+_COACH = {"name": "chess-coach", "description": "analyze a position, choose moves, review mistakes"}
+
+
+def test_skill_hint_fires_on_a_distinctively_named_skill():
+    h = skill_hints("give me a tactical puzzle", [_TACTICS, _COACH])
+    assert "load_skill name=tactical-puzzles" in h
+    assert "chess-coach" not in h            # broad coach name tokens are stoplisted
+
+
+def test_skill_hint_generalizes_to_any_dropped_in_skill():
+    assert "load_skill name=endgame-drills" in skill_hints("let's practice some endgame drills", [_ENDGAME])
+    assert "load_skill name=tactical-puzzles" in skill_hints("got a puzzle for me?", [_TACTICS])  # plural stem
+
+
+def test_skill_hint_silent_on_broad_coach_and_off_topic():
+    assert skill_hints("analyze my position and pick a move", [_COACH]) == ""   # all-generic name
+    assert skill_hints("thanks, that helps!", [_TACTICS, _ENDGAME]) == ""
+    assert skill_hints("", [_TACTICS]) == ""
 
 
 # --- extract_call recovery (regressions from the live audit) ---

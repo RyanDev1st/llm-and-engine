@@ -43,6 +43,39 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
 ]
 
 
+# Generic words that appear in many skill names / the always-on coach skill —
+# matching on these would fire the skill hint on almost every chess turn. We key
+# only on DISTINCTIVE name tokens, so a broad skill (chess-coach) stays silent
+# while a specialised drop-in (tactical-puzzles, endgame-drills) fires when named.
+_SKILL_STOP = {"chess", "coach", "skill", "official", "plugin", "move", "moves",
+               "game", "play", "board", "position", "help", "assistant", "tool"}
+
+
+def skill_hints(user_message: str, skills: list[dict]) -> str:
+    """Deterministic skill-routing layer. If the user's words contain a distinctive
+    token from an installed skill's name, remind the model to load that skill via
+    the load_skill protocol (progressive disclosure) instead of answering blind.
+    Default silent — only fires on a clearly named specialised skill, so it never
+    over-triggers on the broad always-loaded coach skill. Generalises to any
+    dropped-in SKILL.md (no per-skill code)."""
+    msg = (user_message or "").lower()
+    hits: list[tuple[str, str]] = []
+    for s in skills:
+        tokens = [t for t in re.split(r"[-_\s]+", str(s.get("name", "")).lower())
+                  if len(t) >= 4 and t not in _SKILL_STOP]
+        # drop a trailing plural 's' and match by prefix so "puzzles" fires on
+        # "puzzle" and vice versa (deterministic, no full stemmer needed).
+        stems = [t[:-1] if t.endswith("s") and len(t) > 4 else t for t in tokens]
+        if any(re.search(r"\b" + re.escape(st), msg) for st in stems):
+            hits.append((s["name"], s.get("description", "")))
+    if not hits:
+        return ""
+    lines = [f"- for this, load the `{name}` skill: <tool>load_skill name={name}</tool>"
+             f"  ({desc})" for name, desc in hits]
+    return ("\n\nSKILL HINT (the user's request matches an installed skill — load it "
+            "first with load_skill, then follow what it tells you):\n" + "\n".join(lines))
+
+
 def _move_san(msg: str) -> str:
     if _CASTLE.search(msg):
         return "O-O-O" if _QUEENSIDE.search(msg) else "O-O"
