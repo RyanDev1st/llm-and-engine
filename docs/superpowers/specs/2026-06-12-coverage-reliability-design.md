@@ -9,7 +9,7 @@ local model with no extra training.
 ## Status
 
 Implemented + tested (2026-06-12). Default ON. Supersedes the staged Controller+
-Narrator design (`2026-06-12-thinking-harness-design.md`), which was built, measured
+Narrator design (`../../legacy/2026-06-12-thinking-harness-design.md`), which was built, measured
 live, and found to *underperform* the proven single loop (see Evidence).
 
 ## Problem (stated precisely)

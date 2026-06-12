@@ -31,7 +31,7 @@ The product is a **chess-coach agent** = an LLM that **routes user intent to too
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
 | `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |
 | `src/engine/research/` | Standalone custom chess engine (alt backend) |
-| `docs/` | Durable docs + dated reports |
+| `docs/` | Durable docs + dated reports; index = `docs/README.md`. Superseded docs → `docs/legacy/` (tracked archive) |
 | `legacy [ignore]/` | **Archive bin** for superseded plans/code/data — gitignored, never imported by live code |
 | `.claude/settings.local.json` | Personal permissions — **gitignored**, never commit |
 | `.claude/scheduled_tasks.lock` | Scheduler lock — **gitignored**, ephemeral |
@@ -72,10 +72,22 @@ The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay
 ### Reports (required layout)
 
 - Path: `<scope-dir>/YYYY-MM-DD-<topic>-<artifact>.md`
-- Allowed `<scope-dir>`: `docs/` (default). Superseded reports → `legacy [ignore]/`.
+- Allowed `<scope-dir>`: `docs/` (default).
 - Line 1: `Parent: <relative-path>` or `Parent: none`
 - Sections in order: **Status**, **Scope**, **Evidence** (commands + outcomes), **Next** (numbered list)
 - Same topic + same calendar date → append to the existing file **or** supersede as `…-v2.md` with a link to the prior file. Do not create a parallel sibling for the same topic.
+
+### Docs hygiene (MANDATORY — keep `docs/` legible so the human knows what to do)
+
+`docs/` holds ONLY current, in-use documentation. Superseded docs (old handoffs, finished
+phase reports, abandoned-path runbooks, retired designs) move to **`docs/legacy/`** — a
+tracked, discoverable archive (distinct from the gitignored `legacy [ignore]/` code/data bin).
+
+1. **One index:** `docs/README.md` lists every active doc with a one-line purpose. Add a row when you add a doc; remove it when you archive one — in the **same change**.
+2. **Archive on supersede:** when a doc is replaced, finished, or its path is abandoned, `git mv` it to `docs/legacy/` and add a one-line "why retired" note in `docs/legacy/README.md`. Move, never delete.
+3. **No dangling refs:** never leave live code or an active plan pointing at a doc you moved to `docs/legacy/`. If a tool WRITES a report, it must write a fresh `docs/YYYY-MM-DD-…` path, not overwrite an archived one.
+4. **Root plan files stay at root:** `implementation.md` + `handoff.md` are the active plan set and do NOT live under `docs/`.
+5. **Check on cleanup:** when asked to tidy, audit `docs/` — anything not reachable from `docs/README.md` and not current → `docs/legacy/`.
 
 ## Verification
 

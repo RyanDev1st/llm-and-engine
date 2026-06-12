@@ -116,7 +116,10 @@ def _report(adapter, correct, total, confusion, leak, m2total) -> None:
         lines.append(f"- {v}x {k}")
     lines += ["", "## Next", "1. Export merged adapter to Q4_0 GGUF.",
               "2. Wire adapter into the web app and run end-to-end."]
-    out = REPO / "docs" / "2026-05-23-routing-audit.md"
+    # Dated report per CLAUDE.md (docs/YYYY-MM-DD-topic); each audit run lands fresh in
+    # docs/ root rather than overwriting an old fixed-date file (now in docs/legacy/).
+    from datetime import date
+    out = REPO / "docs" / f"{date.today():%Y-%m-%d}-routing-audit.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines[3:]), flush=True)
 
