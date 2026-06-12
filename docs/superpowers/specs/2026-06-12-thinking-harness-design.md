@@ -1,5 +1,12 @@
 Parent: ../../harness-architecture.md
 
+> **SUPERSEDED (2026-06-12)** by [`2026-06-12-coverage-reliability-design.md`](2026-06-12-coverage-reliability-design.md).
+> This staged Controller+Narrator design was built and measured live — it was slower
+> *and* produced worse tool calls than the proven single loop (see that doc's Evidence).
+> The reliability win (deterministic multi-tool coverage) was kept and moved onto the
+> single loop with s1-style budget forcing; the staged code is retired to
+> `legacy [ignore]/backend_thinking/`. Kept here as the design journey.
+
 # Thinking harness — design spec
 
 A serve-time staged reasoning loop for the chess-coach agent. It forces the model

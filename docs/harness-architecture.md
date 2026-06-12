@@ -265,7 +265,16 @@ thinking, reconcile is skipped and the backend is re-synced to the client instea
 
 ---
 
-## 9. Next: the thinking harness (planned)
+## 9. Reliability: the coverage layer (shipped) + thinking (future)
+
+> **Update (2026-06-12):** the reliability half of this is now implemented — the
+> **deterministic coverage layer** on the single loop (s1-style "Wait" + force-route
+> backstop + budget forcing), default ON. See
+> [`superpowers/specs/2026-06-12-coverage-reliability-design.md`](superpowers/specs/2026-06-12-coverage-reliability-design.md).
+> It guarantees multi-tool completeness on compound requests without extra model calls.
+> A staged Controller+Narrator was tried first and retired (slower + worse than the
+> single loop). The *genuine reasoning* half below remains future (E4B + R1-style
+> training).
 
 Today the model's "decision" is implicit: each step it emits either one tool call
 or a final reply, nudged by the deterministic input hints. The deterministic layer

@@ -1,3 +1,8 @@
+> **SUPERSEDED (2026-06-12).** This plan built the staged Controller+Narrator engine,
+> which was then measured live and retired in favour of the coverage layer on the single
+> loop — see [`../specs/2026-06-12-coverage-reliability-design.md`](../specs/2026-06-12-coverage-reliability-design.md).
+> The staged code now lives in `legacy [ignore]/backend_thinking/`. Kept as the journey.
+
 # Thinking Harness Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
