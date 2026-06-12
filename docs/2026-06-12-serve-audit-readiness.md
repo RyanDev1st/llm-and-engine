@@ -48,3 +48,12 @@ MEDIUM (do after the above): `_review` leaves the board one ply back if the engi
 MODEL-side (E4B/retrain or SKILL.md — not serve bugs): occasional mis-route on terse phrasings without the hint; soft magnitude wording ("slightly better" for a clear edge); skill drop-in not always loaded (model answers directly instead of `load_skill`); game-over narration asks for the FEN instead of recognizing mate.
 
 Recommended order tomorrow: run the suite (133 should pass) → fix #1 and #2 (the two CRITICALs, with the UX decision on #1) → #3–#5 → MEDIUM. The MODEL-side items wait for the E4B run.
+
+## Addendum — thinking harness live smoke (2026-06-12)
+
+Built the serve-time staged thinking harness (`backend/thinking/`, spec + plan under `docs/superpowers/`). Live in-process smoke on the real adapter, prompt *"give me the best move and the evaluation"*:
+
+- **single** (current loop): `calls=[]` — replied *"What is the current board state?"*, gathering **neither** tool. The compound-request mis-route, reproduced.
+- **staged** (new loop): `calls=[best_move depth=20, eval depth=20]` — grounded reply *"The best move is e4, which gives White a slight advantage of +0.34 pawns…"*. Both tools, no leak — the deterministic coverage guarantee held end-to-end on the real model.
+
+58 backend tests pass. Default remains `CHESS_THINKING=single`; flip to `staged` after broader live validation (the web **Compare** toggle makes the difference visible). One MODEL-side item above (terse-phrasing mis-route) is exactly what the staged Controller + coverage set address.
