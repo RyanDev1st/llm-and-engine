@@ -85,14 +85,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/reset":
                 return self._json({"ok": True, "state": APP.reset()})
+            if path == "/api/base/load":   # demo dual: bring up the untrained HF base on demand
+                return self._json(APP.load_base())
+            if path == "/api/base/unload":  # free it immediately when dual is turned off
+                return self._json(APP.unload_base())
             if path == "/api/chat":
                 msg = str(body.get("message", "")).strip()
                 if not msg:
                     raise ValueError("empty message")
                 coverage = bool(body.get("coverage", True))
+                variant = str(body.get("variant", "sft"))
+                if variant == "base":  # the untrained side of the dual — independent request
+                    return self._json({"ok": True, **APP.chat_base(msg)})
                 if body.get("stream"):  # SSE: emit each tool step live, then the final reply
                     return self._chat_stream(msg, coverage)
-                return self._json({"ok": True, **APP.chat(msg, str(body.get("variant", "sft")), coverage)})
+                return self._json({"ok": True, **APP.chat(msg, variant, coverage)})
             if path == "/api/skill":
                 skill_admin.add_skill(str(body.get("name", "")), str(body.get("description", "")),
                                       str(body.get("body", "")))

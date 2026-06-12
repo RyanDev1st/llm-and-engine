@@ -300,6 +300,7 @@ html, body {
 .ctxbar span { display: block; height: 100%; background: var(--success); transition: width 0.4s ease; }
 .ctxmeter.warn .ctxbar span { background: var(--accent); }
 .ctxlabel { font: 400 10px/1.4 var(--font-mono); color: var(--meta); margin-top: 3px; }
+.turn-timer { align-self: flex-start; font: 600 11px/1.4 var(--font-mono); color: var(--accent); margin-top: 2px; }
 .ctxmeter.warn .ctxlabel { color: var(--accent); }
 
 /* Chat input — lives inside fine‑tuned panel */
@@ -518,7 +519,7 @@ html, body {
       <div class="chat-container">
         <div class="chat-dual-toggle">
           <label>Dual Model Comparison</label>
-          <button class="toggle-switch on" id="dualToggle" onclick="ChatUI.toggleDual()"></button>
+          <button class="toggle-switch" id="dualToggle" onclick="ChatUI.toggleDual()"></button>
           <label style="margin-left:16px;">Compare coverage on/off</label>
           <button class="toggle-switch" id="compareToggle" onclick="ChatUI.toggleCompare()"></button>
         </div>
@@ -1052,7 +1053,7 @@ const ChessUI = (() => {
    When dual mode is on, messages broadcast to both panels.
    ═══════════════════════════════════════════════════════════════ */
 const ChatUI = (() => {
-  let dualMode = true;
+  let dualMode = false;       // GGUF only by default; comparison loads the base on demand
   let compareMode = false;    // coverage on-vs-off ablation, side by side
   let busy = false;
 
@@ -1074,57 +1075,57 @@ const ChatUI = (() => {
     if (showRight) appendMsg(document.getElementById('msgs-base'), text, 'user');
     const waitFT = appendLoading(document.getElementById('msgs-ft'));
     const waitBase = showRight ? appendLoading(document.getElementById('msgs-base')) : null;
+    const ftC = document.getElementById('msgs-ft'), baseC = document.getElementById('msgs-base');
     try {
-      // Mirror the live (client-authoritative) board to the backend so the
-      // analysis tools see the real position, then ask the model. The board stays
-      // interactive while the model thinks — snapshot the move counter so we can
-      // tell, on return, whether the user kept playing.
+      // Mirror the live (client-authoritative) board so analysis tools see the real
+      // position; snapshot moveSeq so we know if the user kept playing while it thought.
       await api('/api/sync', ChessUI.syncPayload());
       const seqAtSend = ChessUI.moveSeq();
-      let res;
-      if (compareMode || dualMode) {
-        const variant = compareMode ? 'coverage' : 'both';
-        res = await api('/api/chat', { message: text, variant, coverage: true });
-        if (compareMode && res.on) {
-          renderReply(document.getElementById('msgs-ft'), res.on, waitFT, 'ft-msg');
-          renderReply(document.getElementById('msgs-base'), res.off, waitBase, '');
-        } else if (res.sft) {
-          renderReply(document.getElementById('msgs-ft'), res.sft, waitFT, 'ft-msg');
-          renderReply(document.getElementById('msgs-base'), res.base, waitBase, '');
+
+      if (compareMode) {
+        // Coverage ON/OFF ablation — one request, two panels.
+        const res = await api('/api/chat', { message: text, variant: 'coverage', coverage: true });
+        if (res.on) {
+          renderReply(ftC, res.on, waitFT, 'ft-msg'); renderReply(baseC, res.off, waitBase, '');
         } else {
-          // No dual-shaped response (e.g. GGUF runtime has no separate base/coverage
-          // loop). Server returned a single reply — render it; don't leave skeletons.
-          renderReply(document.getElementById('msgs-ft'), res, waitFT, 'ft-msg');
-          if (waitBase && waitBase.parentNode) {
-            waitBase.remove();
-            appendMsg(document.getElementById('msgs-base'), 'Comparison not available for this runtime.', 'ai');
-          }
+          renderReply(ftC, res, waitFT, 'ft-msg');
+          if (waitBase && waitBase.parentNode) { waitBase.remove(); appendMsg(baseC, 'Comparison not available for this runtime.', 'ai'); }
         }
+        reconcileBoard(res.on || res, seqAtSend);
+      } else if (dualMode) {
+        // TWO INDEPENDENT turns in parallel — first-done-first, neither waits on the other.
+        // Trained (GGUF) streams into the left panel and drives the board; base (untrained
+        // HF) is a separate request into the right panel.
+        const trained = streamChat(text, waitFT).then(s => {
+          const res = s.done, finalText = (res && res.reply) || s.streamed || '(no reply)';
+          if (s.replyEl) s.replyEl.textContent = finalText; else appendMsg(ftC, finalText, 'ai', 'ft-msg');
+          addTimer(ftC, res && res.elapsed_s); addContextMeter(ftC, res && res.context);
+          reconcileBoard(res, seqAtSend);
+        }).catch(() => { if (waitFT && waitFT.parentNode) waitFT.remove(); appendMsg(ftC, 'Trained side unavailable.', 'ai', 'ft-msg'); });
+        const base = api('/api/chat', { message: text, variant: 'base' })
+          .then(r => renderReply(baseC, r, waitBase, ''))
+          .catch(() => { if (waitBase && waitBase.parentNode) waitBase.remove(); appendMsg(baseC, 'Base side unavailable.', 'ai'); });
+        await Promise.allSettled([trained, base]);
       } else {
-        // Single (product) path: thinking (tool steps) streams into the thinking panel;
-        // the reply streams into its own bubble sentence-by-sentence. streamChat builds
-        // both live and returns the final event + the reply bubble for the authoritative swap.
+        // Single (product) path: thinking streams into the thinking panel; the reply
+        // streams sentence-by-sentence; swap to the authoritative reply on done.
         const s = await streamChat(text, waitFT);
-        res = s.done;
-        const c = document.getElementById('msgs-ft');
-        const finalText = (res && res.reply) || s.streamed || '(no reply)';
-        if (s.replyEl) s.replyEl.textContent = finalText;          // swap to guard-corrected reply
-        else appendMsg(c, finalText, 'ai', 'ft-msg');              // no chunks arrived -> append
-        addContextMeter(c, res && res.context);
-      }
-      // Reconcile the model's move/FEN onto the board ONLY if the user didn't move
-      // while the model thought. If they did, the client board is newer and
-      // authoritative — don't clobber it; re-sync the backend to the client so the
-      // next analysis sees the real position (optimistic queue, no freeze).
-      if (ChessUI.moveSeq() !== seqAtSend) {
-        api('/api/sync', ChessUI.syncPayload()).catch(() => {});
-      } else if (res && res.state) {
-        ChessUI.reconcile(res.state);
+        const res = s.done, finalText = (res && res.reply) || s.streamed || '(no reply)';
+        if (s.replyEl) s.replyEl.textContent = finalText; else appendMsg(ftC, finalText, 'ai', 'ft-msg');
+        addTimer(ftC, res && res.elapsed_s); addContextMeter(ftC, res && res.context);
+        reconcileBoard(res, seqAtSend);
       }
     } catch (e) {
-      if (waitFT && waitFT.parentNode) waitFT.remove(); if (waitBase) waitBase.remove();
-      appendMsg(document.getElementById('msgs-ft'), 'Could not reach the coach backend.', 'ai', 'ft-msg');
+      if (waitFT && waitFT.parentNode) waitFT.remove(); if (waitBase && waitBase.parentNode) waitBase.remove();
+      appendMsg(ftC, 'Could not reach the coach backend.', 'ai', 'ft-msg');
     } finally { busy = false; input.focus(); }
+  }
+
+  // Reconcile the model's move/FEN onto the board ONLY if the user didn't move while it
+  // thought (else the client board is newer — don't clobber it; re-sync backend to client).
+  function reconcileBoard(res, seqAtSend) {
+    if (ChessUI.moveSeq() !== seqAtSend) api('/api/sync', ChessUI.syncPayload()).catch(() => {});
+    else if (res && res.state) ChessUI.reconcile(res.state);
   }
 
   // SSE stream of the single (product) chat. TWO separated streams:
@@ -1251,14 +1252,45 @@ const ChatUI = (() => {
     const results = payload.tool_results || (payload.tool_result ? [payload.tool_result] : []);
     addThinking(container, calls, results);
     appendMsg(container, (payload && payload.reply) || '(no reply)', 'ai', extraClass);
+    addTimer(container, payload.elapsed_s);
     addContextMeter(container, payload.context);
   }
 
-  function toggleDual() {
-    dualMode = !dualMode;
-    if (dualMode) { compareMode = false; document.getElementById('compareToggle').classList.remove('on'); }
-    document.getElementById('dualToggle').classList.toggle('on', dualMode);
-    syncPanels();
+  // Per-turn timer: total agent time from prompt received to task finished.
+  function addTimer(container, secs) {
+    if (secs == null) return;
+    const d = document.createElement('div');
+    d.className = 'turn-timer';
+    d.textContent = '⏱ ' + Number(secs).toFixed(1) + 's';
+    container.appendChild(d);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function toggleDual() {
+    const t = document.getElementById('dualToggle');
+    if (!dualMode) {
+      // Turning ON loads a SECOND (untrained HF) model — warn so it's not accidental.
+      const ok = window.confirm(
+        "Turn on side-by-side comparison?\n\nThis loads a SECOND model (the untrained base Gemma) " +
+        "and uses extra GPU memory. It is unloaded automatically when you turn this off.\n\nProceed?");
+      if (!ok) return;
+      t.classList.add('on'); t.style.opacity = '0.5';   // pending while the base model loads (~15-30s)
+      try {
+        const r = await fetch('/api/base/load', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+        const j = await r.json();
+        if (!j.ok || !j.loaded) throw new Error(j.error || 'load failed');
+        dualMode = true; compareMode = false;
+        document.getElementById('compareToggle').classList.remove('on');
+        syncPanels();
+      } catch (e) {
+        t.classList.remove('on');
+        alert('Could not load the base model: ' + (e.message || e));
+      } finally { t.style.opacity = ''; }
+    } else {
+      // Turning OFF: free the base model immediately so it never hogs the GPU.
+      dualMode = false; t.classList.remove('on'); syncPanels();
+      fetch('/api/base/unload', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+    }
   }
 
   function toggleCompare() {
@@ -1283,20 +1315,13 @@ const ChatUI = (() => {
     }
   }
 
-  // On load, ask the backend whether a separate base model exists (it doesn't for the
-  // GGUF runtime). If not, default to the single streaming path so the chat never waits
-  // on a comparison that can't happen, and reflect it in the toggle.
-  async function init() {
-    try {
-      const r = await fetch('/api/skills');
-      const ok = r.ok ? (await r.json()).compare_ready : false;
-      if (!ok) {
-        dualMode = false; compareMode = false;
-        document.getElementById('dualToggle').classList.remove('on');
-        document.getElementById('compareToggle').classList.remove('on');
-        syncPanels();
-      }
-    } catch (e) { /* leave defaults */ }
+  // Default: GGUF only, single streaming path. Comparison is opt-in (loads the base on
+  // demand, with a confirm). Reflect that default in the toggles + panels on load.
+  function init() {
+    dualMode = false; compareMode = false;
+    document.getElementById('dualToggle').classList.remove('on');
+    document.getElementById('compareToggle').classList.remove('on');
+    syncPanels();
   }
   init();
 

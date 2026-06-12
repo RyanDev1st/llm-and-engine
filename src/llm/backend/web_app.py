@@ -35,6 +35,7 @@ class App:
         self.loop_base: CoachLoop | None = None   # untrained base (adapter off)
         self.loop_mirror: CoachLoop | None = None  # adapter on, isolated board (coverage-off compare)
         self.history_off: list[dict] = []         # history for the coverage-OFF run in the ablation
+        self._base_model = None                    # lazily-loaded HF base (demo dual); freed on toggle-off
         self.model_error: str | None = None
         self._adapter = adapter
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
@@ -98,6 +99,48 @@ class App:
         self.model_error = None
         print(f"connected to model service at {server_url()} (adapter={has})", flush=True)
 
+    def load_base(self) -> dict:
+        """Lazy-load the UNTRAINED HF base Gemma (demo-only — the 'base' side of the dual
+        comparison). Loaded on demand when the user confirms the dual toggle; freed by
+        unload_base when they turn it off, so it never hogs the GPU during normal GGUF use.
+        Runs on the isolated base_executor so it can't mutate the displayed board."""
+        if self.loop_base is not None:
+            return {"ok": True, "loaded": True}
+        try:
+            from .model_hf import HFModel
+            model = HFModel(adapter=None, temperature=0.0)   # base only, no SFT adapter
+            self.loop_base = CoachLoop(model, self.base_executor, agent_overlay(), self.plugin_context)
+            self._base_model = model
+            print("base HF model loaded (demo dual)", flush=True)
+            return {"ok": True, "loaded": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "loaded": False, "error": str(exc)}
+
+    def unload_base(self) -> dict:
+        """Free the HF base model immediately (frees VRAM) when dual is turned off."""
+        self.loop_base = None
+        model = getattr(self, "_base_model", None)
+        self._base_model = None
+        if model is not None:
+            del model
+            try:
+                import gc, torch
+                gc.collect(); torch.cuda.empty_cache()
+            except Exception:
+                pass
+        self.history_base = []
+        print("base HF model unloaded", flush=True)
+        return {"ok": True, "loaded": False}
+
+    def chat_base(self, message: str) -> dict:
+        """Run the UNTRAINED base on the mirrored board (independent of the trained side)."""
+        if self.loop_base is None:
+            return {"reply": "(base model not loaded)", "tool_calls": [], "tool_results": [],
+                    "elapsed_s": 0, "state": self.state()}
+        self._mirror_base()
+        out = self._run(self.loop_base, self.history_base, message)
+        return {**out, "state": self.state()}
+
     def state(self) -> dict:
         return state_api.snapshot(self.game, self.engine)
 
@@ -120,7 +163,10 @@ class App:
 
     def _run(self, loop: CoachLoop, history: list[dict], message: str, coverage: bool = True,
              on_event=None) -> dict:
+        import time
+        t0 = time.time()
         result = loop.respond(history, message, coverage, on_event)
+        elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
         # the final reply, so the reasoning scratchpad never pollutes future
@@ -129,7 +175,7 @@ class App:
                     {"role": "assistant", "content": result["reply"]}]
         return {"reply": result["reply"], "tool_calls": result.get("tool_calls", []),
                 "tool_results": result.get("tool_results", []),
-                "context": result.get("context")}
+                "context": result.get("context"), "elapsed_s": elapsed}
 
     def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None) -> dict:
         if self.loop is None:

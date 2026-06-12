@@ -46,3 +46,23 @@ def test_coverage_compare_returns_both_and_isolates_board():
     assert out["on"]["reply"].startswith("ON: equal.") and out["on"]["tool_calls"]  # coverage ran eval
     assert out["off"]["reply"] == "OFF: just play e4." and out["off"]["tool_calls"] == []  # off: no tool
     assert app.game.board.fen() == chess.STARTING_FEN     # neither run advanced the real board
+
+
+def test_chat_reports_elapsed_time():
+    app = App(adapter=None)
+    app.loop = CoachLoop(ScriptedModel(["Hello there."]), app.executor)
+    out = app.chat("hi")
+    assert "elapsed_s" in out and isinstance(out["elapsed_s"], (int, float))
+
+
+def test_chat_base_graceful_when_not_loaded():
+    # The untrained base is demo-only and lazy-loaded; before load, chat_base is safe.
+    app = App(adapter=None)
+    out = app.chat_base("hi")
+    assert "not loaded" in out["reply"] and out["tool_calls"] == [] and "state" in out
+
+
+def test_unload_base_is_safe_when_nothing_loaded():
+    app = App(adapter=None)
+    r = app.unload_base()
+    assert r == {"ok": True, "loaded": False} and app.loop_base is None
