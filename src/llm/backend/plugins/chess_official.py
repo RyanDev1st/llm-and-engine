@@ -1,8 +1,12 @@
 """The chess-official plugin: owns the default/official tools + skills, and a
-prompt-start hook that pre-loads its always-on context — the chess-coach skill body
-and a live board snapshot — into the system prompt. With both already present the
-model skips the load_skill + board_state round-trips it was trained to make, which is
-the largest serve-side latency win (each is a whole extra model generation).
+prompt-start hook that injects this plugin's RUNTIME STATE (the live board) into the
+system prompt each turn — so the model doesn't spend a board_state round-trip to read
+a board it can't see.
+
+It deliberately does NOT pre-load any skill body: skills stay progressive-disclosure
+(name + description in the catalog; the model decides to `load_skill` the body it
+needs). That keeps the harness plug-and-play and domain-agnostic — a different plugin
+registers its own state hook and its own skills the same way, no hard-coded bodies.
 """
 from __future__ import annotations
 
@@ -12,7 +16,6 @@ from llm_dataset.v1.catalog import official_tools
 from ..skills import load_skills
 
 NAME = "chess-official"
-ALWAYS_ON_SKILL = "chess-coach"  # the default skill, pre-loaded by the hook
 
 
 def tools() -> list[dict]:
@@ -21,17 +24,8 @@ def tools() -> list[dict]:
 
 
 def skills() -> list:
-    """The skills this plugin bundles (catalog entries with bodies)."""
+    """The skills this plugin bundles (name + description only; bodies load on demand)."""
     return load_skills()
-
-
-def _skill_body(content: str) -> str:
-    """Strip YAML frontmatter, return the markdown body."""
-    if content.startswith("---"):
-        end = content.find("\n---", 3)
-        if end != -1:
-            return content[end + 4:].lstrip()
-    return content.strip()
 
 
 def _board_line(game) -> str:
@@ -44,15 +38,12 @@ def _board_line(game) -> str:
 
 
 def prompt_start(context: dict) -> str:
-    """Prompt-start hook: inject the always-on coach skill body + the live board so the
-    model has them up front. `context` may carry {"game": <Game>}."""
-    parts: list[str] = []
-    body = next((s.content for s in load_skills() if s.name == ALWAYS_ON_SKILL), "")
-    if body:
-        parts.append("ACTIVE SKILL — chess-coach (pre-loaded; follow it, do NOT call "
-                     "load_skill for it):\n" + _skill_body(body))
+    """Prompt-start hook (Anthropic-style additional-context injection): inject this
+    plugin's live runtime state — the current board — so the model need not call
+    board_state to read it. NOT a skill-body preload; skills load on demand.
+    `context` may carry {"game": <Game>}."""
     game = context.get("game")
-    if game is not None:
-        parts.append("LIVE BOARD (current snapshot; do NOT call board_state to read it): "
-                     + _board_line(game))
-    return "\n\n".join(parts)
+    if game is None:
+        return ""
+    return ("LIVE BOARD (current snapshot from the chess-official plugin; no need to "
+            "call board_state to read it): " + _board_line(game))
