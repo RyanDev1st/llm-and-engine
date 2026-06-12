@@ -34,3 +34,14 @@ def test_base_loop_never_mutates_real_board():
     assert app.game.board.fen() == chess.STARTING_FEN          # real board untouched
     assert app.base_executor.game.san_stack == ["e4"]          # base moved on its OWN board
     assert out["state"]["fen"].split()[0] == chess.STARTING_FEN.split()[0]  # display = real board
+
+
+def test_thinking_compare_returns_both_and_isolates_board():
+    app = App(adapter=None)
+    # staged engine drives the SFT loop (eval then DONE); single engine runs on the mirror loop
+    app.loop = CoachLoop(ScriptedModel(["<tool>eval depth=18", "DONE", "Equal (staged)."]), app.executor)
+    app.loop_mirror = CoachLoop(ScriptedModel(["Equal (single)."]), app.base_executor)
+    out = app.chat("how am I doing?", variant="thinking", thinking=None)
+    assert set(out) == {"staged", "single", "state"}
+    assert "staged" in out["staged"]["reply"] and "single" in out["single"]["reply"]
+    assert app.game.board.fen() == chess.STARTING_FEN     # neither run advanced the real board

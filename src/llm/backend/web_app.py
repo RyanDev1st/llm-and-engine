@@ -33,6 +33,8 @@ class App:
         self.history_base: list[dict] = []
         self.loop: CoachLoop | None = None       # SFT (adapter on)
         self.loop_base: CoachLoop | None = None   # untrained base (adapter off)
+        self.loop_mirror: CoachLoop | None = None  # adapter on, isolated board (compare)
+        self.history_single: list[dict] = []      # history for the single engine in compare
         self.model_error: str | None = None
         self._adapter = adapter
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
@@ -48,6 +50,8 @@ class App:
                 ov, pc = agent_overlay(), self.plugin_context
                 self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
                 self.loop_base = CoachLoop(AdapterView(model, False), self.base_executor, ov, pc)
+                # adapter ON, on the isolated board — for the staged-vs-single compare
+                self.loop_mirror = CoachLoop(AdapterView(model, True), self.base_executor, ov, pc)
                 print(f"model loaded (HF base + adapter {adapter}; compare ready)", flush=True)
                 return
             except Exception as exc:
@@ -76,6 +80,7 @@ class App:
         self.base_executor.game = Game()
         self.history = []
         self.history_base = []
+        self.history_single = []
         return self.state()
 
     def _mirror_base(self) -> None:
@@ -86,8 +91,8 @@ class App:
         bg.board = self.game.board.copy()
         bg.san_stack = list(self.game.san_stack)
 
-    def _run(self, loop: CoachLoop, history: list[dict], message: str) -> dict:
-        result = loop.respond(history, message)
+    def _run(self, loop: CoachLoop, history: list[dict], message: str, thinking: str | None = None) -> dict:
+        result = loop.respond(history, message, thinking)
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
         # the final reply, so the reasoning scratchpad never pollutes future
@@ -96,19 +101,25 @@ class App:
                     {"role": "assistant", "content": result["reply"]}]
         return {"reply": result["reply"], "tool_calls": result.get("tool_calls", []),
                 "tool_results": result.get("tool_results", []),
-                "context": result.get("context")}
+                "context": result.get("context"), "trace": result.get("trace")}
 
-    def chat(self, message: str, variant: str = "sft") -> dict:
+    def chat(self, message: str, variant: str = "sft", thinking: str | None = None) -> dict:
         if self.loop is None:
             return {"reply": f"(model not loaded: {self.model_error or 'no adapter'})",
                     "tool_calls": [], "tool_results": [], "state": self.state()}
         if variant == "both" and self.loop_base is not None:
-            sft = self._run(self.loop, self.history, message)
+            sft = self._run(self.loop, self.history, message, thinking)
             board = self.state()  # the visible board follows OUR model, snapshot before base runs
             self._mirror_base()   # base runs on a private copy — never touches the real board
-            base = self._run(self.loop_base, self.history_base, message)
+            base = self._run(self.loop_base, self.history_base, message, thinking)
             return {"sft": sft, "base": base, "state": board}
-        out = self._run(self.loop, self.history, message)
+        if variant == "thinking" and self.loop_mirror is not None:
+            staged = self._run(self.loop, self.history, message, thinking="staged")
+            board = self.state()           # staged drives the visible board
+            self._mirror_base()            # single runs on a private copy
+            single = self._run(self.loop_mirror, self.history_single, message, thinking="single")
+            return {"staged": staged, "single": single, "state": board}
+        out = self._run(self.loop, self.history, message, thinking)
         return {**out, "tool_call": out["tool_calls"][-1] if out["tool_calls"] else None,
                 "tool_result": out["tool_results"][-1] if out["tool_results"] else None,
                 "state": self.state()}
