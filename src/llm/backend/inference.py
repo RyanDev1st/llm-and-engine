@@ -331,8 +331,21 @@ class CoachLoop:
         seen_calls: set[str] = set()   # full <tool> spans, for dedup (same call never re-runs)
         seen_names: set[str] = set()   # tool NAMES gathered, for coverage (best_move != best_move top=3)
 
+        # True token streaming: when the caller wants events AND the backend supports it,
+        # stream each generation's tokens out as `token` events so the UI fills live. The
+        # frontend clears a provisional bubble when the generation turns out to be a tool
+        # decision (tool event), and keeps it when it's the final reply.
+        import inspect as _inspect
+        can_stream = on_event is not None and "on_token" in _inspect.signature(self.model.generate).parameters
+
+        def gen(mx: int, stop: list[str]) -> str:
+            if can_stream:
+                return self.model.generate(convo, mx, stop,
+                                           on_token=lambda t: on_event({"type": "token", "text": t})).strip()
+            return self.model.generate(convo, mx, stop).strip()
+
         for _ in range(MAX_TOOL_CALLS):
-            raw = self.model.generate(convo, max_new_tokens=96, stop=["</tool>", "</tool_code>"]).strip()
+            raw = gen(96, ["</tool>", "</tool_code>"])
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None:  # the model wants to give the final reply
                 outstanding = [t for t in required if t not in seen_names]
@@ -384,7 +397,7 @@ class CoachLoop:
         # Budget forcing (s1): out of tool steps, the user is waiting — answer now.
         convo.append({"role": "user", "content":
                       "You're out of tool steps and the user is waiting — give your best answer now using the results you have."})
-        reply = self.model.generate(convo, max_new_tokens=160, stop=[]).strip()
+        reply = gen(160, [])
         if contains_tool_call(reply) or not reply:
             # leaked a tool tag, or produced nothing — narrate the last fact so the
             # user never sees a raw tag or an empty bubble.

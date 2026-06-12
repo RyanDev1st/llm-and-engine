@@ -46,9 +46,26 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         if self.path == "/generate":
             kw = {"use_adapter": bool(body.get("use_adapter", True))} if HAS_ADAPTER else {}
+            msgs, mx, stop = body["messages"], int(body.get("max_new_tokens", 128)), list(body.get("stop", []))
+            if body.get("stream") and hasattr(MODEL, "generate_stream"):
+                # SSE: emit each token as it's produced, then a final {text} event.
+                self.send_response(200)
+                self.send_header("content-type", "text/event-stream")
+                self.send_header("cache-control", "no-cache")
+                self.end_headers()
+
+                def emit_tok(t: str) -> None:
+                    self.wfile.write(b"data: " + json.dumps({"t": t}).encode("utf-8") + b"\n\n")
+                    self.wfile.flush()
+
+                with _LOCK:
+                    full = MODEL.generate(msgs, mx, stop, on_token=emit_tok, **kw) \
+                        if HAS_ADAPTER else MODEL.generate(msgs, mx, stop, on_token=emit_tok)
+                self.wfile.write(b"data: " + json.dumps({"text": full, "done": True}).encode("utf-8") + b"\n\n")
+                self.wfile.flush()
+                return
             with _LOCK:
-                text = MODEL.generate(body["messages"], int(body.get("max_new_tokens", 128)),
-                                      list(body.get("stop", [])), **kw)
+                text = MODEL.generate(msgs, mx, stop, **kw)
             return self._json({"text": text})
         if self.path == "/count_tokens":
             return self._json({"n": MODEL.count_tokens(str(body.get("text", "")))})

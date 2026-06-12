@@ -1139,6 +1139,12 @@ const ChatUI = (() => {
     const reader = resp.body.getReader(), dec = new TextDecoder();
     const container = document.getElementById('msgs-ft');
     let buf = '', calls = [], results = [], thinkEl = null, done = null, replyEl = null, streamed = '';
+    const showReply = (txt) => {                  // live reply bubble; hide partial tool tags
+      if (!replyEl) replyEl = appendMsg(container, '', 'ai', 'ft-msg');
+      const cut = txt.search(/<\|?/);             // stop at the first tag char ("<" / "<|")
+      replyEl.textContent = cut >= 0 ? txt.slice(0, cut) : txt;
+      container.scrollTop = container.scrollHeight;
+    };
     for (;;) {
       const r = await reader.read();
       if (r.done) break;
@@ -1148,16 +1154,20 @@ const ChatUI = (() => {
         const line = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!line.startsWith('data: ')) continue;
         let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
-        if (ev.type === 'tool') {                                   // THINKING stream
+        if (ev.type === 'token') {                                  // CHAT stream (true tokens)
+          if (waitFT && waitFT.parentNode) waitFT.remove();
+          streamed += ev.text; showReply(streamed);
+        } else if (ev.type === 'tool') {                            // THINKING stream
+          // The tokens just streamed were this tool's decision (lead-in + the call) —
+          // they belong in the thinking panel, not the chat. Clear the provisional bubble.
+          if (replyEl && replyEl.parentNode) replyEl.remove();
+          replyEl = null; streamed = '';
           calls.push(ev.call); results.push(ev.result);
           if (waitFT && waitFT.parentNode) waitFT.remove();
           thinkEl = renderLiveThinking(container, calls, results, thinkEl);
-        } else if (ev.type === 'reply_chunk') {                     // CHAT stream
+        } else if (ev.type === 'reply_chunk') {                     // fallback (non-streaming model)
           if (waitFT && waitFT.parentNode) waitFT.remove();
-          if (!replyEl) replyEl = appendMsg(container, '', 'ai', 'ft-msg');
-          streamed += (streamed ? ' ' : '') + ev.text;
-          replyEl.textContent = streamed;
-          container.scrollTop = container.scrollHeight;
+          streamed += (streamed ? ' ' : '') + ev.text; showReply(streamed);
         } else if (ev.type === 'done') {
           done = ev;
         } else if (ev.type === 'error') {

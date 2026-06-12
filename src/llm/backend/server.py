@@ -115,15 +115,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": str(exc)}, 500)
 
     def _chat_stream(self, msg: str, coverage: bool) -> None:
-        """Server-Sent Events: stream one `data:` event per tool step as it completes
-        (so the UI shows progress live instead of a long spinner), then a final `done`
-        event with the reply + board state. Streams the product path (variant=sft)."""
+        """Server-Sent Events. Two live streams during generation: `tool` events (THINKING
+        — tool steps as they run) and `token` events (CHAT — reply tokens as the model
+        produces them, true streaming). A final `done` carries the authoritative reply +
+        board. If the backend can't stream tokens, fall back to a post-hoc sentence reveal."""
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("cache-control", "no-cache")
         self.end_headers()
+        saw_token = [False]
 
         def emit(ev: dict) -> None:
+            if ev.get("type") == "token":
+                saw_token[0] = True
             try:
                 self.wfile.write(b"data: " + json.dumps(ev).encode("utf-8") + b"\n\n")
                 self.wfile.flush()
@@ -131,15 +135,13 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # client disconnected; let the turn finish server-side
 
         try:
-            # During generation: tool steps stream live as `tool` events (the THINKING
-            # stream — the frontend shows these in the collapsible thinking panel).
             result = APP.chat(msg, "sft", coverage, on_event=emit)
-            # After: reveal the finished, grounded reply in sentence/clause chunks (the
-            # CHAT stream). Reply is already guard-corrected, so chunking is purely visual
-            # and never shows a number the guard would later fix.
-            for chunk in chunk_reply(result.get("reply") or ""):
-                emit({"type": "reply_chunk", "text": chunk})
-                time.sleep(0.05)  # gentle pacing so it reads as streaming, not a dump
+            if not saw_token[0]:
+                # Backend didn't stream tokens (non-streaming model) — fall back to a
+                # paced sentence/clause reveal of the finished, grounded reply.
+                for chunk in chunk_reply(result.get("reply") or ""):
+                    emit({"type": "reply_chunk", "text": chunk})
+                    time.sleep(0.05)
             # `done` carries the authoritative full reply + board state (frontend swaps it in).
             emit({"type": "done", "ok": True, **result})
         except Exception as exc:  # already streaming -> report via an event, not a 500

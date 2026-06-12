@@ -33,11 +33,36 @@ class RemoteModel:
             return json.loads(r.read())
 
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
-                 use_adapter: bool = True) -> str:
+                 use_adapter: bool = True, on_token=None) -> str:
         payload = {"messages": messages, "max_new_tokens": max_new_tokens, "stop": stop}
         if self.has_adapter:
             payload["use_adapter"] = use_adapter
-        return self._post("/generate", payload)["text"]
+        if on_token is None:
+            return self._post("/generate", payload)["text"]
+        # Stream: consume the service's token SSE, forward each delta, return the full text.
+        payload["stream"] = True
+        req = urllib.request.Request(
+            server_url() + "/generate", data=json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"})
+        full = ""
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            for raw in resp:
+                line = raw.decode("utf-8").strip()
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    ev = json.loads(line[6:])
+                except Exception:
+                    continue
+                if "t" in ev:
+                    full += ev["t"]
+                    try:
+                        on_token(ev["t"])
+                    except Exception:
+                        pass
+                elif ev.get("done"):
+                    full = ev.get("text", full)
+        return full
 
     def count_tokens(self, text: str) -> int:
         return int(self._post("/count_tokens", {"text": text})["n"])

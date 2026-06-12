@@ -44,7 +44,10 @@ class GGUFModel:
             cap = int(os.environ.get("CHESS_GGUF_CACHE_BYTES", str(1 << 30)))  # 1 GiB
             self.llm.set_cache(LlamaRAMCache(capacity_bytes=cap))
 
-    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
+    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
+                 on_token=None) -> str:
+        if on_token is not None:   # true token streaming (overlaps generation with delivery)
+            return self.generate_stream(messages, max_new_tokens, stop, on_token)
         stops = list(stop or [])
         out = self.llm.create_chat_completion(
             messages=messages, max_tokens=max_new_tokens,
@@ -54,6 +57,28 @@ class GGUFModel:
         if finish == "stop" and "</tool>" in stops and text.startswith("<tool>") and "</tool>" not in text:
             text += "</tool>"
         return text
+
+    def generate_stream(self, messages: list[dict], max_new_tokens: int, stop: list[str],
+                        on_token) -> str:
+        """Stream tokens as llama.cpp produces them, calling on_token(delta) per chunk;
+        returns the full text. Lets the UI show output live instead of after the block."""
+        stops = list(stop or [])
+        full = ""
+        for chunk in self.llm.create_chat_completion(
+                messages=messages, max_tokens=max_new_tokens,
+                temperature=max(self.temperature, 0.0), top_p=0.9, stop=stops, stream=True):
+            delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content")
+            if not delta:
+                continue
+            full += delta
+            try:
+                on_token(delta)
+            except Exception:
+                pass  # client disconnected — keep generating so the turn still completes
+        full = full.strip()
+        if "</tool>" in stops and full.startswith("<tool>") and "</tool>" not in full:
+            full += "</tool>"
+        return full
 
     def count_tokens(self, text: str) -> int:
         return len(self.llm.tokenize(text.encode("utf-8"), add_bos=False))
