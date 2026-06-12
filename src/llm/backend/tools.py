@@ -68,7 +68,10 @@ class ToolExecutor:
             return "error: invalid_fen"
         if name == "random_position":
             from .positions import random_position
-            return random_position(self.game, args.get("kind", "puzzle"))
+            return random_position(self.game, args.get("kind", "puzzle"), engine=self.engine)
+        if name == "fetch_puzzle":
+            from .online_positions import fetch_puzzle
+            return fetch_puzzle(self.game)
         if name == "undo":
             return self.game.undo()
         if name == "legal_moves":

@@ -16,16 +16,19 @@ import random
 
 import chess
 
-# (theme, side-to-move-has-the-tactic, FEN). Verified legal; each has a clear motif.
+# (theme, FEN). Side-to-move has the tactic. Each FEN + theme was VERIFIED with our own
+# Stockfish (depth 14): the labelled motif IS the engine's top line, decisive (mate or
+# >=+1.9). The old bank had 5/8 mislabeled/dead positions that the model then narrated as
+# fabricated tactics — replaced. random_position also engine-grounds the real best move at
+# dispatch (see ToolExecutor), so narration never invents the solution.
 PUZZLES: list[tuple[str, str]] = [
-    ("fork: knight forks king and queen", "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"),
-    ("mate in 1: back-rank", "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"),
-    ("pin: win the pinned knight", "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"),
-    ("skewer: check wins the rook behind", "4k3/8/8/8/8/8/4r3/R3K2R w KQ - 0 1"),
-    ("mate in 2: queen + rook", "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"),
-    ("fork: pawn forks two pieces", "r1bqkbnr/ppp2ppp/2np4/4p3/3PP3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4"),
-    ("discovered attack", "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 2 3"),
-    ("hanging piece: win a free knight", "r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 5 4"),
+    ("mate in 1 (back-rank): the rook delivers mate", "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"),
+    ("mate in 1 (back-rank): the rook delivers mate", "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"),
+    ("white to move and win a whole rook", "4k3/8/8/8/8/8/4r3/R3K2R w KQ - 0 1"),
+    ("mate in 1 for Black (back-rank): the rook delivers mate", "3r2k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1"),
+    ("mate in 1 for Black (fool's mate): the queen ends it", "rnbqkbnr/ppp2ppp/8/3pp3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 3"),
+    ("black to move and win material in the centre", "r1bqkbnr/pppp1ppp/2n5/1B2N3/4P3/8/PPPP1PPP/RNBQK2R b KQkq - 0 3"),
+    ("mate in 2: two-rook ladder", "7k/8/8/8/8/8/R7/1R5K w - - 0 1"),
 ]
 
 OPENINGS: list[str] = [
@@ -36,9 +39,12 @@ OPENINGS: list[str] = [
 ]
 
 
-def random_position(game, kind: str = "puzzle", rng: random.Random | None = None) -> str:
+def random_position(game, kind: str = "puzzle", rng: random.Random | None = None,
+                    engine=None) -> str:
     """Set `game`'s board to a position of the requested kind and return a description
-    the model can scan. Falls back to a puzzle for an unknown kind."""
+    the model can scan. Falls back to a puzzle for an unknown kind. When `engine` is
+    given (the live Stockfish), a puzzle is engine-GROUNDED: the real best move + score
+    is appended as `answer=<SAN>` so the coach narrates the true solution, not a guess."""
     r = rng or random.Random()
     kind = (kind or "puzzle").lower()
     if kind == "scramble":
@@ -58,4 +64,18 @@ def random_position(game, kind: str = "puzzle", rng: random.Random | None = None
     theme, fen = r.choice(PUZZLES)
     game.load_fen(fen)
     side = "white" if fen.split()[1] == "w" else "black"
-    return f"position: puzzle set ({theme}). {side} to move and find it. fen={fen}"
+    return (f"position: puzzle set ({theme}). {side} to move and find it. "
+            f"fen={fen}{_grounded_answer(game.board, engine)}")
+
+
+def _grounded_answer(board: chess.Board, engine) -> str:
+    """The engine's real best move + score for the puzzle, as ` answer=<SAN> (<score>)`.
+    '' when no engine (e.g. tests) or it can't analyse — never raises into the tool."""
+    if engine is None:
+        return ""
+    try:
+        san, (kind, val) = engine.best_for_side_to_move(board, 14)
+        score = f"M{val}" if kind == "mate" else f"{val / 100:+.2f}"
+        return f" answer={san} ({score})"
+    except Exception:  # noqa: BLE001
+        return ""

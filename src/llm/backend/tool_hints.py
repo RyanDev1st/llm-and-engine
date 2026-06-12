@@ -69,10 +69,19 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
      re.compile(r"\b(what pieces|my pieces|list .* pieces|material count|what do i have left)\b", re.I)),
     ("load_fen", "set up the position from a FEN", "<tool>load_fen fen=<FEN></tool>",
      re.compile(r"\b(load fen|set up (the|this) (position|board)|use this fen)\b|[pnbrqkPNBRQK1-8]{2,}/[pnbrqkPNBRQK1-8/]+ [wb] ", re.I)),
+    ("fetch_puzzle", "fetch a real rated puzzle from Lichess", "<tool>fetch_puzzle</tool>",
+     re.compile(r"\b(lichess|chess\.?com|online|real|rated|daily)\b[^.?!]*\bpuzzle"
+                r"|\bpuzzle\b[^.?!]*\b(lichess|chess\.?com|online|from the web)\b", re.I)),
     ("random_position", "set up a fresh position (puzzle/scramble/random)", "<tool>random_position kind=puzzle</tool>",
-     re.compile(r"\b(give me a puzzle|make me a puzzle|a tactical puzzle|generate a puzzle|new puzzle"
-                r"|random (position|board|fen|game)|scramble (the|this)? ?(board|position)?"
-                r"|set up a (random|tactical) position|practice a tactic)\b", re.I)),
+     re.compile(
+         # a puzzle request, tolerating fillers ("give me a chess puzzle", "puzzle me",
+         # "any tactical puzzle", "new puzzle")
+         r"(?:give|show|make|set ?up|generate|create|want|do|need)\s+(?:me\s+)?"
+         r"(?:a\s+|an\s+|the\s+|some\s+|any\s+)?(?:new\s+|tactical\s+|chess\s+|random\s+|hard\s+|easy\s+)*puzzle"
+         r"|\bpuzzle me\b|\bpractice a tactic\b|\ba tactical puzzle\b"
+         # scramble / randomize the board, or a random opening position
+         r"|\brandomi[sz]e\b|\bscramble\b|\brandom (position|board|fen|game|opening)\b"
+         r"|\bopening position\b|\bset up a (random|tactical) position\b", re.I)),
 ]
 
 
@@ -152,9 +161,14 @@ def _match(msg: str) -> list[tuple[str, str, str]]:
     mv = _move_hint(msg)
     if mv:
         hits.append(mv)
+    fetched = False
     for tool, phrase, call, pat in _TRIGGERS:
         if tool == "best_move" and mv:
             continue  # naming a specific move overrides "what should I play"
+        if tool == "fetch_puzzle" and pat.search(msg):
+            fetched = True
+        if tool == "random_position" and fetched:
+            continue  # a real-puzzle request -> fetch_puzzle, not the local bank
         if pat.search(msg):
             hits.append((tool, phrase, call))
     return hits
@@ -180,11 +194,26 @@ def _move_count(msg: str) -> int | None:
     return None
 
 
+# Which random_position KIND the user asked for: scramble (randomize/scramble), open
+# (random opening), else puzzle (the default).
+_SCRAMBLE = re.compile(r"\b(randomi[sz]e|scramble|random (position|board|fen|game))\b", re.I)
+_OPENING = re.compile(r"\b(random|fresh)\s+opening\b|\bopening position\b", re.I)
+
+
+def _random_kind(msg: str) -> str:
+    if _OPENING.search(msg):
+        return "open"
+    if _SCRAMBLE.search(msg):
+        return "scramble"
+    return "puzzle"
+
+
 def matched_calls(user_message: str) -> dict[str, str]:
     """tool name -> the canonical `<tool>…</tool>` call the user's words map to.
     The deterministic coverage set: every detected intent must be gathered before
     the loop narrates. For best_move, honor the requested COUNT and distinguish a LINE
-    (consecutive moves -> series=N) from ALTERNATIVES (N candidate moves -> top=N)."""
+    (consecutive moves -> series=N) from ALTERNATIVES (N candidate moves -> top=N).
+    For random_position, set the KIND from the words (scramble vs puzzle vs opening)."""
     msg = user_message or ""
     calls = {tool: call for tool, _phrase, call in _match(msg)}
     if "best_move" in calls:
@@ -193,6 +222,8 @@ def matched_calls(user_message: str) -> dict[str, str]:
             calls["best_move"] = f"<tool>best_move depth=18 series={n or 3}</tool>"
         elif n:                                     # N alternative candidate moves
             calls["best_move"] = f"<tool>best_move depth=18 top={n}</tool>"
+    if "random_position" in calls:                 # carry the requested kind
+        calls["random_position"] = f"<tool>random_position kind={_random_kind(msg)}</tool>"
     return calls
 
 
