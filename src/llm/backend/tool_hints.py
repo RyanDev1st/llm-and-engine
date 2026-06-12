@@ -101,7 +101,17 @@ def routing_hints(user_message: str, game_over: str = "") -> str:
     if game_over:
         return ("\n\nGAME STATE: the game is over (" + game_over + "). Do NOT call "
                 "analysis tools — state the result plainly and offer a new game.")
-    msg = user_message or ""
+    hits = _match(user_message or "")
+    if not hits:
+        return ""
+    lines = [f"- to {phrase}, call `{tool}`: {call}" for tool, phrase, call in hits]
+    return ("\n\nROUTING HINT (the user's words map to these tools — call the tool, "
+            "do not just describe it; ground your reply in the result):\n" + "\n".join(lines))
+
+
+def _match(msg: str) -> list[tuple[str, str, str]]:
+    """The intent matches as (tool, human phrase, canonical call). Shared by
+    routing_hints (formats them) and matched_calls (the coverage set)."""
     hits: list[tuple[str, str, str]] = []
     mv = _move_hint(msg)
     if mv:
@@ -111,8 +121,15 @@ def routing_hints(user_message: str, game_over: str = "") -> str:
             continue  # naming a specific move overrides "what should I play"
         if pat.search(msg):
             hits.append((tool, phrase, call))
-    if not hits:
-        return ""
-    lines = [f"- to {phrase}, call `{tool}`: {call}" for tool, phrase, call in hits]
-    return ("\n\nROUTING HINT (the user's words map to these tools — call the tool, "
-            "do not just describe it; ground your reply in the result):\n" + "\n".join(lines))
+    return hits
+
+
+def matched_calls(user_message: str) -> dict[str, str]:
+    """tool name -> the canonical `<tool>…</tool>` call the user's words map to.
+    The deterministic coverage set: every detected intent must be gathered before
+    the staged loop narrates. Pure intent match (game-over handling is the caller's)."""
+    return {tool: call for tool, _phrase, call in _match(user_message or "")}
+
+
+def matched_tools(user_message: str) -> set[str]:
+    return set(matched_calls(user_message))

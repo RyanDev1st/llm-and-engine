@@ -91,3 +91,23 @@ def test_extract_call_recovers_tool_code_and_echoes():
     assert "<tool>move san=b3" in extract_call("Play it. <move san=b3</tool>")          # malformed wrapper
     assert extract_call("I would remove the rook and improve my position.") is None     # prose, not a call
     assert extract_call("Your best move is Nf3.") is None                                # plain reply
+
+
+# --- coverage set (deterministic multi-tool guarantee) ---
+from backend.tool_hints import matched_tools, matched_calls
+
+
+def test_matched_tools_detects_compound_intent():
+    t = matched_tools("give me the best move and the evaluation")
+    assert t == {"best_move", "eval"}
+
+
+def test_matched_calls_returns_canonical_calls():
+    calls = matched_calls("play b3 and tell me the eval")
+    assert calls["move"] == "<tool>move san=b3</tool>"
+    assert calls["eval"].startswith("<tool>eval depth=")
+
+
+def test_matched_tools_empty_on_no_intent():
+    assert matched_tools("hi there") == set()
+    assert matched_calls("") == {}
