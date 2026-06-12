@@ -4,6 +4,7 @@ The model uses the role of the latest message to pick Mode 1 vs Mode 2; we keep
 the same system prompt across phases. A `ModelBackend` just needs generate()."""
 from __future__ import annotations
 
+import os
 from typing import Protocol
 
 from llm_dataset.v1.catalog import official_tools
@@ -191,13 +192,18 @@ class CoachLoop:
         self.plugin_context = plugin_context
         self.window = _build_window(model)
 
-    def respond(self, history: list[dict], user_message: str) -> dict:
+    def respond(self, history: list[dict], user_message: str, thinking: str | None = None) -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
         display fields (tool_call, tool_result), and the context-window stats.
 
         The session memory is bounded here: `window.fit` evicts the oldest turns
         so the prompt stays inside the model's token budget — recent context is
         kept, old context is dropped, the window never overflows."""
+        engine = thinking or os.environ.get("CHESS_THINKING", "single")
+        if engine == "staged":
+            from .thinking.loop import StagedLoop  # lazy: thinking imports inference
+            return StagedLoop(self.model, self.executor, self.agent_overlay,
+                              self.plugin_context, self.window).run(history, user_message)
         # Deterministic routing layer: if the user's words clearly map to a tool,
         # remind the model of it explicitly (fixes small-model routing slips like
         # narrating "I'll play b3" without calling move, or stopping before eval).

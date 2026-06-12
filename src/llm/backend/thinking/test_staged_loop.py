@@ -117,3 +117,25 @@ def test_game_over_no_analysis():
         g.move(san)
     out = _loop(["DONE", "That's checkmate — Black wins. New game?"], game=g).run([], "how am I doing?")
     assert out["tool_calls"] == [] and "checkmate" in out["reply"].lower()
+
+
+import os
+from backend.inference import CoachLoop
+from backend.toolfmt import parse_call as _pc
+
+
+def test_coachloop_delegates_to_staged_when_flag_set():
+    loop = CoachLoop(ScriptedModel(["<tool>eval depth=18", "DONE", "Equal here."]),
+                     ToolExecutor(Game(), None))
+    out = loop.respond([], "how am I doing?", thinking="staged")
+    assert "trace" in out and out["reply"]
+    assert [_pc(c)[0] for c in out["tool_calls"]] == ["eval"]
+
+
+def test_coachloop_single_is_default(monkeypatch):
+    monkeypatch.delenv("CHESS_THINKING", raising=False)
+    # single loop: one decision (tool, stop-trimmed) then a plain reply
+    loop = CoachLoop(ScriptedModel(["I'll check.\n<tool>eval depth=18", "Equal here."]),
+                     ToolExecutor(Game(), None))
+    out = loop.respond([], "how am I doing?")
+    assert "trace" not in out                 # single path, unchanged shape
