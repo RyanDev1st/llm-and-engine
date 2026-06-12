@@ -21,6 +21,16 @@ def test_piece_move_san_extracted():
     assert "san=O-O-O" in routing_hints("castle queenside")
 
 
+def test_uci_move_recognised_in_coverage():
+    # live bug: "eval and move d2d4" (UCI) covered only eval -> move never forced
+    c = matched_calls("eval and move d2d4")
+    assert c.get("move") == "<tool>move san=d2d4</tool>" and "eval" in c
+    assert matched_calls("play e2e4")["move"] == "<tool>move san=e2e4</tool>"
+    assert matched_calls("move e7e8q")["move"] == "<tool>move san=e7e8q</tool>"  # promotion
+    # SAN still wins when present
+    assert matched_calls("play Nf3")["move"] == "<tool>move san=Nf3</tool>"
+
+
 def test_ask_what_to_play_hints_best_move_not_move():
     t = _tools("what should I play here?")
     assert t == ["best_move"]

@@ -17,6 +17,9 @@ import re
 # SAN / castling token the user explicitly named (used for the move hint).
 _SAN = re.compile(
     r"\b(O-O-O|O-O|[KQRBN][a-h1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8])\b")
+# UCI coordinate move (e2e4, d2d4, g1f3, e7e8q) — the move tool accepts it as-is. Many
+# users type UCI, so the move hint must recognise it too, not just SAN.
+_UCI = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbnQRBN]?)\b")
 _PLAY = re.compile(r"\b(play|make|do|push|advance|move)\b", re.I)
 _CASTLE = re.compile(r"\bcastl", re.I)
 _QUEENSIDE = re.compile(r"\b(queenside|long)\b", re.I)
@@ -110,7 +113,10 @@ def _move_san(msg: str) -> str:
     if _CASTLE.search(msg):
         return "O-O-O" if _QUEENSIDE.search(msg) else "O-O"
     m = _SAN.search(msg)
-    return m.group(1) if m else ""
+    if m:
+        return m.group(1)
+    u = _UCI.search(msg)         # accept UCI too (e2e4 / d2d4) — the move tool handles it
+    return u.group(1) if u else ""
 
 
 def _move_hint(msg: str) -> tuple[str, str, str] | None:

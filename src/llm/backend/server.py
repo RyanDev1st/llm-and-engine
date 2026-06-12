@@ -51,6 +51,11 @@ APP: App
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 so the SSE stream uses chunked transfer encoding — under the default
+    # HTTP/1.0 (no Content-Length) the browser buffers the whole body until the
+    # connection closes, which made token streaming "snap in" as one block at the end.
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/state":
@@ -122,14 +127,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("cache-control", "no-cache")
+        self.send_header("x-accel-buffering", "no")          # disable proxy buffering
+        self.send_header("transfer-encoding", "chunked")     # incremental framing for the browser
         self.end_headers()
         saw_token = [False]
 
         def emit(ev: dict) -> None:
             if ev.get("type") == "token":
                 saw_token[0] = True
+            payload = b"data: " + json.dumps(ev).encode("utf-8") + b"\n\n"
             try:
-                self.wfile.write(b"data: " + json.dumps(ev).encode("utf-8") + b"\n\n")
+                # one HTTP chunk per event: <hex length>CRLF <payload> CRLF — the browser
+                # renders each as it arrives instead of waiting for connection close.
+                self.wfile.write(f"{len(payload):X}\r\n".encode() + payload + b"\r\n")
                 self.wfile.flush()
             except Exception:
                 pass  # client disconnected; let the turn finish server-side
@@ -146,6 +156,11 @@ class Handler(BaseHTTPRequestHandler):
             emit({"type": "done", "ok": True, **result})
         except Exception as exc:  # already streaming -> report via an event, not a 500
             emit({"type": "error", "error": str(exc)})
+        try:
+            self.wfile.write(b"0\r\n\r\n")                    # terminating chunk
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def _read(self) -> dict:
         n = int(self.headers.get("content-length", "0"))
