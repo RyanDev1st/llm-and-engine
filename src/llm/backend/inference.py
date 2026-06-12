@@ -121,6 +121,13 @@ def narrate_tool_result(tool_result: str) -> str:
     return text or "I ran the chess tool, but it did not return a readable result."
 
 
+def _only_context(tool_calls: list[str]) -> bool:
+    """The turn ran ONLY context-loading (load_skill) or nothing — no fact/board tool.
+    Such a turn still owes the user a real answer; it's the gate for the answer-retry and
+    the self-verification step (both fire only here, so normal/fact turns never pay)."""
+    return (not tool_calls) or all("load_skill" in c for c in tool_calls)
+
+
 def _fallback_reply(tool_calls: list[str], tool_results: list[str]) -> str:
     """When the model gives an empty/leaked final reply, narrate the last FACT
     result. Skip load_skill bodies (a skill's markdown is not a user-facing fact)."""
@@ -328,6 +335,11 @@ def extract_call(decision: str) -> str | None:
     # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
     # <tool>. Map it so those calls execute instead of leaking into the reply.
     s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
+    # The model sometimes wraps load_skill in a <skill> tag it NEVER saw in training (0
+    # of the corpus uses it) — the prompt is saturated with the word "skill" (AVAILABLE
+    # SKILLS, load_skill, "skill's body"), so the small model fabricates the wrapper. The
+    # contract is <tool>; map it so the call EXECUTES instead of leaking as the reply.
+    s = s.replace("<skill>", "<tool>").replace("</skill>", "</tool>")
     # Some variants emit a channel-token form, e.g. "<|tool_call>call:board_state fields=all"
     # (seen live). Strip the <|...|> channel tokens and a leading "call:" so the bare-name /
     # malformed recovery below can canonicalize it instead of it leaking as the reply.
@@ -401,8 +413,7 @@ class CoachLoop:
         not left as a dead turn. Only fires when the turn produced context-only (skill
         loads or nothing) — never when a fact tool ran (that has a grounded fallback).
         Returns the answer, or '' if the retry still whiffs / leaks a tool call."""
-        only_context = (not tool_calls) or all("load_skill" in c for c in tool_calls)
-        if not only_context:
+        if not _only_context(tool_calls):
             return ""
         convo.append({"role": "user", "content":
                       "Now answer my question directly in plain text using what you loaded. "
@@ -414,6 +425,48 @@ class CoachLoop:
         if not forced or contains_tool_call(forced) or _is_leadin_only(forced):
             return ""
         return forced
+
+    @staticmethod
+    def _verify_fulfilled(convo: list[dict], gen_quiet, user_message: str, draft: str) -> str | None:
+        """Design B — the robust self-verification step. After a context-only (skill-load)
+        turn produces a final reply, ask the model whether that draft actually DID what the
+        user asked, or merely loaded context / asked back ("skill loaded, what would you
+        like?"). If it deflected, the model returns the ONE next tool to call to fulfil the
+        request (we execute it and the loop continues); if it genuinely answered, returns
+        None. Model-driven (not keyword matching) so it generalizes to any phrasing/skill.
+        Runs QUIET (no token streaming) — the verdict is scaffolding, not user-facing. The
+        caller gates this to skill-load-without-fact turns and to a single pass."""
+        convo.append({"role": "user", "content":
+            f'Self-check before you reply. The user asked: "{user_message}". Your draft '
+            f'reply is: "{draft}". Did you actually DO what they asked, or did you only load '
+            "a skill / ask them what they want? If you fully answered, reply with the single "
+            "word DONE. If not, output the ONE next tool call that fulfils the request now "
+            "(e.g. <tool>best_move depth=18</tool>)."})
+        try:
+            verdict = gen_quiet(96, ["</tool>", "</tool_code>"])
+        finally:
+            convo.pop()  # scaffolding; never persisted
+        return extract_call(verdict)  # next tool to continue with, or None (DONE/fulfilled)
+
+    def _finalize(self, reply: str, required: dict, tool_calls: list[str],
+                  tool_results: list[str], new_turns: list[dict], ctx_stats) -> dict:
+        """Apply the output guards (strip skill/tool announce, fix a fabricated eval number
+        then a fabricated move list, append any required fact still missing) and build the
+        return payload. Shared by every final-reply path so the guards never diverge."""
+        reply = _strip_announce_leadin(reply)
+        reply = _correct_eval_number(reply, tool_results)
+        reply = _correct_move_names(reply, tool_results)
+        reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
+        new_turns.append({"role": "assistant", "content": reply})
+        return {
+            "reply": reply,
+            "tool_call": tool_calls[-1] if tool_calls else None,
+            "tool_result": tool_results[-1] if tool_results else None,
+            "tool_calls": tool_calls,
+            "tool_results": tool_results,
+            "turns": new_turns,
+            "context": ctx_stats.as_payload(),
+        }
 
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
                 on_event=None) -> dict:
@@ -463,6 +516,12 @@ class CoachLoop:
                                            on_token=lambda t: on_event({"type": "token", "text": t})).strip()
             return self.model.generate(convo, mx, stop).strip()
 
+        def gen_quiet(mx: int, stop: list[str]) -> str:
+            # never streams: internal scaffolding (answer-retry, self-verify) whose tokens
+            # must NOT leak into the user's chat bubble.
+            return self.model.generate(convo, mx, stop).strip()
+
+        verified = False   # the self-verify step (Design B) runs at most once per turn
         for _ in range(MAX_TOOL_CALLS):
             raw = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
@@ -481,32 +540,35 @@ class CoachLoop:
                         # with an explicit "answer now" nudge BEFORE falling back to a generic
                         # greeting. This is the "explain chess -> loaded chess-coach skill ->
                         # 'What would you like to look at?'" bug: the skill ate the turn.
-                        reply = self._force_answer(convo, gen, tool_calls) \
+                        reply = self._force_answer(convo, gen_quiet, tool_calls) \
                             or _fallback_reply(tool_calls, tool_results)
-                    # Strip a leading "Loading the X skill." announce sentence (trained out
-                    # of the final reply) BEFORE the grounding guards run on the text.
                     reply = _strip_announce_leadin(reply)
-                    # Number guard FIRST (fix a fabricated eval number -> the real one),
-                    # then answer-coverage (append any required fact still missing). Order
-                    # matters: a corrected number then reads as present, so it isn't doubled.
-                    reply = _correct_eval_number(reply, tool_results)
-                    reply = _correct_move_names(reply, tool_results)
-                    reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
-                    new_turns.append({"role": "assistant", "content": reply})
-                    return {
-                        "reply": reply,
-                        "tool_call": tool_calls[-1] if tool_calls else None,
-                        "tool_result": tool_results[-1] if tool_results else None,
-                        "tool_calls": tool_calls,
-                        "tool_results": tool_results,
-                        "turns": new_turns,
-                        "context": ctx_stats.as_payload(),
-                    }
-                # A required intent is still ungathered: force-route it directly (deterministic
-                # coverage). We don't spend a generation "nudging" the model to call it — on a
-                # small model that retry is usually wasted; the model still does multi-tool on
-                # its own when proactive, and this guarantees the rest without the latency.
-                decision = required[outstanding[0]]
+                    # Design B — robust self-verification: after a context-only (skill-load)
+                    # turn, the reply may be a fluent DEFLECTION ("skill loaded, what would
+                    # you like to do?") that ignores the original request. The whiff guard
+                    # can't catch that (it's not empty). Ask the model to self-check; if it
+                    # didn't fulfil the request, it returns the next tool — execute it and
+                    # let the loop continue (then it narrates the real result). Gated to
+                    # turns that LOADED A SKILL and ran no fact tool (+ one pass) — so plain
+                    # chat (no tools) and fact turns never pay for it.
+                    loaded_skill_only = bool(tool_calls) and _only_context(tool_calls)
+                    if coverage and not verified and loaded_skill_only:
+                        verified = True
+                        nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
+                        if nxt is not None:
+                            decision = nxt           # not fulfilled -> continue with this tool
+                        else:
+                            return self._finalize(reply, required, tool_calls,
+                                                  tool_results, new_turns, ctx_stats)
+                    else:
+                        return self._finalize(reply, required, tool_calls,
+                                              tool_results, new_turns, ctx_stats)
+                    # reached only when verify returned a tool (decision=nxt) -> fall through
+                    # to execute it; the force-route below is for the outstanding case only.
+                else:
+                    # A required intent is still ungathered: force-route it directly
+                    # (deterministic coverage) — no nudge round-trip on a small model.
+                    decision = required[outstanding[0]]
             # Dedup on the call itself, not the full text — a differing lead-in
             # ("Let me check" vs "I'll look") must not let the same call re-run and
             # re-hit the engine. Key = the <tool>…</tool> span.
@@ -536,17 +598,4 @@ class CoachLoop:
             # leaked a tool tag, produced nothing, or stopped on a bare tool-intent lead-in
             # after tools ran — narrate the last fact so the user gets a real answer.
             reply = _fallback_reply(tool_calls, tool_results)
-        reply = _strip_announce_leadin(reply)               # drop a leading skill/tool announce
-        reply = _correct_eval_number(reply, tool_results)   # fix a fabricated eval number first
-        reply = _correct_move_names(reply, tool_results)     # then a fabricated move list
-        reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
-        new_turns.append({"role": "assistant", "content": reply})
-        return {
-            "reply": reply,
-            "tool_call": tool_calls[-1] if tool_calls else None,
-            "tool_result": tool_results[-1] if tool_results else None,
-            "tool_calls": tool_calls,
-            "tool_results": tool_results,
-            "turns": new_turns,
-            "context": ctx_stats.as_payload(),
-        }
+        return self._finalize(reply, required, tool_calls, tool_results, new_turns, ctx_stats)

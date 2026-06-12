@@ -132,6 +132,41 @@ def test_skill_load_then_whiff_falls_back_if_retry_also_whiffs():
     assert out["reply"] == "What would you like to look at on the board?"
 
 
+def test_skill_load_deflection_is_verified_then_fulfilled():
+    # the live bug: "what should I go next?" -> model loads chess-coach -> then DEFLECTS
+    # ("The skill is loaded. What would you like to do?") instead of answering. That reply
+    # isn't empty/lead-in so the whiff guard misses it. Design B self-verify: the model is
+    # asked if it fulfilled the request; it returns the next tool, which runs and is narrated.
+    out = _loop([
+        "<tool>load_skill name=chess-coach",                       # loads context
+        "The skill is loaded. What would you like to do with this position?",  # DEFLECTION
+        "<tool>best_move depth=18",                                # verify -> next tool
+        "e4 is the strongest move here.",                          # narrate the real result
+    ]).respond([], "whats my plan here")
+    assert "best_move" in _names(out)                              # the deflection was repaired
+    assert "What would you like to do" not in out["reply"]         # not the deflection
+    assert "e4" in out["reply"]
+
+
+def test_skill_load_genuine_answer_passes_verification():
+    # if the model DID answer after loading the skill, verification returns DONE and the
+    # answer stands — no spurious extra tool.
+    out = _loop([
+        "<tool>load_skill name=chess-coach",
+        "Develop your pieces and castle early; the center is balanced.",  # a real answer
+        "DONE",                                                            # verify: fulfilled
+    ]).respond([], "whats my plan here")
+    assert _names(out) == ["load_skill"]
+    assert out["reply"].startswith("Develop your pieces")
+
+
+def test_plain_chat_no_tools_is_not_verified():
+    # verify must NOT fire when no tool ran (pure chat) — only on skill-load-without-fact.
+    out = _loop(["Hi! Ask me to read the board or suggest a move."]).respond([], "hello")
+    assert out["tool_calls"] == []
+    assert out["reply"].startswith("Hi!")
+
+
 def test_fact_tool_whiff_keeps_grounded_fallback_not_retry():
     # When a FACT tool ran (not a skill), the grounded fallback narrates the real result;
     # the answer-retry must NOT fire (we have a fact, don't risk a re-gen).

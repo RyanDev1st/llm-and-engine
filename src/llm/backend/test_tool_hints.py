@@ -186,6 +186,16 @@ def test_extract_call_recovers_loading_skill_gerund():
     assert extract_call("load skill name=tactics") == "<tool>load_skill name=tactics</tool>"
 
 
+def test_extract_call_recovers_skill_tag():
+    # live leak: model wrapped the call in a <skill> tag it never saw in training (the
+    # prompt is saturated with the word "skill"). Map it to <tool> so it EXECUTES.
+    assert extract_call("<skill>load_skill name=chess-coach</skill>") == \
+        "<tool>load_skill name=chess-coach</tool>"
+    # lead-in preserved
+    assert extract_call("Let me load that. <skill>load_skill name=opening-advisor</skill>") == \
+        "Let me load that. <tool>load_skill name=opening-advisor</tool>"
+
+
 def test_moves_without_the_word_best_detected():
     # the prefix-probe gap: "5 next moves" / "suggest 5 moves" (no word "best")
     assert matched_tools("suggest 5 next moves and tell me how am I doing") == {"best_move", "eval"}
