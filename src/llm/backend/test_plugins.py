@@ -20,7 +20,10 @@ def test_prompt_start_hook_injects_live_board_only():
     g.move("e4")
     text = plugins.prompt_start({"game": g})
     assert "LIVE BOARD" in text and "last_move=e4" in text and "turn=black" in text
-    assert "no need to call board_state" in text
+    # NEUTRAL context only — must NOT instruct the model whether to call board_state
+    # (that directive overrode the flexible trained model). It's free to call it.
+    assert "no need to call board_state" not in text
+    assert "board_state" not in text
     # progressive disclosure preserved: NO skill body pre-loaded
     assert "ACTIVE SKILL" not in text
 

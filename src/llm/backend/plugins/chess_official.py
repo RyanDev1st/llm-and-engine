@@ -43,12 +43,13 @@ def _board_line(game) -> str:
 
 
 def prompt_start(context: dict) -> str:
-    """Prompt-start hook (Anthropic-style additional-context injection): inject this
-    plugin's live runtime state — the current board — so the model need not call
-    board_state to read it. NOT a skill-body preload; skills load on demand.
-    `context` may carry {"game": <Game>}."""
+    """Prompt-start hook (Anthropic-style additional-context injection): surface this
+    plugin's live runtime state — the current board — as NEUTRAL context. It does NOT
+    tell the model whether to call board_state: the trained model is flexible and calls
+    board_state when it wants; the earlier "no need to call board_state" directive
+    overrode that trained judgment and is removed. Just context, no instruction.
+    NOT a skill-body preload; skills load on demand. `context` may carry {"game": <Game>}."""
     game = context.get("game")
     if game is None:
         return ""
-    return ("LIVE BOARD (current snapshot from the chess-official plugin; no need to "
-            "call board_state to read it): " + _board_line(game))
+    return "LIVE BOARD (current position): " + _board_line(game)
