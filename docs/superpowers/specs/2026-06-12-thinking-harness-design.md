@@ -34,7 +34,7 @@ each stage's context so the model focuses on one decision at a time.
 
 **Goals**
 - Force an explicit, fact-checking decision at each step: *is the goal reached?* → stop and narrate, else route the next tool.
-- Decide *on the fly* when more than one tool is needed (multi-tool emerges from the loop, not upfront planning).
+- Decide *on the fly* when more than one tool is needed, and **guarantee coverage** of compound/multi-part requests via a deterministic `required` set (the loop won't narrate while a detected intent is ungathered).
 - Dedicated, robust stages: each has its own system prompt, one job, scoped inputs.
 - **One model call per step** (perf-safe: never two concurrent/back-to-back model calls for a single tool).
 - Serve-time only. No new training, no corpus changes. Works on the current E2B adapter; benefits E4B later for free.
@@ -53,6 +53,7 @@ each stage's context so the model focuses on one decision at a time.
 | Realization | **Serve-time only**, no retrain. Each stage sees only the context it needs, not the full history. |
 | Stages | **Controller + Narrator.** The Controller fuses verify + route into **one model call per step** — its forced first step is the goal fact-check. The Narrator writes the grounded reply. |
 | Per-step cost | **One model call per step** (not two). Slower per call but safer for GPU load; verify and route share the call. |
+| Multi-tool coverage | A deterministic `required = matched_tools(message)` set. The loop refuses `DONE` while a required tool is outstanding and force-routes it; the Controller may gather more, never less. `required` is a floor (empty → trust the Controller). |
 | Control format | **C (hybrid):** the Controller emits a `<tool>NAME args</tool>` call (reuse `extract_call`/`parse_call`) or the single keyword `DONE`; the Narrator emits plain text. |
 | Web toggles | A **thinking-mode toggle** (staged on/off) and a **compare toggle** (same prompt through staged + single, side by side). |
 | Rollout | Env toggle `CHESS_THINKING=staged|single`, **default `single`** (proven) until live-validated, then flip. Web toggles override per request. |
@@ -64,74 +65,87 @@ otherwise the existing single-prompt loop runs unchanged.
 
 ```
 respond(history, user_message):
-  goal  = user_message            # the request to satisfy this turn
-  facts = []                      # tool results gathered THIS turn (compact)
+  goal     = user_message                  # the request to satisfy this turn
+  required = matched_tools(user_message)    # deterministic coverage set, e.g. {best_move, eval}; may be empty
+  facts    = []                             # tool results gathered THIS turn (compact)
+  seen     = set()                          # tools already run this turn
   for step in 1..MAX_STEPS(10):
-     action = CONTROLLER(goal, facts_summary, board_facts, tools+hints)   # ONE model call: verify-then-route
-     if action is DONE: break                       # goal fact-checked as satisfied -> narrate
-     if action.tool seen before (dedup): break      # repeated tool -> stop, narrate what we have
-     facts.append(execute(action.tool))             # deterministic; extract_call recovery reused
+     outstanding = [t for t in required if t not in seen]   # required facts not yet gathered
+     action = CONTROLLER(goal, facts_summary, board_facts, tools+hints, outstanding)   # ONE model call
+     if action is DONE or action.tool in seen:
+         if not outstanding: break          # fully covered (or nothing new to add) -> narrate
+         action = force_tool(outstanding[0]) # backstop: gather a required-but-missing fact deterministically
+     facts.append(execute(action.tool)); seen.add(action.tool)
   return NARRATOR(goal, facts_summary)                               # dedicated prompt #2
 ```
 
-Flow (three exits to the Narrator: `DONE`, dedup, or the MAX_STEPS cap):
+Flow:
 
 ```
  user message
-      |
-      v
- goal = user_message ;  facts = []
-      |
-      v
+   |
+   v
+ goal = message
+ required = matched_tools(message)      # deterministic coverage set, e.g. {best_move, eval}
+ facts = [] ;  seen = {}
+   |
+   v
  step = 1
-      |
-      v
-+=============================================+
-|  CONTROLLER   (ONE model call)              |   <- dedicated prompt #1
-|  sees: goal + facts_summary + board facts   |
-|        + tool/skill manifest + hints        |
-|  FORCED first: is the goal already reached? |
-|  emits:   DONE    |    <tool>NAME args</tool>|
-+=============================================+
-      |
-      v
-   parse action
-      |
-      +-------------------< DONE? >----------------- yes --+
-      | no                                                 |
-      v                                                    |
-  < tool already run this turn? >------- yes ------------->|   (dedup: stop)
-      | no                                                 |
-      v                                                    |
-  execute(tool)  ->  append result to facts                |
-      |                                                    |
-      v                                                    |
-  < step >= MAX_STEPS (10)? >----------- yes ------------->|   (cap: stop)
-      | no                                                 |
-      v                                                    |
-   step = step + 1                                         |
-      |                                                    |
-      +-----------> back to CONTROLLER (loop)              |
-                                                           |
-      +----------------------------------------------------+
-      v
-+=============================================+
-|  NARRATOR   (ONE model call)                |   <- dedicated prompt #2
-|  sees: goal + facts_summary   (no tools)    |
-|  emits: grounded reply (+ guiding question) |
-|  backstop: empty/leak -> fallback narrate   |
-+=============================================+
-      |
-      v
-  reply to user
+   |
+   v
+ outstanding = required - seen          # required facts not yet gathered
+   |
+   v
++==================================================+
+|  CONTROLLER  (ONE model call)                    |  <- dedicated prompt #1
+|  sees: goal + facts_summary + board facts        |
+|        + tool/skill manifest + hints             |
+|        + OUTSTANDING (required, not yet gathered) |
+|  rule: DONE only when EVERY part is covered      |
+|  emits:   <tool>NAME args</tool>   |   DONE       |
++==================================================+
+   |
+   v
+< DONE,  OR  tool already in seen? >
+   |  yes                         \  no
+   v                               \
+< outstanding empty? >              \
+   |  yes          |  no             v
+   v               v            execute chosen tool
+[NARRATOR]   force outstanding[0]   -> facts, seen
+             (deterministic:        |
+              gather missing fact)  |
+             -> facts, seen         |
+             |                      |
+             +----------+-----------+
+                        v
+                 < step >= MAX_STEPS (10) ? >---- yes ----> [NARRATOR]
+                        |  no
+                        v
+                   step++ ; loop back to CONTROLLER
+
++==================================================+
+|  NARRATOR  (ONE model call)                      |  <- dedicated prompt #2
+|  sees: goal + facts_summary  (no tools)          |
+|  emits: grounded reply (+ guiding question)      |
+|  backstop: empty/leak -> fallback narrate        |
++==================================================+
+   |
+   v
+ reply to user
 ```
 
 - **The fact-check is forced and free of an extra call:** every step the Controller
-  must first answer "is the goal already satisfied by the facts?" — `DONE` if yes,
-  otherwise it routes the next tool. The goal-check is the `DONE` decision; it costs
-  no separate inference.
-- **Multi-tool on the fly:** if the goal isn't met, the Controller routes the next
-  tool it judges is missing; the loop repeats. The chain grows only as needed.
+  must first answer "is the goal already satisfied?" — `DONE` if yes, else it routes
+  the next tool. The goal-check is the `DONE` decision; no separate inference.
+- **Guaranteed multi-tool coverage:** `required = matched_tools(message)` is the set of
+  tools the deterministic hint layer maps the request to (it already detects multiple
+  intents, e.g. "best move **and** evaluation" → `{best_move, eval}`). The loop refuses
+  to narrate while any required tool is `outstanding` — a premature `DONE` (or a
+  duplicate) force-routes the missing tool. The Controller may gather *more* than
+  required, never *less*. Compound requests are guaranteed, not hoped for. (`required`
+  is a floor; when the hint layer detects nothing, it is empty and the Controller's
+  `DONE` is trusted — e.g. greetings.)
 - **Separation:** Controller = "are we done, and if not what next"; Narrator = "say
   it, grounded, no routing." Two dedicated prompts, each independently testable.
 
@@ -139,16 +153,18 @@ Flow (three exits to the Narrator: `DONE`, dedup, or the MAX_STEPS cap):
 
 | Stage | Job | Scoped payload (sees) | Emits | Calls |
 |---|---|---|---|---|
-| **Controller** | fact-check the goal, then route if needed | goal · `facts_summary` · cheap board facts (turn / legal-count / last-move / check) · tool+skill manifest · deterministic hints | `<tool>…</tool>` **or** `DONE` | 1 per step |
+| **Controller** | fact-check the goal, then route if needed | goal · `facts_summary` · cheap board facts (turn / legal-count / last-move / check) · tool+skill manifest · deterministic hints · `outstanding` (required tools not yet gathered) | `<tool>…</tool>` **or** `DONE` | 1 per step |
 | **Narrator** | write the grounded user reply | goal · `facts_summary` (compact) | plain text (+ guiding question) | 1 per turn |
 
 ### Dedicated system prompts (terse, one job each)
 
-- **Controller:** "You are the controller. FIRST decide: is the user's goal already
-  satisfied by the facts gathered so far? If yes, output EXACTLY `DONE`. If not,
-  output the single next `<tool>NAME arg=value</tool>` that gets the missing fact or
-  performs the action. Call only listed tools while their applies_when holds. Output
-  ONLY `DONE` or one tool call — never narrate."
+- **Controller:** "You are the controller. FIRST decide: is EVERY part of the user's
+  goal satisfied by the facts gathered so far? If yes, output EXACTLY `DONE`. If not
+  (including any still-needed facts listed under OUTSTANDING), output the single next
+  `<tool>NAME arg=value</tool>` that gets a missing fact or performs the action. Call
+  only listed tools while their applies_when holds. Output ONLY `DONE` or one tool
+  call — never narrate." (OUTSTANDING is injected when the deterministic coverage set
+  has ungathered tools.)
 - **Narrator:** "You are the narrator. Using ONLY the gathered facts, write a short
   grounded reply (if there are no facts, answer the user directly or decline if
   out-of-scope). Never invent numbers (positive score = white better). End a coaching
@@ -182,9 +198,10 @@ minimal header (no tool manifest — it cannot route).
 | Condition | Behavior |
 |---|---|
 | `MAX_STEPS` (10) exceeded | force the Narrator on the facts gathered so far |
-| Controller output is neither a tool nor `DONE` | `extract_call` recovery first; if a tool is recovered, run it; else treat as `DONE` (stop + narrate) |
-| Controller routes a tool already run this turn (dedup) | break to Narrator |
-| First step is `DONE` with no facts (greeting / out-of-scope) | Narrator replies from the goal alone |
+| Controller output is neither a tool nor `DONE` | `extract_call` recovery first; if a tool is recovered, run it; else treat as `DONE` (then: outstanding → force-route it, else narrate) |
+| `DONE` or a duplicate tool **while a required tool is outstanding** | do NOT stop — `force_tool(outstanding[0])` gathers the missing required fact deterministically |
+| `DONE` or a duplicate tool with **nothing outstanding** | stop → Narrator |
+| First step is `DONE` with no facts and empty `required` (greeting / out-of-scope) | Narrator replies from the goal alone |
 | Narrator empty or leaks a tag | existing `_fallback_reply` / `narrate_tool_result` backstop |
 | game over | Controller gets the game-over hint and returns `DONE` fast (no analysis) |
 
@@ -212,8 +229,14 @@ src/llm/backend/thinking/
   __init__.py
   prompts.py   CONTROLLER / NARRATOR system prompts + scoped-payload builders
   parse.py     parse_controller (reuses extract_call) -> tool action or DONE
-  loop.py      StagedLoop — orchestrates controller→execute→…→narrate with caps/fallbacks + trace
+  loop.py      StagedLoop — orchestrates controller→execute→…→narrate; coverage set, caps, fallbacks, trace
 ```
+
+Supporting change in `tool_hints.py`: factor out `matched_tools(message) -> set[str]`
+(the tool names the routing triggers match) so it feeds both the existing hint string
+and the coverage `required` set — one source of truth, no duplicate regexes. `StagedLoop`
+also needs a small `force_tool(name)` that builds a default call for a required-but-
+missing tool (analysis tools → default depth; `move` → the SAN the hint extracted).
 
 Integration: `CoachLoop.respond` reads the per-request `thinking` flag (defaulting to
 `CHESS_THINKING`); when staged, it delegates the inner loop to `StagedLoop`
@@ -232,13 +255,16 @@ Scripted-model stage tests (extend the `ScriptedModel` pattern in
    Assert the tool ran, loop stopped on DONE, reply returned, no leak, trace recorded.
 2. **Multi-tool on the fly:** Controller→`<tool>eval>`; Controller→`<tool>threats>`;
    Controller→`DONE`; Narrator→reply. Assert both tools ran in order.
-3. **Immediate done (greeting/out-of-scope):** Controller→`DONE` with no facts →
-   Narrator replies, zero tools.
-4. **Malformed Controller:** unparseable output → recovered tool, else DONE (no spin).
-5. **Cap:** Controller always routes → stops at MAX_STEPS, forces Narrator.
-6. **Dedup:** Controller repeats a tool → breaks to Narrator.
-7. **Game over:** finished board → Controller `DONE` fast, no analysis tool.
-8. **Compare path:** `web_app.chat(..., thinking)` and the compare mode return both
+3. **Guaranteed coverage (the key test):** message "best move and the evaluation" →
+   `required={best_move, eval}`. Controller→`<tool>best_move>` then **prematurely**
+   `DONE`; assert the loop force-routes `eval` anyway (both gathered) before narrating.
+4. **Immediate done (greeting/out-of-scope):** empty `required`, Controller→`DONE`
+   with no facts → Narrator replies, zero tools.
+5. **Malformed Controller:** unparseable output → recovered tool, else DONE (no spin).
+6. **Cap:** Controller always routes → stops at MAX_STEPS, forces Narrator.
+7. **Dedup with nothing outstanding:** Controller repeats a tool → stops to Narrator.
+8. **Game over:** finished board → Controller `DONE` fast, no analysis tool.
+9. **Compare path:** `web_app.chat(..., thinking)` and the compare mode return both
    staged and single outputs for the same prompt.
 
 Then a live in-process smoke (real adapter) comparing `single` vs `staged` on a few
