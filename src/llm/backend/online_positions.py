@@ -43,7 +43,7 @@ def fetch_puzzle(game, timeout: float = 6.0) -> str:
         return "note: online puzzle source unavailable, using a local puzzle. " \
                + random_position(game, "puzzle")
     pz = data.get("puzzle", {}) or {}
-    fen = pz.get("fen", "")
+    fen = _puzzle_fen(data)
     if not fen or not game.load_fen(fen):
         from .positions import random_position
         return "note: online puzzle FEN unusable, using a local puzzle. " \
@@ -56,6 +56,29 @@ def fetch_puzzle(game, timeout: float = 6.0) -> str:
     ans = f" answer={answer}" if answer else ""
     return (f"position: lichess puzzle {pid} (rating {rating}, themes: {themes}). "
             f"{side} to move and find the tactic. fen={fen}{ans}")
+
+
+def _puzzle_fen(data: dict) -> str:
+    """The puzzle's starting FEN. /daily ships `puzzle.fen` directly; /next ships only
+    the game PGN + initialPly, so replay the PGN's SAN moves to that ply to reconstruct
+    the position (where the solver is to move). '' if neither path yields a FEN."""
+    pz = data.get("puzzle", {}) or {}
+    fen = pz.get("fen", "")
+    if fen:
+        return fen
+    pgn = (data.get("game", {}) or {}).get("pgn", "")
+    ply = pz.get("initialPly")
+    if not pgn or ply is None:
+        return ""
+    try:
+        board = chess.Board()
+        for i, san in enumerate(pgn.split()):   # Lichess game.pgn = space-separated SAN
+            board.push_san(san)
+            if i == ply:
+                return board.fen()
+    except Exception:  # noqa: BLE001 — malformed PGN -> let the caller fall back
+        return ""
+    return ""
 
 
 def _solution_san(fen: str, solution: list[str]) -> str:

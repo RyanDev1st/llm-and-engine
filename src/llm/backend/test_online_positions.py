@@ -27,6 +27,21 @@ def test_good_payload_loads_board_and_solution(monkeypatch):
     assert "answer=Rc1" in out
 
 
+def test_next_shape_derives_fen_from_pgn(monkeypatch):
+    # /api/puzzle/next ships NO puzzle.fen — only game.pgn + initialPly. The FEN must be
+    # reconstructed by replaying the PGN to that ply (regression: this path used to whiff
+    # and fall back to the local bank).
+    payload = {"game": {"pgn": "e4 e5 Qh5 Nc6 Bc4 Nf6"},
+               "puzzle": {"id": "nx1", "rating": 900, "themes": ["mateIn1"],
+                          "initialPly": 5, "solution": ["h5f7"]}}
+    monkeypatch.setattr(op, "_fetch_puzzle_json", lambda timeout: payload)
+    g = Game()
+    out = op.fetch_puzzle(g)
+    assert "lichess puzzle nx1" in out and "note:" not in out   # used the real puzzle
+    # after 5 plies (e4 e5 Qh5 Nc6 Bc4 Nf6) white plays Qxf7# -> derived FEN makes it legal
+    assert "answer=Qxf7#" in out
+
+
 def test_network_failure_falls_back_to_local_bank(monkeypatch):
     monkeypatch.setattr(op, "_fetch_puzzle_json", lambda timeout: None)
     g = Game()
