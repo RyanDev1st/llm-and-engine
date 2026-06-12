@@ -25,7 +25,7 @@ _QUEENSIDE = re.compile(r"\b(queenside|long)\b", re.I)
 # move/best_move are made mutually exclusive in routing_hints().
 _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
     ("best_move", "find the engine's best move or a hint", "<tool>best_move depth=18</tool>",
-     re.compile(r"\b(best move|what should i play|what do i play|what to play|hint|suggest a move|recommend a move|best line|best continuation|strongest move)\b", re.I)),
+     re.compile(r"\b(best moves?|top \d+ moves?|what should i play|what do i play|what to play|hint|suggest (?:a |some |me )?moves?|recommend (?:a |some )?moves?|best line|best continuation|strongest moves?|candidate moves?)\b", re.I)),
     ("eval", "evaluate who stands better", "<tool>eval depth=18</tool>",
      re.compile(r"\beval\b|\bevaluat\w*|\bassess\w*|\b(who'?s winning|am i winning|am i losing|how am i doing|how'?s my (game|position)|how do i stand|is (this|it) lost|am i better|am i worse)\b", re.I)),
     ("review_move", "review the move just played", "<tool>review_move depth=15</tool>",
@@ -124,11 +124,34 @@ def _match(msg: str) -> list[tuple[str, str, str]]:
     return hits
 
 
+_COUNT = re.compile(r"\b(?:top\s+)?([2-5])\s+(?:next\s+|good\s+|best\s+|candidate\s+)*moves?\b"
+                    r"|\btop\s+([2-5])\b", re.I)
+_WORDNUM = {"two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _move_count(msg: str) -> int | None:
+    """The number of moves the user asked for ("5 next best moves" / "top 3"), 2-5."""
+    m = _COUNT.search(msg)
+    if m:
+        return int(m.group(1) or m.group(2))
+    for word, n in _WORDNUM.items():
+        if re.search(rf"\b{word}\s+(?:next\s+|best\s+|good\s+)*moves?\b", msg, re.I):
+            return n
+    return None
+
+
 def matched_calls(user_message: str) -> dict[str, str]:
     """tool name -> the canonical `<tool>…</tool>` call the user's words map to.
     The deterministic coverage set: every detected intent must be gathered before
-    the staged loop narrates. Pure intent match (game-over handling is the caller's)."""
-    return {tool: call for tool, _phrase, call in _match(user_message or "")}
+    the loop narrates. Pure intent match (game-over handling is the caller's). When
+    the user asked for N best moves, the best_move call carries top=N so the backstop
+    returns that many."""
+    calls = {tool: call for tool, _phrase, call in _match(user_message or "")}
+    if "best_move" in calls:
+        n = _move_count(user_message or "")
+        if n:
+            calls["best_move"] = f"<tool>best_move depth=18 top={n}</tool>"
+    return calls
 
 
 def matched_tools(user_message: str) -> set[str]:

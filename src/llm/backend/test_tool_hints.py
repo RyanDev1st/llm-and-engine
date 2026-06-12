@@ -111,3 +111,14 @@ def test_matched_calls_returns_canonical_calls():
 def test_matched_tools_empty_on_no_intent():
     assert matched_tools("hi there") == set()
     assert matched_calls("") == {}
+
+
+def test_plural_best_moves_detected_with_count():
+    # the screenshot bug: "5 next best moves" must map to best_move (plural), with top=5
+    t = matched_tools("can you eval and give me the 5 next best moves?")
+    assert t == {"eval", "best_move"}
+    assert matched_calls("give me the 5 next best moves")["best_move"] == "<tool>best_move depth=18 top=5</tool>"
+    assert matched_calls("top 3 moves please")["best_move"] == "<tool>best_move depth=18 top=3</tool>"
+    assert matched_calls("show me the five best moves")["best_move"] == "<tool>best_move depth=18 top=5</tool>"
+    # singular still works, no spurious top
+    assert matched_calls("what's the best move?")["best_move"] == "<tool>best_move depth=18</tool>"

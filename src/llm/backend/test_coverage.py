@@ -51,6 +51,18 @@ def test_backstop_force_routes_when_model_ignores_steer():
     assert out["reply"].startswith("Okay, evaluation noted.")  # eval fact appended after
 
 
+def test_plural_best_moves_force_routed_after_eval():
+    # The screenshot: "eval and the 5 next best moves" — model evals then stops to ask.
+    # Coverage must force-route best_move (top=5) so both are gathered.
+    out = _loop([
+        "<tool>eval depth=18",                       # eval gathered
+        "Want me to suggest the top 5 moves?",        # tries to answer; best_move outstanding -> Wait
+        "Sure, here they are.",                        # still no best_move -> backstop force-routes it
+    ]).respond([], "can you eval and give me the 5 next best moves?")
+    assert set(_names(out)) == {"eval", "best_move"}
+    assert any("top=5" in c for c in out["tool_calls"])   # honored the requested count
+
+
 def test_coverage_off_lets_the_model_stop_early():
     out = _loop(["Just play e4."]).respond([], "how am I doing?", coverage=False)
     assert out["tool_calls"] == [] and out["reply"] == "Just play e4."
