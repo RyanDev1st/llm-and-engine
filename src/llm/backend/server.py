@@ -128,19 +128,32 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-type", "text/event-stream")
         self.send_header("cache-control", "no-cache")
         self.send_header("x-accel-buffering", "no")          # disable proxy buffering
+        # nosniff: stop Chromium holding the first ~1KB to sniff the content-type — that
+        # buffer was stalling the stream ~7s before any chunk reached the page's reader.
+        self.send_header("x-content-type-options", "nosniff")
         self.send_header("transfer-encoding", "chunked")     # incremental framing for the browser
         self.end_headers()
         saw_token = [False]
+
+        def _write_chunk(payload: bytes) -> None:
+            # one HTTP chunk: <hex length>CRLF <payload> CRLF — the browser renders each as
+            # it arrives instead of buffering until connection close.
+            self.wfile.write(f"{len(payload):X}\r\n".encode() + payload + b"\r\n")
+            self.wfile.flush()
+
+        # Padding comment FIRST: 2KB of SSE comment (lines starting with ':') pushes past
+        # the browser's sniff buffer so subsequent events are delivered to JS immediately.
+        try:
+            _write_chunk(b": " + (b" " * 2048) + b"\n\n")
+        except Exception:
+            pass
 
         def emit(ev: dict) -> None:
             if ev.get("type") == "token":
                 saw_token[0] = True
             payload = b"data: " + json.dumps(ev).encode("utf-8") + b"\n\n"
             try:
-                # one HTTP chunk per event: <hex length>CRLF <payload> CRLF — the browser
-                # renders each as it arrives instead of waiting for connection close.
-                self.wfile.write(f"{len(payload):X}\r\n".encode() + payload + b"\r\n")
-                self.wfile.flush()
+                _write_chunk(payload)
             except Exception:
                 pass  # client disconnected; let the turn finish server-side
 
