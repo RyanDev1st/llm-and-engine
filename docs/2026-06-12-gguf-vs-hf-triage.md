@@ -77,6 +77,37 @@ deterministic — don't switch back to slow HF over a cosmetic number bug:
 
 Best combo: **GGUF (Q5_K_M) + number-consistency guard** — fast AND grounded.
 
+## Update — fixes shipped + Q5_K_M re-audit
+
+Both planned fixes landed and were live-verified:
+
+- **Number guard** (`fd952c40`): deterministic — replaces a fabricated eval number with
+  the real tool value (conservative: single unmatched number vs single eval source;
+  best_move scores / move SANs never touched). 8 tests.
+- **Q5_K_M re-export** (`bab3127b`, default `20675108`): re-quantized the merged adapter
+  at Q5_K_M (~3.6 GB). Now the serving default; `CHESS_GGUF_PATH` overrides.
+
+**Q5_K_M 6-turn re-audit vs the earlier runs:**
+
+| | HF nf4 | Q4_0 | **Q5_K_M** |
+|---|---|---|---|
+| mean latency | 12.4s | 5.3s | **5.5s** |
+| eval interpretation (T2, eval +0.42) | clean | **"Black is slightly better" ✗ (inverted)** | **"White is slightly better" ✓** |
+| memory recall (T5 "first move?") | failed | failed | **"e4" ✓** |
+| routing / persistence / undo | ✓ | ✓ | ✓ |
+
+Q5_K_M fixed the eval-interpretation inversion **at no speed cost** (still ~2.3× faster
+than HF). Recall improved too (the live board hook surfaces last_move).
+
+**Residual (E2B narration ceiling, not quant):** on a compound best-moves ask the model
+still fabricates the move-**name** list in prose (said d5/Nc6/g6; answer-coverage appended
+the real e5), and embellishes threat rationale. The number guard covers eval numbers, not
+move names; answer-coverage still grounds the key fact beside the drift. The real fix for
+this is reasoning-SFT / E4B (deferred), not quantization.
+
+**Net:** ship **Q5_K_M + number guard + answer-coverage** — fast, eval-grounded, with the
+truth always present. Recommendation from the top of this doc is now implemented.
+
 ## Services running (for your triage)
 
 - `:7861` GGUF model service (GPU, pid was 34504) — holds the weights.
