@@ -1108,10 +1108,9 @@ const ChatUI = (() => {
         await Promise.allSettled([trained, base]);
       } else {
         // Single (product) path: thinking streams into the thinking panel; the reply
-        // streams sentence-by-sentence; swap to the authoritative reply on done.
-        const s = await streamChat(text, waitFT);
-        const res = s.done, finalText = (res && res.reply) || s.streamed || '(no reply)';
-        if (s.replyEl) s.replyEl.textContent = finalText; else appendMsg(ftC, finalText, 'ai', 'ft-msg');
+        // types out via a client-side typewriter (smooth regardless of network delivery).
+        const s = await streamChat(text, waitFT);   // resolves after the reply finishes typing
+        const res = s.done;
         addTimer(ftC, res && res.elapsed_s); addContextMeter(ftC, res && res.context);
         reconcileBoard(res, seqAtSend);
       }
@@ -1128,23 +1127,43 @@ const ChatUI = (() => {
     else if (res && res.state) ChessUI.reconcile(res.state);
   }
 
-  // SSE stream of the single (product) chat. TWO separated streams:
-  //  - `tool` events  -> the THINKING panel (collapsible, shows tool steps as they run)
-  //  - `reply_chunk`  -> the CHAT bubble, revealed sentence-by-sentence
-  // Returns { done, replyEl, streamed } so the caller swaps in the authoritative reply.
+  // A client-side typewriter: reveals `target` text a few chars per frame, so the reply
+  // ALWAYS types out smoothly — even if the whole response lands at once (network/browser
+  // buffering). Decouples the visible animation from how fast bytes actually arrive.
+  function makeTypewriter(el, container) {
+    let target = '', shown = 0, timer = null, onComplete = null;
+    function tick() {
+      if (shown < target.length) {
+        shown = Math.min(target.length, shown + Math.max(2, Math.ceil(target.length / 90)));
+        el.textContent = target.slice(0, shown);
+        if (container) container.scrollTop = container.scrollHeight;
+      } else {
+        clearInterval(timer); timer = null;
+        if (onComplete) { const cb = onComplete; onComplete = null; cb(); }
+      }
+    }
+    const ensure = () => { if (!timer) timer = setInterval(tick, 16); };
+    return {
+      set(txt) { target = txt; ensure(); },                       // grow the target (streaming)
+      finish(txt, cb) {                                            // reveal the rest, then call cb
+        target = txt; onComplete = cb || null;
+        if (shown >= target.length) { if (cb) cb(); } else ensure();
+      },
+    };
+  }
+
+  // SSE stream of the single (product) chat. `tool` events fill the THINKING panel;
+  // `token`/`reply_chunk` feed the CHAT typewriter. Resolves AFTER the reply finishes
+  // typing (so the timer/context render only once the text is fully shown).
   async function streamChat(text, waitFT) {
     const resp = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }) });
     if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
     const reader = resp.body.getReader(), dec = new TextDecoder();
     const container = document.getElementById('msgs-ft');
-    let buf = '', calls = [], results = [], thinkEl = null, done = null, replyEl = null, streamed = '';
-    const showReply = (txt) => {                  // live reply bubble; hide partial tool tags
-      if (!replyEl) replyEl = appendMsg(container, '', 'ai', 'ft-msg');
-      const cut = txt.search(/<\|?/);             // stop at the first tag char ("<" / "<|")
-      replyEl.textContent = cut >= 0 ? txt.slice(0, cut) : txt;
-      container.scrollTop = container.scrollHeight;
-    };
+    let buf = '', calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
+    const clean = (txt) => { const cut = txt.search(/<\|?/); return cut >= 0 ? txt.slice(0, cut) : txt; };
+    const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
     for (;;) {
       const r = await reader.read();
       if (r.done) break;
@@ -1154,20 +1173,20 @@ const ChatUI = (() => {
         const line = buf.slice(0, i); buf = buf.slice(i + 2);
         if (!line.startsWith('data: ')) continue;
         let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
-        if (ev.type === 'token') {                                  // CHAT stream (true tokens)
+        if (ev.type === 'token') {                                  // CHAT stream
           if (waitFT && waitFT.parentNode) waitFT.remove();
-          streamed += ev.text; showReply(streamed);
+          streamed += ev.text; bubble(); tw.set(clean(streamed));
+        } else if (ev.type === 'reply_chunk') {                     // fallback (non-streaming model)
+          if (waitFT && waitFT.parentNode) waitFT.remove();
+          streamed += (streamed ? ' ' : '') + ev.text; bubble(); tw.set(clean(streamed));
         } else if (ev.type === 'tool') {                            // THINKING stream
-          // The tokens just streamed were this tool's decision (lead-in + the call) —
-          // they belong in the thinking panel, not the chat. Clear the provisional bubble.
+          // tokens just streamed were this tool's decision -> belong in the thinking
+          // panel, not the chat. Drop the provisional bubble + typewriter.
           if (replyEl && replyEl.parentNode) replyEl.remove();
-          replyEl = null; streamed = '';
+          replyEl = null; tw = null; streamed = '';
           calls.push(ev.call); results.push(ev.result);
           if (waitFT && waitFT.parentNode) waitFT.remove();
           thinkEl = renderLiveThinking(container, calls, results, thinkEl);
-        } else if (ev.type === 'reply_chunk') {                     // fallback (non-streaming model)
-          if (waitFT && waitFT.parentNode) waitFT.remove();
-          streamed += (streamed ? ' ' : '') + ev.text; showReply(streamed);
         } else if (ev.type === 'done') {
           done = ev;
         } else if (ev.type === 'error') {
@@ -1175,7 +1194,11 @@ const ChatUI = (() => {
         }
       }
     }
-    return { done: done, replyEl: replyEl, streamed: streamed };
+    // Reveal the AUTHORITATIVE final reply (guard-corrected) via the typewriter, then resolve.
+    const finalText = (done && done.reply) || streamed || '(no reply)';
+    if (!replyEl) { if (waitFT && waitFT.parentNode) waitFT.remove(); bubble(); }
+    await new Promise((res) => tw.finish(finalText, res));
+    return { done: done, replyEl: replyEl };
   }
 
   // Maintain a single live "thinking" panel that grows as tool steps stream in.
