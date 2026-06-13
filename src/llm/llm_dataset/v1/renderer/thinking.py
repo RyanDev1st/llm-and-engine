@@ -128,3 +128,20 @@ def gated_fix(seed: int, action: str, *, mode: str) -> str:
 def gated_answer(seed: int, goal: str = "", *, mode: str, enough: bool = True) -> str:
     """Final-step `<think>` (kind='answer', the goal-met self-check): '' only in fast."""
     return think_answer(seed, goal, enough=enough) if _emit(mode, "answer") else ""
+
+
+def think_direct(seed: int) -> str:
+    """`<think>` for answering directly when NO listed skill fits (V1_Q). A clean,
+    natural self-check — not the goal-substituted gated_answer template, which read
+    awkwardly here ('time to answer reply directly … directly')."""
+    r = random.Random(seed * 109 + 3)
+    return "<think>" + r.choice((
+        "no listed skill fits this — answer directly from what I know",
+        "nothing in the skill list matches; just reply directly",
+        "this needs no skill or tool — answer it straight",
+        "none of the available skills apply here, so I'll answer plainly")) + ".</think>"
+
+
+def gated_direct(seed: int, *, mode: str) -> str:
+    """Direct-answer `<think>` (kind='answer'): present in think/auto, '' in fast."""
+    return think_direct(seed) if _emit(mode, "answer") else ""
