@@ -18,7 +18,7 @@ Ship **working software** for reliable **LLM tool use**: tool selection, JSON sc
 
 ### What we train: the agent (LLM harness)
 
-The product is a **chess-coach agent** = an LLM that **routes user intent to tools and narrates tool results** (see `src/llm/llm_training/system_prompt.py`). It does **not** compute chess — the engine/backend does. Goal: train Gemma 4 **E4B** QLoRA on **Kaggle T4** → LoRA adapter → serve **q4_0 GGUF locally on the RTX 4060** (E2B fallback). Active plan files at root: `implementation.md` (the plan, 3 phases) and `handoff.md`.
+The product is a **general agentic HARNESS operator** = an LLM that **chooses among the skills+tools listed in its prompt and thinks to complete a goal in ANY domain**, narrating tool results without computing them. Chess-coach is the **flagship demo domain, one of many** — not the whole product. The contract (`src/llm/llm_training/system_prompt.py`) has TWO verbs, one action per step: **`<skill>NAME</skill>`** loads a listed skill's body into context; **`<tool>NAME args</tool>`** calls a function (there is NO `load_skill` tool). Reasoning runs in 3 modes via a prompt signal: **fast** (no `<think>`), **think** (`<think>` every step), **auto** (`<think>` only on hard decisions — interleaved). Corpus mix is ~75% general / ~25% chess. Goal: train Gemma 4 **E4B** QLoRA via **Unsloth** (anomaly-guarded, seq 1664) on **Colab/Kaggle T4** → LoRA adapter → serve **q4_0 GGUF locally on the RTX 4060** (E2B fallback). Active plan files at root: `implementation.md` and `handoff.md`.
 
 | Path | Purpose |
 | --- | --- |
