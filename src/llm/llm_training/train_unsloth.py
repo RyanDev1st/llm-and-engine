@@ -19,6 +19,7 @@ import contextlib
 import json
 import logging
 import math
+import os
 import re
 from typing import Any
 
@@ -356,7 +357,15 @@ def run_unsloth_training(config: TrainConfig) -> dict:
                        load_in_4bit=config.load_in_4bit, dtype=None)
     if n_gpus > 1:
         load_kwargs["device_map"] = "balanced"
-        print(f"[unsloth] {n_gpus} GPUs -> device_map='balanced' (model-parallel shard, not DDP)", flush=True)
+        # FORCE a real split. Plain balanced piles the whole model on ONE card when it
+        # fits (E4B 4-bit ~10GB < 16GB T4) -> the other GPU stays at 0GB and the single
+        # card OOMs on seq-1664 activations. Capping each GPU's WEIGHT budget below the
+        # model size makes balanced shard it across both, freeing ~9GB/card for
+        # activations. cpu cap allows graceful overflow if a card is tight.
+        cap = os.environ.get("CHESS_GPU_CAP_GIB", "6")
+        load_kwargs["max_memory"] = {i: f"{cap}GiB" for i in range(n_gpus)}
+        load_kwargs["max_memory"]["cpu"] = "24GiB"
+        print(f"[unsloth] {n_gpus} GPUs -> balanced + max_memory {cap}GiB/GPU (force shard, not DDP)", flush=True)
     with _capture_load_warnings() as load_log:
         model, processor = FastModel.from_pretrained(**load_kwargs)
     _print_gpu_mem("after load")
