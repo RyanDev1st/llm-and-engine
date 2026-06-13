@@ -187,10 +187,19 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     from .train_cuda import _materialize
     from .optim_sched import build_optimizer, build_scheduler
 
+    # Multi-GPU (e.g. Kaggle 2xT4): SHARD the model across GPUs (model-parallel) so
+    # E4B @ seq 1664 fits where one 16 GB T4 cannot (forward alone OOMs single-card).
+    # This is device_map="balanced" — NOT DDP, which REPLICATES the model per GPU and
+    # OOMs (memory ddp-not-viable-e2b-t4). On 1 GPU, omit device_map so Unsloth uses
+    # its normal single-device placement.
+    n_gpus = torch.cuda.device_count()
+    load_kwargs = dict(model_name=str(config.model_path), max_seq_length=config.max_seq_len,
+                       load_in_4bit=config.load_in_4bit, dtype=None)
+    if n_gpus > 1:
+        load_kwargs["device_map"] = "balanced"
+        print(f"[unsloth] {n_gpus} GPUs -> device_map='balanced' (model-parallel shard, not DDP)", flush=True)
     with _capture_load_warnings() as load_log:
-        model, processor = FastModel.from_pretrained(
-            model_name=str(config.model_path), max_seq_length=config.max_seq_len,
-            load_in_4bit=config.load_in_4bit, dtype=None)
+        model, processor = FastModel.from_pretrained(**load_kwargs)
     # Guard the documented anomaly: Unsloth re-initializing base k/v on a QAT
     # checkpoint it doesn't fully recognize. Use an Unsloth-published base
     # (unsloth/gemma-3n-E4B-it...) to avoid it; this asserts it didn't happen.
@@ -213,6 +222,11 @@ def run_unsloth_training(config: TrainConfig) -> dict:
         model, r=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=0.0,
         bias="none", random_state=config.seed, finetune_vision_layers=False,
         finetune_language_layers=True, use_gradient_checkpointing="unsloth", **flags)
+    # No KV cache during training (we never generate here) — frees activation memory
+    # at long seq. Gradient checkpointing already implies this, but set it explicitly.
+    for cfg_obj in (getattr(model, "config", None), getattr(getattr(model, "config", None), "text_config", None)):
+        if cfg_obj is not None:
+            cfg_obj.use_cache = False
 
     train_examples = _materialize(config.data_path, config, tokenizer, label="train")
     if not train_examples:
