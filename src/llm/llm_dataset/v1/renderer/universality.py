@@ -8,7 +8,9 @@ from . import tone
 from .chess import _style_prompt
 from .leadins import lead
 from .thinking import gated_answer, gated_fix, gated_think, pick_mode
-from .universality_prompts import BRIDGE_PROMPTS, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS
+from .universality_prompts import (
+    BRIDGE_PROMPTS, NO_SKILL_DIRECT, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS,
+)
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
 
@@ -50,6 +52,15 @@ def render_universality_row(scenario: Scenario) -> dict[str, Any]:
     seed = scenario.seed
     goal = _goal_of(scenario)
     mode = pick_mode(seed)
+    if scenario.slice == "V1_Q_no_skill_direct":
+        # No listed skill fits -> answer directly, NO <skill> and NO <tool>.
+        prompt, answer = NO_SKILL_DIRECT[seed % len(NO_SKILL_DIRECT)]
+        th = gated_answer(seed, "reply directly — no listed skill fits this", mode=mode)
+        messages = [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": f"{th}\n{answer}" if th else answer},
+        ]
+        return _envelope(scenario, messages, mode)
     load_kind = "select" if scenario.slice in _SELECT_SLICES else "routine"
     messages: list[dict[str, str]] = [
         {"role": "user", "content": _user_prompt(scenario)}
@@ -90,6 +101,14 @@ def render_universality_row(scenario: Scenario) -> dict[str, Any]:
     elif scenario.slice == "V1_E_board_grounding":
         messages.append({"role": "assistant", "content": _act(seed, "board_state", 3, "<tool>board_state fields=basic</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": "board_state: turn=white, check=no, legal_count=20"})
+    elif scenario.slice == "V1_I_eval_language":
+        # ground the eval number in a real tool result (was fabricated before).
+        messages.append({"role": "assistant", "content": _act(seed, "eval", 3, "<tool>eval depth=15</tool>", goal, "skill", mode=mode, kind="routine")})
+        messages.append({"role": "tool", "content": "score: +0.12 pawns from white POV, depth=15 (starting position is equal)"})
+    elif scenario.slice == "V1_F_special_chess_rules":
+        # actually read the board before judging the rule (was a "I would call…" deflection).
+        messages.append({"role": "assistant", "content": _act(seed, "board_state", 3, "<tool>board_state fields=all</tool>", goal, "skill", mode=mode, kind="routine")})
+        messages.append({"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=28"})
     ans = gated_answer(seed, goal, mode=mode)
     messages.append({"role": "assistant", "content": f"{ans}\n{_final(scenario)}" if ans else _final(scenario)})
     return _envelope(scenario, messages, mode)
@@ -145,11 +164,16 @@ def _final(scenario: Scenario) -> str:
     if scenario.slice == "V1_J_no_tool_and_mixed_intent":
         return f"{opener} Hi. Ask me to read the board, suggest a move, or explain a chess idea."
     if scenario.slice == "V1_F_special_chess_rules":
-        return f"{opener} I would call board_state before claiming stalemate; rules need exact side-to-move and legal_count."
-    return f"{opener} This fixture keeps final clean while validator rejects paired bad rows."
+        return f"{opener} Board state shows white to move with 28 legal moves and no check, so it's not stalemate — stalemate needs no legal move and no check."
+    if scenario.slice == "V1_L_rejects_and_audit_fixtures":
+        return f"{opener} Control the centre, develop your pieces, and castle early — those habits win more games than memorizing openings."
+    return f"{opener} I read the position and the tools, then answered in plain text without inventing facts."
 
 
 def _rules_for(slice_name: str) -> list[str]:
+    if slice_name == "V1_Q_no_skill_direct":
+        # direct reply, no skill/tool — only the no-XML + known-action gates apply.
+        return ["final_no_xml", "known_tool_only", "args_match_schema"]
     rules = [
         "final_no_xml", "known_tool_only", "args_match_schema",
         "selected_skill_exists", "skill_index_only_before_load", "skill_body_strict",
@@ -157,18 +181,20 @@ def _rules_for(slice_name: str) -> list[str]:
     ]
     if slice_name == "V1_N_human_chat_skill_bridge":
         rules += ["human-chat helper accepted coverage", "multi-skill composition accepted coverage"]
-    if slice_name == "V1_E_board_grounding":
+    if slice_name in ("V1_E_board_grounding", "V1_F_special_chess_rules"):
         rules.append("board_claim_grounded")
     if slice_name == "V1_G_multi_tool_budget":
         rules += ["max_six_tool_calls", "no_exact_duplicate_call"]
     if slice_name == "V1_I_eval_language":
-        rules += ["close_eval_equal_language", "start_position_equal"]
+        rules += ["close_eval_equal_language", "start_position_equal", "narration_grounded"]
     if slice_name == "V1_K_adversarial_injection":
         rules.append("tool_text_is_data")
     return rules
 
 
 def _selected_skills(scenario: Scenario) -> list[str]:
+    if scenario.slice == "V1_Q_no_skill_direct":
+        return []                                  # no skill loaded — that's the lesson
     if scenario.slice == "V1_N_human_chat_skill_bridge":
         return ["hood-human-chat", "chess-coach"]
     return ["chess-coach"]
@@ -192,7 +218,7 @@ def _envelope(scenario: Scenario, messages: list[dict[str, str]], mode: str = "t
         "selected_skills": _selected_skills(scenario),
         "tool_manifest": list(scenario.tool_manifest),
         "expected_tool_calls": expected,
-        "grounding_sources": ["board_state"] if scenario.slice == "V1_E_board_grounding" else [],
+        "grounding_sources": ["board_state"] if scenario.slice in ("V1_E_board_grounding", "V1_F_special_chess_rules") else [],
         "messages": messages,
         "acceptance_rules": _rules_for(scenario.slice),
         "position_fen": scenario.position.fen if scenario.position else None,

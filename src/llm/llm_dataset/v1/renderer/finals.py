@@ -72,7 +72,8 @@ def _threat_body(annotated: AnnotatedPosition, ask_number: bool) -> str:
 
 
 def final_narration(
-    scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None, ask_number: bool
+    scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None, ask_number: bool,
+    kb_answer: str | None = None,
 ) -> str:
     opener = _opener(scenario)
     sep = " " if opener else ""
@@ -96,9 +97,9 @@ def final_narration(
     if sl == "H":
         return ask(f"{opener}{sep}I listed your pieces from the board rather than guessing.", seed, 4)
     if sl == "I":
-        return f"{opener}{sep}It's a sharp counter to 1.e4 that fights for the centre asymmetrically."
+        return f"{opener}{sep}{kb_answer}"
     if sl == "J":
         return f"{opener}{sep}Hi. Ask me to read the board, suggest a move, or explain a chess idea."
     if sl == "K":
-        return f"{opener}{sep}A knight is worth about three pawns in most positions, but context matters more than the number."
+        return f"{opener}{sep}{kb_answer}"
     return f"{opener}{sep}I read the position and the tools, then answered without inventing facts."

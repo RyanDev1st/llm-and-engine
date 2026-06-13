@@ -7,6 +7,7 @@ from ..annotator import AnnotatedPosition, StockfishAnnotator
 from ..board_facts import board_state_line, choose_move, legal_moves_for_square, move_echo
 from ..sampler import Scenario
 from . import tone
+from .chess_kb import KBItem, pick_kb
 from .finals import e_top_form, final_narration, wants_number
 from .leadins import lead
 from .text import score_pawns, score_text
@@ -61,9 +62,12 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     # A legal move to execute for the move-playing slices (A plays a requested
     # move, F plays then reviews). Chosen from the real position so it is legal.
     move = choose_move(annotated.fen, scenario.seed) if (annotated and scenario.slice in {"A", "F"}) else None
-    user = _user_message(scenario, move)
-    goal = SLICE_GOAL.get(scenario.slice, "help with the position")
     seed = scenario.seed
+    # Knowledge slices (I/K) are topic-keyed so the user's QUESTION drives the
+    # answer (and I's ask_chessbot query+result), not a single hardcoded reply.
+    kb = pick_kb(scenario.slice, seed) if scenario.slice in ("I", "K") else None
+    user = _style_prompt(tone.pick(seed, kb.prompts), scenario) if kb else _user_message(scenario, move)
+    goal = SLICE_GOAL.get(scenario.slice, "help with the position")
     mode = pick_mode(seed)
     messages: list[dict[str, str]] = [{"role": "user", "content": user}]
     _emit_skill_load(messages, scenario, goal, mode)
@@ -75,9 +79,9 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
         messages.append({"role": "assistant",
                          "content": _step(seed, "board_state", 2, "<tool>board_state fields=basic</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
-    _emit_slice_tool(messages, scenario, annotated, move, goal, mode)
+    _emit_slice_tool(messages, scenario, annotated, move, goal, mode, kb)
     final = gated_answer(seed, goal, mode=mode)
-    body = final_narration(scenario, annotated, move, wants_number(user))
+    body = final_narration(scenario, annotated, move, wants_number(user), kb.answer if kb else None)
     messages.append({"role": "assistant", "content": f"{final}\n{body}" if final else body})
     return _envelope(scenario, messages, annotated, mode)
 
@@ -123,7 +127,7 @@ def _board_state_text(annotated: AnnotatedPosition | None) -> str:
 
 def _emit_slice_tool(
     messages: list[dict[str, str]], scenario: Scenario, annotated: AnnotatedPosition | None,
-    move: str | None, goal: str = "", mode: str = "think"
+    move: str | None, goal: str = "", mode: str = "think", kb: KBItem | None = None
 ) -> None:
     seed = scenario.seed
     if scenario.slice == "A" and annotated:
@@ -154,9 +158,9 @@ def _emit_slice_tool(
     elif scenario.slice == "H" and annotated:
         messages.append({"role": "assistant", "content": _step(seed, "list_pieces", 3, "<tool>list_pieces color=mine</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": _list_pieces_text(annotated.fen)})
-    elif scenario.slice == "I":
-        messages.append({"role": "assistant", "content": _step(seed, "ask_chessbot", 3, "<tool>ask_chessbot query=sicilian</tool>", goal, "skill", mode=mode, kind="routine")})
-        messages.append({"role": "tool", "content": "Sicilian: Black answers 1.e4 with 1...c5 to fight for d4 asymmetrically."})
+    elif scenario.slice == "I" and kb:
+        messages.append({"role": "assistant", "content": _step(seed, "ask_chessbot", 3, f"<tool>ask_chessbot query={kb.query}</tool>", goal, "skill", mode=mode, kind="routine")})
+        messages.append({"role": "tool", "content": kb.result})
 
 
 def _list_pieces_text(fen: str) -> str:

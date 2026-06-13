@@ -48,6 +48,9 @@ DEFAULT_PLAN: dict[str, int] = {
     "V1_O_cross_domain_skill_routing": 1400,
     # multi-turn dialogue-state (chess-flavored) — ~6% of base
     "V1_P_multiturn_followup": 300,
+    # NO listed skill fits -> answer directly (greeting/meta/off-domain); teaches
+    # that loading a skill is conditional, not reflexive.
+    "V1_Q_no_skill_direct": 180,
 }
 
 

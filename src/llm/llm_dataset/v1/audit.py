@@ -17,7 +17,7 @@ from .validate import validate_row
 # only floor-checked. BASE_UNIVERSAL_TARGET = mean universal base (sum/16) so the
 # scale denominator matches the real plan total.
 CHESS_TARGETS = {"A": 180, "B": 110, "C": 80, "D": 95, "E": 100, "F": 95, "G": 50, "H": 65, "I": 120, "J": 80, "K": 55}
-BASE_UNIVERSAL_TARGET = 262
+BASE_UNIVERSAL_TARGET = 257  # mean of the 17 V1_* base counts (sum 4370 / 17)
 UNIVERSAL_MINIMUM = 60
 RULE_MINIMUMS = {"engine_grounded": 200, "skill_body_strict": 200}
 GENERALIZATION_MINIMUMS = {

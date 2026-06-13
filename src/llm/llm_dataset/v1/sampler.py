@@ -33,6 +33,7 @@ UNIVERSALITY_SLICES = {
     "V1_L_rejects_and_audit_fixtures",
     "V1_M_marketplace_navigation",
     "V1_N_human_chat_skill_bridge",
+    "V1_Q_no_skill_direct",
 }
 
 PROMPT_STYLES = ("formal", "casual", "slang", "typo", "anxious", "beginner")

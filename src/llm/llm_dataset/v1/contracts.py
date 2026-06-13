@@ -18,6 +18,7 @@ SLICES = (
     "V1_N_human_chat_skill_bridge",
     "V1_O_cross_domain_skill_routing",
     "V1_P_multiturn_followup",
+    "V1_Q_no_skill_direct",
 )
 
 FINAL_NO_XML = "final_no_xml"

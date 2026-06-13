@@ -339,14 +339,15 @@ _SYN_TOPICS: tuple[tuple[str, str, str, str], ...] = (
 
 
 # Synthetic tool ARCHETYPES so minted skills don't all call search_kb — the model
-# must route to a genuinely different tool shape (lookup/compute/scan/check), not
-# just a fresh name. (tool, arg, verb) — arg holds the query key.
+# routes to a different tool NAME per skill. All are retrieval/analysis-shaped so
+# the (prose) finding stays coherent with the tool: a "compute_metric" returning
+# "tomatoes pair well" would teach nonsense. (tool, arg, verb) — arg = query key.
 _SYN_TOOLS: tuple[tuple[str, str, str], ...] = (
     ("search_kb", "query", "Pull the specifics with search_kb"),
     ("lookup_ref", "topic", "Look it up with lookup_ref"),
-    ("compute_metric", "expr", "Compute it with compute_metric"),
-    ("scan_input", "target", "Scan it with scan_input"),
-    ("check_rule", "value", "Validate it with check_rule"),
+    ("fetch_context", "subject", "Gather context with fetch_context"),
+    ("analyze_topic", "topic", "Run analyze_topic on it"),
+    ("get_reference", "key", "Pull a reference with get_reference"),
 )
 
 
