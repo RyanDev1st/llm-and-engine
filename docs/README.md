@@ -26,5 +26,6 @@ Root plan files (`implementation.md`, `handoff.md`) live at the repo root, not h
 | [2026-06-12-model-audit.md](2026-06-12-model-audit.md) | Current model behavior audit |
 | [2026-06-12-serve-audit-readiness.md](2026-06-12-serve-audit-readiness.md) | Serve-side readiness audit |
 | [2026-06-12-gguf-vs-hf-triage.md](2026-06-12-gguf-vs-hf-triage.md) | GGUF vs HF serving triage |
+| [2026-06-13-v1.2-random-sample-inspection.md](2026-06-13-v1.2-random-sample-inspection.md) | Truly-random v1.2 train sample (10 rows/slice) for human inspection; regen with `scripts/make_sample_doc.py` |
 
 `screenshots/` holds UI captures referenced by docs.
