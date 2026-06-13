@@ -112,10 +112,10 @@ def skill_hints(user_message: str, skills: list[dict]) -> str:
             hits.append((s["name"], s.get("description", "")))
     if not hits:
         return ""
-    lines = [f"- for this, load the `{name}` skill: <tool>load_skill name={name}</tool>"
+    lines = [f"- for this, load the `{name}` skill: <skill>{name}</skill>"
              f"  ({desc})" for name, desc in hits]
     return ("\n\nSKILL HINT (the user's request matches an installed skill — load it "
-            "first with load_skill, then follow what it tells you):\n" + "\n".join(lines))
+            "first with <skill>name</skill>, then follow what it tells you):\n" + "\n".join(lines))
 
 
 def _move_san(msg: str) -> str:

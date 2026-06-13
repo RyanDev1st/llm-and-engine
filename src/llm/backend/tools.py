@@ -98,14 +98,14 @@ class ToolExecutor:
         plugin_res = plugins.dispatch(name, args, self, self.plugin_context)
         if plugin_res is not None:
             return plugin_res
-        # A skill is NOT a tool. The harness contract is load_skill name=<skill>.
-        # If the model calls a known skill BY NAME as a tool
-        # (<tool>chess-coach</tool>), do NOT silently accept it — that would mask
-        # the protocol violation. Return a corrective error naming the right
-        # call so the loop retries with load_skill (self-correction, enforced).
+        # A skill is NOT a tool. The harness contract loads a skill with the
+        # <skill>NAME</skill> verb. If the model calls a known skill BY NAME as a
+        # tool (<tool>chess-coach</tool>), do NOT silently accept it — that masks
+        # the protocol violation. Return a corrective error naming the right verb
+        # so the loop retries with <skill> (self-correction, enforced).
         plugin_skill_names = {s["name"] for s in plugins.plugin_skills(self.plugin_context)}
         if name in {s.name for s in load_skills()} | plugin_skill_names:
-            return f"error: '{name}' is a skill, not a tool — call load_skill name={name}"
+            return f"error: '{name}' is a skill, not a tool — load it with <skill>{name}</skill>"
         return "error: invalid_syntax"
 
     def _load_skill(self, name: str) -> str:

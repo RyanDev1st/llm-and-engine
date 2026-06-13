@@ -83,13 +83,13 @@ _COACH = {"name": "chess-coach", "description": "analyze a position, choose move
 
 def test_skill_hint_fires_on_a_distinctively_named_skill():
     h = skill_hints("give me a tactical puzzle", [_TACTICS, _COACH])
-    assert "load_skill name=tactical-puzzles" in h
+    assert "<skill>tactical-puzzles</skill>" in h
     assert "chess-coach" not in h            # broad coach name tokens are stoplisted
 
 
 def test_skill_hint_generalizes_to_any_dropped_in_skill():
-    assert "load_skill name=endgame-drills" in skill_hints("let's practice some endgame drills", [_ENDGAME])
-    assert "load_skill name=tactical-puzzles" in skill_hints("got a puzzle for me?", [_TACTICS])  # plural stem
+    assert "<skill>endgame-drills</skill>" in skill_hints("let's practice some endgame drills", [_ENDGAME])
+    assert "<skill>tactical-puzzles</skill>" in skill_hints("got a puzzle for me?", [_TACTICS])  # plural stem
 
 
 def test_skill_hint_silent_on_broad_coach_and_off_topic():
@@ -187,13 +187,16 @@ def test_extract_call_recovers_loading_skill_gerund():
 
 
 def test_extract_call_recovers_skill_tag():
-    # live leak: model wrapped the call in a <skill> tag it never saw in training (the
-    # prompt is saturated with the word "skill"). Map it to <tool> so it EXECUTES.
-    assert extract_call("<skill>load_skill name=chess-coach</skill>") == \
+    # <skill>NAME</skill> is the trained skill-load VERB; the executor loads via the
+    # canonical load_skill tool, so extract_call translates the verb to that form.
+    assert extract_call("<skill>chess-coach</skill>") == \
         "<tool>load_skill name=chess-coach</tool>"
     # lead-in preserved
-    assert extract_call("Let me load that. <skill>load_skill name=opening-advisor</skill>") == \
+    assert extract_call("Let me load that. <skill>opening-advisor</skill>") == \
         "Let me load that. <tool>load_skill name=opening-advisor</tool>"
+    # tolerate a legacy inner "load_skill name=X" the pretrained model might emit
+    assert extract_call("<skill>load_skill name=chess-coach</skill>") == \
+        "<tool>load_skill name=chess-coach</tool>"
 
 
 def test_extract_call_strips_channel_and_brace_junk():

@@ -335,10 +335,18 @@ def extract_call(decision: str) -> str | None:
     # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
     # <tool>. Map it so those calls execute instead of leaking into the reply.
     s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
-    # The model sometimes wraps load_skill in a <skill> tag it NEVER saw in training (0
-    # of the corpus uses it) — the prompt is saturated with the word "skill" (AVAILABLE
-    # SKILLS, load_skill, "skill's body"), so the small model fabricates the wrapper. The
-    # contract is <tool>; map it so the call EXECUTES instead of leaking as the reply.
+    # <skill>NAME</skill> is the trained skill-load VERB. The executor still loads a
+    # skill via the canonical 'load_skill name=NAME' tool, so translate the verb to
+    # that internal form so it EXECUTES. Take the name from a legacy inner
+    # "load_skill name=X" if present, else the first token.
+    def _skill_sub(m: "_re.Match") -> str:
+        inner = m.group(1).strip()
+        mm = _re.search(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)", inner)
+        name = mm.group(1) if mm else (inner.split()[0] if inner else "")
+        return f"<tool>load_skill name={name}</tool>" if name else ""
+    s = _re.sub(r"<skill>(.*?)</skill>", _skill_sub, s, flags=_re.S)
+    s = _re.sub(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)",   # close-tag dropped
+                r"<tool>load_skill name=\1</tool>", s)
     s = s.replace("<skill>", "<tool>").replace("</skill>", "</tool>")
     # Strip model artifacts that pollute the call: channel tokens — ANY <...> containing a
     # pipe, e.g. "<|tool_call>", "<tool_call|>" (both seen live; <tool>/</tool> have no pipe
