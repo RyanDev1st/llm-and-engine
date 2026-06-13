@@ -136,7 +136,9 @@ first wrong cut, corrected on user feedback).
   mirroring `query=`/`fen=`. Wired in BOTH `backend/toolfmt.parse_call` AND
   `llm_dataset/v1/validate._parse_args` (train==serve parse agreement; the gate's per-row
   validation depends on it).
-- **`V1_R_compute_grounding` slice** (`renderer/compute.py`, 374 train rows, plan=30 base):
+- **`V1_R_compute_grounding` slice** (`renderer/compute.py`, **990 train / 105 val**, plan=80
+  base — bumped from 30 after the 2026-06-14 audit: ~28 examples per (3 modes × 12 families)
+  cell, the robust-learning threshold for a 4B; held-out val 94/105 = 89.5% novel prompts):
   **~70% verify-then-claim** (user asks a judgment — "am I averaging above 85?" — model runs
   the script, reads the value, asserts the GROUNDED verdict) + **~30% compute-on-request**
   (raw number). The verify-then-claim shape is box-auditing in miniature → seeds Stage 1/2.
@@ -148,8 +150,12 @@ first wrong cut, corrected on user feedback).
   by the renderer, so a weak coder model substitutes the expression instead of composing code.
 
 **Verified:** sandbox 5/5, compute 9/9 (incl. real-subprocess exec match), my-change dataset
-tests 38/38, full dataset suite 111. **GATE: PASS** (validate_failures 0/75,060, over_seq 0,
+tests 38/38, full dataset suite 111. **GATE: PASS** (validate_failures 0/75,064, over_seq 0,
 all 8 gate fields 0). Serve path executes end-to-end (`output: 12.96`, matches train render).
+Full corpus audit `docs/2026-06-14-v1.2-corpus-audit.md`: 0 TRUE full-example dups, mix
+75/25, fast/think/auto think-ratio 0.000/0.575/0.969 (three distinct behaviors, all modes in
+every slice). Caveat: val is a same-distribution loss probe (~92% prompt overlap, structural) —
+gauge generalization via `eval_routing.py`+serve, NOT val loss (V1_R is the held-out exception).
 
 **The seq number (handoff §8 go/no-go, MEASURED):** a single python-verify chain tokenizes to
 **max 1469** (p99 1450; fast 1357 / think 1444 / auto 1469) vs the 1664 ceiling — Stage 0 fits
@@ -415,8 +421,8 @@ Backend/serve: `src/llm/backend/` (`inference.py` translates `<skill>`→canonic
 ## 8. Immediate next action for the fresh session
 
 **Stage 0 is BUILT, gated, and committed (see §1.5) — the remaining step is to TRAIN it.**
-Run the E4B QLoRA notebook on Kaggle on the current `v1_2` split (train 73,130 / val 1,930,
-now incl. the 374 `V1_R` python-verify rows), pull the adapter, `serve_check` train/serve
+Run the E4B QLoRA notebook on Kaggle on the current `v1_2` split (train 73,049 / val 2,015,
+now incl. the 990 `V1_R` python-verify rows), pull the adapter, `serve_check` train/serve
 base-parity, and measure the ONE thing that gates the whole §2 program + the Colab spend:
 **does E4B reliably call the `python` tool, read its stdout, and narrate THAT value instead of
 fabricating?** (seq is already measured — Stage-0 chain max 1469, fits 1664.)

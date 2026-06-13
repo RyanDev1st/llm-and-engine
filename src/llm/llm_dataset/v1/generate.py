@@ -54,9 +54,11 @@ DEFAULT_PLAN: dict[str, int] = {
     # NO listed skill fits -> answer directly (greeting/meta/off-domain); teaches
     # that loading a skill is conditional, not reflexive.
     "V1_Q_no_skill_direct": 180,
-    # compute-grounding (Stage 0): ground a numeric claim by CALLING the calc tool
-    # instead of computing in-head. Small additive slice (~400 after scaling).
-    "V1_R_compute_grounding": 30,
+    # compute-grounding (Stage 0): verify a claim by RUNNING the python tool and
+    # reading stdout instead of asserting. Base 80 -> ~1000 train rows ≈ 28 per
+    # (3 reasoning modes × ~12 prompt families) cell, the threshold for a 4B to
+    # learn the behavior robustly rather than sample it (audit 2026-06-14).
+    "V1_R_compute_grounding": 80,
 }
 
 
