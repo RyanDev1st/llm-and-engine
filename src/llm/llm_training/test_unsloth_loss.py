@@ -8,7 +8,9 @@ import types
 
 import torch
 
-from llm_training.train_unsloth import _lm_head_holder, _masked_loss, _weighted_ce
+from llm_training.train_unsloth import (
+    _lm_head_holder, _masked_loss, _reinit_base_weights, _weighted_ce,
+)
 
 VOCAB, HID, SEQ = 11, 8, 6
 
@@ -69,3 +71,22 @@ def test_weighted_ce_matches_manual():
     per = torch.nn.functional.cross_entropy(logits, labels, reduction="none")
     expected = (per * w).sum() / w.sum()
     assert torch.allclose(_weighted_ce(logits, labels, w), expected)
+
+
+# --- base re-init guard (the documented Unsloth + QAT-checkpoint anomaly) ---
+
+def test_reinit_flags_base_kv_weights():
+    warn = ("Some weights of Gemma3nForConditionalGeneration were not initialized "
+            "from the model checkpoint and are newly initialized: "
+            "['model.layers.0.self_attn.k_proj.weight', 'model.layers.0.self_attn.v_proj.weight']. "
+            "You should probably TRAIN this model on a down-stream task.")
+    bad = _reinit_base_weights(warn)
+    assert len(bad) == 2 and all("proj" in n for n in bad)
+
+
+def test_reinit_ignores_expected_lora_and_clean_loads():
+    # LoRA/head adapters are SUPPOSED to be created at load — not the anomaly.
+    lora = "newly initialized: ['base_model.model...lora_A.weight', 'classifier.score.weight']"
+    assert _reinit_base_weights(lora) == []
+    # a clean load logs no such warning at all
+    assert _reinit_base_weights("Loading checkpoint shards: 100%") == []

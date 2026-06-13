@@ -15,8 +15,11 @@ module tree is the one integration point a CPU box can't check.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import math
+import re
 from typing import Any
 
 import torch
@@ -30,6 +33,56 @@ _TARGET_FLAGS = {
     "qv": dict(finetune_attention_modules=True, finetune_mlp_modules=False),
     "all-linear": dict(finetune_attention_modules=True, finetune_mlp_modules=True),
 }
+
+# Weight names that are SUPPOSED to be created at load (the LoRA adapters + any
+# fresh head/norm PEFT adds) — these are not the anomaly.
+_OK_REINIT = re.compile(r"lora_|modules_to_save|adapter|\bscore\b", re.IGNORECASE)
+# transformers warns like: "Some weights of X were not initialized ... and are
+# newly initialized: ['...k_proj...', ...]. You should probably TRAIN this model".
+_REINIT_LINE = re.compile(r"newly initialized[:\s]*\[([^\]]*)\]", re.IGNORECASE | re.DOTALL)
+
+
+class BaseReinitError(RuntimeError):
+    """Raised when the loader re-initialized BASE weights (the documented Unsloth
+    + QAT-checkpoint anomaly). Training on a partially-random base produces a
+    useless adapter — fail loud instead of wasting the GPU slot."""
+
+
+def _reinit_base_weights(log_text: str) -> list[str]:
+    """Parse captured load warnings; return BASE weight names that were newly
+    initialized (excludes the expected LoRA/head adapters). Empty == clean load."""
+    bad: list[str] = []
+    for block in _REINIT_LINE.findall(log_text):
+        for name in re.findall(r"['\"]([^'\"]+)['\"]", block):
+            if not _OK_REINIT.search(name):
+                bad.append(name)
+    return bad
+
+
+@contextlib.contextmanager
+def _capture_load_warnings():
+    """Collect transformers' modeling-load warnings (where the 'newly initialized'
+    notice is emitted) so we can assert the base loaded fully."""
+    records: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    handler = _H(level=logging.WARNING)
+    loggers = [logging.getLogger("transformers"), logging.getLogger("transformers.modeling_utils")]
+    prev = [(lg, lg.level, lg.propagate) for lg in loggers]
+    for lg in loggers:
+        lg.addHandler(handler)
+        lg.setLevel(logging.WARNING)
+        lg.propagate = True
+    try:
+        yield records
+    finally:
+        for lg, lvl, prop in prev:
+            lg.removeHandler(handler)
+            lg.setLevel(lvl)
+            lg.propagate = prop
 
 
 def _lm_head_holder(model: Any):
@@ -134,9 +187,20 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     from .train_cuda import _materialize
     from .optim_sched import build_optimizer, build_scheduler
 
-    model, processor = FastModel.from_pretrained(
-        model_name=str(config.model_path), max_seq_length=config.max_seq_len,
-        load_in_4bit=config.load_in_4bit, dtype=None)
+    with _capture_load_warnings() as load_log:
+        model, processor = FastModel.from_pretrained(
+            model_name=str(config.model_path), max_seq_length=config.max_seq_len,
+            load_in_4bit=config.load_in_4bit, dtype=None)
+    # Guard the documented anomaly: Unsloth re-initializing base k/v on a QAT
+    # checkpoint it doesn't fully recognize. Use an Unsloth-published base
+    # (unsloth/gemma-3n-E4B-it...) to avoid it; this asserts it didn't happen.
+    reinit = _reinit_base_weights("\n".join(load_log))
+    if reinit:
+        raise BaseReinitError(
+            f"loader re-initialized {len(reinit)} BASE weights (e.g. {reinit[:4]}). "
+            "Training would start from a partially-random base. Point --model at an "
+            "Unsloth-published base (unsloth/gemma-3n-E4B-it-unsloth-bnb-4bit), not a "
+            "raw QAT checkpoint.")
     # Gemma4 is multimodal -> FastModel returns a PROCESSOR whose patched __call__
     # treats the first positional arg as `images` (text= is keyword-only). Our
     # text-only pipeline calls tokenizer(delta_text, return_offsets_mapping=True),
