@@ -91,6 +91,11 @@ MODES = ("fast", "think", "auto")
 # Step kinds that count as a "hard decision" -> AUTO keeps the <think>.
 # "routine" (forced read, named move, rote fetch) is skipped in AUTO.
 _AUTO_THINK_KINDS = frozenset({"select", "decide", "recover", "answer", "clarify"})
+# Rote chain execution after a plan is already made: NEVER thinks, in ANY mode
+# (even "think"). A budget/multi-tool task reasons once up front, then executes
+# the planned fetches silently — this is the budget lesson and keeps the longest
+# slice under the train seq ceiling. Distinct from "routine" (skipped only in AUTO).
+_NEVER_THINK_KINDS = frozenset({"execute"})
 
 
 def pick_mode(seed: int) -> str:
@@ -100,6 +105,8 @@ def pick_mode(seed: int) -> str:
 
 
 def _emit(mode: str, kind: str) -> bool:
+    if kind in _NEVER_THINK_KINDS:
+        return False                   # rote chain execution: silent in every mode
     if mode == "fast":
         return False
     if mode == "think":

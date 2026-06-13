@@ -92,10 +92,15 @@ def render_universality_row(scenario: Scenario) -> dict[str, Any]:
         "content": "Use board tools before board claims. Read manifest names before calling tools.",
     })
     if scenario.slice == "V1_G_multi_tool_budget":
+        # A budget task plans the chain ONCE, then executes rote engine fetches.
+        # So only the first call is a decision step (gets <think> in auto/think);
+        # the rest are "execute" (no per-step <think>) — this is the budget lesson
+        # AND keeps the longest slice under the train seq ceiling. See _act kind.
         for offset, (call, result) in enumerate(_multi_chain()):
             name = _TOOL.findall(call)[0]
             have = "board" if offset else "skill"
-            messages.append({"role": "assistant", "content": _act(seed, name, 3 + offset, call, goal, have, mode=mode, kind="routine")})
+            kind = "decide" if offset == 0 else "execute"
+            messages.append({"role": "assistant", "content": _act(seed, name, 3 + offset, call, goal, have, mode=mode, kind=kind)})
             messages.append({"role": "tool", "content": result})
     elif scenario.slice == "V1_H_error_recovery":
         messages.append({"role": "assistant", "content": _act(seed, "eval", 3, "<tool>eval depth=99</tool>", goal, "skill", mode=mode, kind="routine")})
