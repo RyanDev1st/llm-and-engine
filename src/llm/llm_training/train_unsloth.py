@@ -404,6 +404,19 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     for cfg_obj in (getattr(model, "config", None), getattr(getattr(model, "config", None), "text_config", None)):
         if cfg_obj is not None:
             cfg_obj.use_cache = False
+    # CRITICAL for our CUSTOM loop: the base is frozen (only LoRA trains), so the embedding
+    # output doesn't require grad -> torch.utils.checkpoint silently NO-OPS -> every layer's
+    # activation is retained -> ~8GB for batch=1 seq=1664 even on tiny E2B (6.5GB weights)
+    # -> OOM. This is THE line the proven HF path (train_cuda.py) has and this one lacked.
+    # Registering an input-grad hook makes checkpointing actually fire. Also force-enable
+    # HF checkpointing + train mode as belt-and-suspenders (Unsloth's flag alone wasn't
+    # engaging under our manual forward).
+    model.train()
+    model.enable_input_require_grads()
+    try:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    except Exception as exc:
+        print(f"[ckpt] gradient_checkpointing_enable skipped ({exc}) — relying on unsloth flag", flush=True)
 
     train_examples = _materialize(config.data_path, config, tokenizer, label="train")
     if not train_examples:
