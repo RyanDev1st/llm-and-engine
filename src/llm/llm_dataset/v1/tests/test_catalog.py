@@ -11,9 +11,11 @@ def test_official_catalog_has_plugin_provenance():
 
 def test_official_chess_tools_have_applies_when():
     names = {tool["name"] for tool in OFFICIAL_TOOLS}
+    # load_skill is no longer a tool — skills load via the <skill> verb.
     assert {"move", "eval", "best_move", "review_move", "threats",
             "legal_moves", "undo", "list_pieces", "ask_chessbot",
-            "load_skill", "board_state"} <= names
+            "board_state"} <= names
+    assert "load_skill" not in names
     for tool in OFFICIAL_TOOLS:
         assert "applies_when" in tool
 

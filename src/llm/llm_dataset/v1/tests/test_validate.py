@@ -18,7 +18,7 @@ def good_row(**overrides):
         "grounding_sources": ["board_state"],
         "messages": [
             {"role": "user", "content": "What is happening on the board?"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "Use board tools before board claims."},
             {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
             {"role": "tool", "content": "board_state: turn=white, check=no"},
@@ -76,7 +76,7 @@ def test_rejects_review_without_history():
         ],
         messages=[
             {"role": "user", "content": "review my move"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "lesson"},
             {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
             {"role": "tool", "content": "review: e4, label=good, delta=+0.05 pawns, best_was=e4"},
@@ -97,7 +97,7 @@ def test_accepts_review_with_move_history():
         grounding_sources=[],
         messages=[
             {"role": "user", "content": "play e4 then review it"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "lesson"},
             {"role": "assistant", "content": "<tool>move san=e4</tool>"},
             {"role": "tool", "content": "move: success san=e4"},
@@ -121,7 +121,7 @@ def test_accepts_review_with_success_colon_move_history():
         grounding_sources=[],
         messages=[
             {"role": "user", "content": "play e4 then review it"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "lesson"},
             {"role": "assistant", "content": "<tool>move san=e4</tool>"},
             {"role": "tool", "content": "success: e4"},
@@ -141,7 +141,7 @@ def test_accepts_review_with_success_colon_move_history():
         ],
         messages=[
             {"role": "user", "content": "review my move"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "lesson success criteria mention move history"},
             {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
             {"role": "tool", "content": "review: none"},
@@ -170,7 +170,7 @@ def test_rejects_selected_skill_from_uninstalled_plugin():
             {"name": "market-tactics", "description": "Marketplace tactics.", "plugin": "market-tactics", "source": "marketplace_plugin", "enabled": True}
         ],
         selected_skills=["market-tactics"],
-        messages=[{"role": "assistant", "content": "<tool>load_skill name=market-tactics</tool>"}],
+        messages=[{"role": "assistant", "content": "<skill>market-tactics</skill>"}],
     )
     assert "selected_skill_exists" in rules(row)
 
@@ -189,9 +189,9 @@ def test_rejects_helper_tool_before_skill_loaded():
             {"role": "user", "content": "yo what's up, am I cooked?"},
             {"role": "assistant", "content": "<tool>normalize_human_chat text=messy_user_chat</tool>"},
             {"role": "tool", "content": "normalized: chess help needed"},
-            {"role": "assistant", "content": "<tool>load_skill name=hood-human-chat</tool>"},
+            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
             {"role": "tool", "content": "normalize first"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "use board tools before claims"},
             {"role": "assistant", "content": "Need board state first."},
         ],
@@ -210,11 +210,11 @@ def test_rejects_irrelevant_skill_loaded_before_selected_skills():
         plugin_context={"installed": ["chess-official", "user-skills"], "enabled": ["chess-official", "user-skills"]},
         messages=[
             {"role": "user", "content": "need chess help"},
-            {"role": "assistant", "content": "<tool>load_skill name=cooking-helper</tool>"},
+            {"role": "assistant", "content": "<skill>cooking-helper</skill>"},
             {"role": "tool", "content": "recipes only"},
-            {"role": "assistant", "content": "<tool>load_skill name=hood-human-chat</tool>"},
+            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
             {"role": "tool", "content": "normalize vague chat"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "use board tools before claims"},
             {"role": "assistant", "content": "Need board state first."},
         ],
@@ -231,8 +231,8 @@ def test_rejects_selected_helper_skill_from_disabled_plugin():
         ],
         selected_skills=["hood-human-chat", "chess-coach"],
         messages=[
-            {"role": "assistant", "content": "<tool>load_skill name=hood-human-chat</tool>"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "assistant", "content": "Need enabled helper first."},
         ],
     )
@@ -250,9 +250,9 @@ def test_rejects_helper_tool_from_disabled_plugin():
             {"name": "normalize_human_chat", "description": "Normalize chat.", "args": {"text": "required"}, "applies_when": "always", "plugin": "user-skills", "source": "user_skill", "enabled": True}
         ],
         messages=[
-            {"role": "assistant", "content": "<tool>load_skill name=hood-human-chat</tool>"},
+            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
             {"role": "assistant", "content": "<tool>normalize_human_chat text=messy_user_chat</tool>"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "assistant", "content": "Need enabled helper first."},
         ],
     )

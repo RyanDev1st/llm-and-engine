@@ -203,7 +203,7 @@ def _bad_duplicate_tool(messages: list[dict]) -> list[dict]:
 
 def _bad_invalid_arg(messages: list[dict]) -> list[dict]:
     return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>load_skill name=chess-coach extra=bad</tool>"},
+        {"role": "assistant", "content": "<tool>board_state fields=basic extra=bad</tool>"},
         messages[-1],
     ]
 
@@ -224,7 +224,7 @@ def _bad_uninstalled_market_tool(messages: list[dict]) -> list[dict]:
 
 def _bad_absent_skill(messages: list[dict]) -> list[dict]:
     return [
-        {"role": "assistant", "content": "<tool>load_skill name=missing-market-skill</tool>"},
+        {"role": "assistant", "content": "<skill>missing-market-skill</skill>"},
         messages[-1],
     ]
 
@@ -251,7 +251,7 @@ def _bad_helper_tool_before_skill(messages: list[dict]) -> list[dict]:
 def _bad_irrelevant_skill_selected(messages: list[dict]) -> list[dict]:
     return [
         messages[0],
-        {"role": "assistant", "content": "<tool>load_skill name=cooking-helper</tool>"},
+        {"role": "assistant", "content": "<skill>cooking-helper</skill>"},
         *messages[1:],
     ]
 

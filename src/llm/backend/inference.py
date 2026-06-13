@@ -391,9 +391,14 @@ def serving_tool_manifest(plugin_context: dict | None = None) -> list[dict]:
     return official_tools() + plugins.plugin_tools(plugin_context)
 
 
-def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None) -> str:
+def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None,
+                        reasoning_mode: str = "") -> str:
+    # reasoning_mode ("think"|"fast"|"auto") must match what the corpus trained on
+    # (same build_system signal). Default "" keeps current serve behavior until the
+    # toggle is wired to it post-training (reconcile with the StagedLoop then).
     pc = plugin_context or PLUGIN_CONTEXT
-    base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay)
+    base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
+                        reasoning_mode=reasoning_mode)
     from . import plugins  # prompt-start hooks: pre-load always-on plugin context
     hook = plugins.prompt_start({"game": game}, pc)
     return base + (("\n\n" + hook) if hook else "")

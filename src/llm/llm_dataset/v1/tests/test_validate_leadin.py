@@ -33,7 +33,7 @@ def _row(messages):
 
 LEADIN_OK = [
     {"role": "user", "content": "how's my game?"},
-    {"role": "assistant", "content": "Let me load my coaching skill.\n<tool>load_skill name=chess-coach</tool>"},
+    {"role": "assistant", "content": "Let me load my coaching skill.\n<skill>chess-coach</skill>"},
     {"role": "tool", "content": "Ground evaluation in Stockfish output."},
     {"role": "assistant", "content": "First, the position.\n<tool>board_state fields=basic</tool>"},
     {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},
@@ -52,7 +52,7 @@ def test_two_tools_in_one_inference_message_rejected():
     # One tool per inference step: two <tool> in a SINGLE assistant message is invalid.
     msgs = [m.copy() for m in LEADIN_OK]
     msgs[1] = {"role": "assistant",
-               "content": "Two at once.\n<tool>load_skill name=chess-coach</tool>\n<tool>board_state fields=basic</tool>"}
+               "content": "Two at once.\n<skill>chess-coach</skill>\n<tool>board_state fields=basic</tool>"}
     v = validate_row(_row(msgs))
     assert any(x.rule == "one_tool_per_message" for x in v), v
 
@@ -61,9 +61,9 @@ def test_multiple_skills_across_messages_allowed():
     # Many calls across the agentic loop is fine — one per step.
     msgs = [
         {"role": "user", "content": "yo idk how's my game"},
-        {"role": "assistant", "content": "Let me clean up the message.\n<tool>load_skill name=hood-human-chat</tool>"},
+        {"role": "assistant", "content": "Let me clean up the message.\n<skill>hood-human-chat</skill>"},
         {"role": "tool", "content": "Normalize messy chat. Ground in Stockfish output."},
-        {"role": "assistant", "content": "Now the coaching skill.\n<tool>load_skill name=chess-coach</tool>"},
+        {"role": "assistant", "content": "Now the coaching skill.\n<skill>chess-coach</skill>"},
         {"role": "tool", "content": "Use board tools before claims."},
         {"role": "assistant", "content": "The position.\n<tool>board_state fields=basic</tool>"},
         {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},

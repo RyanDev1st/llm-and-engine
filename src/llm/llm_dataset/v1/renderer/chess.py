@@ -10,7 +10,7 @@ from . import tone
 from .finals import e_top_form, final_narration, wants_number
 from .leadins import lead
 from .text import score_pawns, score_text
-from .thinking import think, think_answer
+from .thinking import gated_answer, gated_think, pick_mode
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
 
@@ -25,9 +25,11 @@ SLICE_GOAL = {
 }
 
 
-def _step(seed: int, action: str, i: int, call: str, goal: str, have: str) -> str:
-    """One assistant tool-step: <think> (decide) + lead-in + the tool call."""
-    return f"{think(seed, action, i, goal=goal, have=have)}\n{lead(seed, action, i)}\n{call}"
+def _step(seed: int, action: str, i: int, call: str, goal: str, have: str,
+          *, mode: str, kind: str) -> str:
+    """One assistant tool-step: (mode/kind-gated <think>) + lead-in + the tool call."""
+    th = gated_think(seed, action, i, mode=mode, kind=kind, goal=goal, have=have)
+    return "\n".join(p for p in (th, lead(seed, action, i), call) if p)
 
 SLICE_USER_TEMPLATES = {
     "A": ("play {san}", "let's go {san}", "{san} for me", "push {san}"),
@@ -62,21 +64,22 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     user = _user_message(scenario, move)
     goal = SLICE_GOAL.get(scenario.slice, "help with the position")
     seed = scenario.seed
+    mode = pick_mode(seed)
     messages: list[dict[str, str]] = [{"role": "user", "content": user}]
-    _emit_skill_load(messages, scenario, goal)
+    _emit_skill_load(messages, scenario, goal, mode)
     if scenario.slice == "F" and annotated:
         messages.append({"role": "assistant",
-                         "content": _step(seed, "move", 1, f"<tool>move san={move}</tool>", goal, "skill")})
+                         "content": _step(seed, "move", 1, f"<tool>move san={move}</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": move_echo(annotated.fen, move)})
     if scenario.slice in {"A", "B", "C", "D", "E", "F", "G", "H"}:
         messages.append({"role": "assistant",
-                         "content": _step(seed, "board_state", 2, "<tool>board_state fields=basic</tool>", goal, "skill")})
+                         "content": _step(seed, "board_state", 2, "<tool>board_state fields=basic</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
-    _emit_slice_tool(messages, scenario, annotated, move, goal)
-    messages.append({"role": "assistant",
-                     "content": f"{think_answer(seed, goal)}\n"
-                                + final_narration(scenario, annotated, move, wants_number(user))})
-    return _envelope(scenario, messages, annotated)
+    _emit_slice_tool(messages, scenario, annotated, move, goal, mode)
+    final = gated_answer(seed, goal, mode=mode)
+    body = final_narration(scenario, annotated, move, wants_number(user))
+    messages.append({"role": "assistant", "content": f"{final}\n{body}" if final else body})
+    return _envelope(scenario, messages, annotated, mode)
 
 
 def _user_message(scenario: Scenario, move: str | None) -> str:
@@ -103,10 +106,12 @@ def _style_prompt(base: str, scenario: Scenario) -> str:
     return f"I'm new to chess; {base}"
 
 
-def _emit_skill_load(messages: list[dict[str, str]], scenario: Scenario, goal: str = "") -> None:
+def _emit_skill_load(messages: list[dict[str, str]], scenario: Scenario, goal: str = "",
+                     mode: str = "think") -> None:
     messages.append({"role": "assistant",
                      "content": _step(scenario.seed, "load_skill", 0,
-                                      "<tool>load_skill name=chess-coach</tool>", goal, "")})
+                                      "<skill>chess-coach</skill>", goal, "",
+                                      mode=mode, kind="routine")})
     messages.append({"role": "tool", "content": INTERNAL_LESSON})
 
 
@@ -118,39 +123,39 @@ def _board_state_text(annotated: AnnotatedPosition | None) -> str:
 
 def _emit_slice_tool(
     messages: list[dict[str, str]], scenario: Scenario, annotated: AnnotatedPosition | None,
-    move: str | None, goal: str = ""
+    move: str | None, goal: str = "", mode: str = "think"
 ) -> None:
     seed = scenario.seed
     if scenario.slice == "A" and annotated:
-        messages.append({"role": "assistant", "content": _step(seed, "move", 3, f"<tool>move san={move}</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "move", 3, f"<tool>move san={move}</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": move_echo(annotated.fen, move)})
     elif scenario.slice == "B" and annotated:
         sq, sans = legal_moves_for_square(annotated.fen, scenario.seed)
-        messages.append({"role": "assistant", "content": _step(seed, "legal_moves", 3, f"<tool>legal_moves square={sq}</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "legal_moves", 3, f"<tool>legal_moves square={sq}</tool>", goal, "board", mode=mode, kind="decide")})
         messages.append({"role": "tool", "content": f"legal: [{', '.join(sans)}]"})
     elif scenario.slice == "D" and annotated:
-        messages.append({"role": "assistant", "content": _step(seed, "eval", 3, "<tool>eval depth=15</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "eval", 3, "<tool>eval depth=15</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": score_text(annotated)})
     elif scenario.slice == "E" and annotated:
         if e_top_form(scenario, annotated):
-            messages.append({"role": "assistant", "content": _step(seed, "best_move", 3, "<tool>best_move depth=15 top=3</tool>", goal, "board")})
+            messages.append({"role": "assistant", "content": _step(seed, "best_move", 3, "<tool>best_move depth=15 top=3</tool>", goal, "board", mode=mode, kind="routine")})
             messages.append({"role": "tool", "content": _best_moves_result(annotated.top_moves)})
         else:
-            messages.append({"role": "assistant", "content": _step(seed, "best_move", 3, "<tool>best_move depth=15 series=3</tool>", goal, "board")})
+            messages.append({"role": "assistant", "content": _step(seed, "best_move", 3, "<tool>best_move depth=15 series=3</tool>", goal, "board", mode=mode, kind="routine")})
             line = " ".join(annotated.best_line_sans)
             messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
     elif scenario.slice == "F" and annotated:
-        messages.append({"role": "assistant", "content": _step(seed, "review_move", 3, "<tool>review_move depth=12</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "review_move", 3, "<tool>review_move depth=12</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": f"review: {move}, label=good, delta=+0.05 pawns, best_was={annotated.best_san}"})
     elif scenario.slice == "G" and annotated:
         threat = annotated.threats_san or "none"
-        messages.append({"role": "assistant", "content": _step(seed, "threats", 3, "<tool>threats depth=12</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "threats", 3, "<tool>threats depth=12</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": f"threats: opponent's best is {threat}, score for them: {score_pawns(annotated)}"})
     elif scenario.slice == "H" and annotated:
-        messages.append({"role": "assistant", "content": _step(seed, "list_pieces", 3, "<tool>list_pieces color=mine</tool>", goal, "board")})
+        messages.append({"role": "assistant", "content": _step(seed, "list_pieces", 3, "<tool>list_pieces color=mine</tool>", goal, "board", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": _list_pieces_text(annotated.fen)})
     elif scenario.slice == "I":
-        messages.append({"role": "assistant", "content": _step(seed, "ask_chessbot", 3, "<tool>ask_chessbot query=sicilian</tool>", goal, "skill")})
+        messages.append({"role": "assistant", "content": _step(seed, "ask_chessbot", 3, "<tool>ask_chessbot query=sicilian</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": "Sicilian: Black answers 1.e4 with 1...c5 to fight for d4 asymmetrically."})
 
 
@@ -172,7 +177,8 @@ def _list_pieces_text(fen: str) -> str:
 
 
 def _envelope(
-    scenario: Scenario, messages: list[dict[str, str]], annotated: AnnotatedPosition | None
+    scenario: Scenario, messages: list[dict[str, str]], annotated: AnnotatedPosition | None,
+    mode: str = "think"
 ) -> dict[str, Any]:
     expected = [
         name
@@ -184,6 +190,7 @@ def _envelope(
         "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",
         "slice": scenario.slice,
         "kind": "harness_chess",
+        "reasoning_mode": mode,
         "intent": scenario.intent,
         "plugin_context": scenario.plugin_context,
         "skills_index": [dict(s) for s in scenario.skills_index],

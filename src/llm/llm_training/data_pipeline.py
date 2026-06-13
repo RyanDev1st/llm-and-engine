@@ -42,6 +42,7 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
             obj.get("skills_index", []),
             obj.get("tool_manifest", []),
             obj.get("plugin_context", {}),
+            reasoning_mode=obj.get("reasoning_mode", ""),
         )
         body = [m for m in msgs if m.get("role") != "system"]
         records.append([{"role": "system", "content": system}, *body])

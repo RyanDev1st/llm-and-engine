@@ -24,7 +24,7 @@ def _row(fen, san, board_turn="white"):
         "grounding_sources": ["board_state"],
         "messages": [
             {"role": "user", "content": f"play {san}"},
-            {"role": "assistant", "content": "<tool>load_skill name=chess-coach</tool>"},
+            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
             {"role": "tool", "content": "Ground in Stockfish output. score: +0.1"},
             {"role": "assistant", "content": f"<tool>move san={san}</tool>"},
             {"role": "tool", "content": f"success: {san}"},

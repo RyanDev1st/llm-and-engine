@@ -22,7 +22,7 @@ GENERALIZATION_MINIMUMS = {
 }
 GENERIC_FINAL_MAX_SHARE = 0.02
 LOADED_SKILL_DIVERSITY_MIN = 50
-_LOAD_SKILL = re.compile(r"<tool>\s*load_skill\s+name=([^\s<]+)")
+_LOAD_SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
 GENERIC_FINAL_PATTERNS = (
     "i read the index",
     "picked the right skill",

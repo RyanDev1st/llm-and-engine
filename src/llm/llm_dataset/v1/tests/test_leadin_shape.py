@@ -66,8 +66,10 @@ def test_knowledge_and_greeting_finals_stay_statements():
 
 def test_expected_tool_calls_survive_leadin():
     row = _chess_rows("D", 1)[0]
-    assert row["expected_tool_calls"][:2] == ["load_skill", "board_state"]
+    # skills load via <skill> now, so expected_tool_calls is TOOLS only.
+    assert row["expected_tool_calls"][0] == "board_state"
     assert "eval" in row["expected_tool_calls"]
+    assert "<skill>chess-coach</skill>" in "".join(m["content"] for m in row["messages"])
 
 
 def test_universality_action_turns_have_leadin_and_one_tool():

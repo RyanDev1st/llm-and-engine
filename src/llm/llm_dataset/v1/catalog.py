@@ -36,7 +36,6 @@ OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "undo", "description": "Take back the last move.", "args": {}, "applies_when": "has_history"},
     {"name": "list_pieces", "description": "List remaining pieces by color.", "args": {"color": ["white", "black", "mine"]}, "applies_when": "always"},
     {"name": "ask_chessbot", "description": "Answer general chess knowledge from a small KB.", "args": {"query": "required"}, "applies_when": "always"},
-    {"name": "load_skill", "description": "Load the full body of a selected skill.", "args": {"name": "required"}, "applies_when": "always"},
     {"name": "board_state", "description": "Snapshot the hidden live board.", "args": {"fields": ["basic", "all", "fen"]}, "applies_when": "always"},
 ]
 def official_tools() -> list[dict[str, Any]]:

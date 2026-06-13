@@ -78,3 +78,46 @@ def think_answer(seed: int, goal: str = "", *, enough: bool = True) -> str:
     return "<think>" + r.choice(
         (f"already covered {g} earlier — reference it, don't re-run a tool",
          f"nothing new needed for {g}; answer from what's established")) + ".</think>"
+
+
+# --- reasoning MODE gating (fast / think / auto) -----------------------------
+# The model is taught three behaviors via a system-prompt signal, so fast/think
+# is a real toggle (not always-on): THINK = <think> on every reasoning step;
+# FAST = no <think> anywhere (snappy, direct); AUTO = <think> ONLY before a hard
+# decision (routing/selection, recovery, deciding you're done) — interleaved, so
+# the model learns WHEN to think, not just to obey a flag. Same slices appear in
+# all three modes so the SIGNAL, not the slice, drives the behavior.
+MODES = ("fast", "think", "auto")
+# Step kinds that count as a "hard decision" -> AUTO keeps the <think>.
+# "routine" (forced read, named move, rote fetch) is skipped in AUTO.
+_AUTO_THINK_KINDS = frozenset({"select", "decide", "recover", "answer", "clarify"})
+
+
+def pick_mode(seed: int) -> str:
+    """Per-row mode, seeded + independent of slice. ~35% fast / 40% auto / 25% think."""
+    r = (seed * 991 + 7) % 20
+    return "fast" if r < 7 else ("auto" if r < 15 else "think")
+
+
+def _emit(mode: str, kind: str) -> bool:
+    if mode == "fast":
+        return False
+    if mode == "think":
+        return True
+    return kind in _AUTO_THINK_KINDS  # auto
+
+
+def gated_think(seed: int, action: str, step: int, *, mode: str, kind: str,
+                goal: str = "", have: str = "") -> str:
+    """`<think>` for a tool step, gated by mode+kind. '' when suppressed."""
+    return think(seed, action, step, goal=goal, have=have) if _emit(mode, kind) else ""
+
+
+def gated_fix(seed: int, action: str, *, mode: str) -> str:
+    """Self-correction `<think>` (kind='recover'): present in think+auto, '' in fast."""
+    return think_fix(seed, action) if _emit(mode, "recover") else ""
+
+
+def gated_answer(seed: int, goal: str = "", *, mode: str, enough: bool = True) -> str:
+    """Final-step `<think>` (kind='answer', the goal-met self-check): '' only in fast."""
+    return think_answer(seed, goal, enough=enough) if _emit(mode, "answer") else ""

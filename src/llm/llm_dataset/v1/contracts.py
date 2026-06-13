@@ -50,8 +50,10 @@ USER_SKILLS_PLUGIN = "user-skills"
 REAL_TOOL_NAMES = (
     "move", "eval", "best_move", "review_move", "threats",
     "legal_moves", "undo", "list_pieces", "ask_chessbot",
-    "load_skill", "board_state", "normalize_human_chat",
+    "board_state", "normalize_human_chat",
 )
+# Skills are loaded with the <skill>NAME</skill> verb, NOT a load_skill tool.
+SKILL_VERB_OPEN, SKILL_VERB_CLOSE = "<skill>", "</skill>"
 
 RULES = (
     FINAL_NO_XML, KNOWN_TOOL_ONLY, ARGS_MATCH_SCHEMA, MAX_SIX_TOOL_CALLS,
