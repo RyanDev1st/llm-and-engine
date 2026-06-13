@@ -53,12 +53,16 @@ def main() -> None:
     total = torch.cuda.get_device_properties(0).total_memory / 1e9
     print(f"GPU: {name}  ({total:.1f} GB)  | seq={SEQ} targets={TARGETS} rank={RANK}", flush=True)
 
+    # T4 (Turing sm_75) has NO bf16 — use fp16 there or bnb errors / silently misleads.
+    # Match the real Unsloth path (dtype=None auto-picks fp16 on T4) so the probe is honest.
+    dt = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    print(f"compute dtype = {dt} (bf16_supported={torch.cuda.is_bf16_supported()})", flush=True)
     quant = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+        bnb_4bit_compute_dtype=dt, bnb_4bit_use_double_quant=True)
     model = AutoModelForImageTextToText.from_pretrained(
         BASE, local_files_only=True, quantization_config=quant,
-        torch_dtype=torch.bfloat16, device_map={"": 0})
+        torch_dtype=dt, device_map={"": 0})
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.config.use_cache = False
     model = get_peft_model(model, _lora())
