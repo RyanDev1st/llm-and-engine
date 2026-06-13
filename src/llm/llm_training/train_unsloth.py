@@ -158,6 +158,16 @@ def _evaluate(model: Any, batches: list[dict], device: torch.device) -> float:
     return total_loss / total_tok if total_tok else float("nan")
 
 
+def _print_gpu_mem(tag: str) -> None:
+    """Per-GPU allocated/reserved — reveals whether device_map='balanced' actually
+    SPLIT the model or piled it on one card (the OOM-on-GPU1 imbalance)."""
+    if not torch.cuda.is_available():
+        return
+    parts = [f"GPU{i} {torch.cuda.memory_allocated(i)/1e9:.1f}/{torch.cuda.memory_reserved(i)/1e9:.1f}GB"
+             for i in range(torch.cuda.device_count())]
+    print(f"[mem:{tag}] " + "  ".join(parts), flush=True)
+
+
 def _free_multimodal_towers(model) -> None:
     """We train TEXT only, but FastModel loads the full Gemma-4 multimodal stack — the
     vision + audio encoders sit in VRAM unused (~GBs). Detach them so that memory is
@@ -349,6 +359,7 @@ def run_unsloth_training(config: TrainConfig) -> dict:
         print(f"[unsloth] {n_gpus} GPUs -> device_map='balanced' (model-parallel shard, not DDP)", flush=True)
     with _capture_load_warnings() as load_log:
         model, processor = FastModel.from_pretrained(**load_kwargs)
+    _print_gpu_mem("after load")
     # Guard the documented anomaly: Unsloth re-initializing base k/v on a QAT
     # checkpoint it doesn't fully recognize. Use an Unsloth-published base
     # (unsloth/gemma-3n-E4B-it...) to avoid it; this asserts it didn't happen.
@@ -371,6 +382,7 @@ def run_unsloth_training(config: TrainConfig) -> dict:
         _free_multimodal_towers(model)
     except Exception as exc:
         print(f"[mem] tower-free skipped ({exc})", flush=True)
+    _print_gpu_mem("after tower-free")
     flags = _TARGET_FLAGS.get(config.lora_targets, _TARGET_FLAGS["attn-only"])
     model = FastModel.get_peft_model(
         model, r=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=0.0,
