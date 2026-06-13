@@ -143,11 +143,13 @@ def _evaluate(model: Any, batches: list[dict], device: torch.device) -> float:
 
 
 def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_id, config, total_updates) -> tuple:
+    import time
     from .data_pipeline import make_batches
     losses: list[float] = []
     val_history: list[dict] = []
     best_val = float("inf")
     update = epoch = 0
+    _t_prev = time.time()
     while update < total_updates:
         batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle, config.seed + epoch)
         for micro_idx in range(0, len(batches), config.grad_accum_steps):
@@ -166,7 +168,12 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
             scheduler.step()
             update += 1
             losses.append(accum_loss)
-            print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} lr={scheduler.get_last_lr()[0]:.2e}", flush=True)
+            _now = time.time()
+            _dt = _now - _t_prev
+            _t_prev = _now
+            _eta_h = _dt * (total_updates - update) / 3600.0
+            print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} "
+                  f"lr={scheduler.get_last_lr()[0]:.2e} {_dt:.1f}s/step eta~{_eta_h:.1f}h", flush=True)
             if val_batches and update % config.eval_every == 0:
                 vloss = _evaluate(model, val_batches, device)
                 val_history.append({"update": update, "val_loss": vloss})
