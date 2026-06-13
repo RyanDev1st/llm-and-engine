@@ -119,12 +119,28 @@ def _masked_loss(model: Any, batch: dict, labels: torch.Tensor, weights: torch.T
     sel = flat_labels != -100
     if not sel.any():
         return hidden.sum() * 0.0
-    sel_logits = real_head(flat_hidden[sel]).float()
+    sel_hidden = flat_hidden[sel]
     sel_labels = flat_labels[sel]
-    if weights is None:
-        return F.cross_entropy(sel_logits, sel_labels)
-    sel_weights = weights.to(hidden.device)[..., 1:].contiguous().view(-1)[sel]
-    return _weighted_ce(sel_logits, sel_labels, sel_weights)
+    sel_weights = (weights.to(hidden.device)[..., 1:].contiguous().view(-1)[sel]
+                   if weights is not None else None)
+    # Chunk the vocab projection: real_head(sel_hidden) over a 262k vocab in fp32 is a
+    # multi-hundred-MB spike on the GPU that holds lm_head (the one that OOMs under
+    # naive model-parallel). Projecting in row-chunks bounds that peak; result is
+    # identical (weighted sum / total weight).
+    CH = 256
+    tot_loss = sel_hidden.new_zeros(())
+    tot_w = sel_hidden.new_zeros(())
+    for i in range(0, sel_hidden.size(0), CH):
+        logits_i = real_head(sel_hidden[i:i + CH]).float()
+        labels_i = sel_labels[i:i + CH]
+        if sel_weights is None:
+            tot_loss = tot_loss + F.cross_entropy(logits_i, labels_i, reduction="sum")
+            tot_w = tot_w + labels_i.numel()
+        else:
+            w_i = sel_weights[i:i + CH]
+            tot_loss = tot_loss + (F.cross_entropy(logits_i, labels_i, reduction="none") * w_i).sum()
+            tot_w = tot_w + w_i.sum()
+    return tot_loss / tot_w.clamp(min=1.0)
 
 
 @torch.no_grad()
@@ -140,6 +156,52 @@ def _evaluate(model: Any, batches: list[dict], device: torch.device) -> float:
         total_tok += n
     model.train()
     return total_loss / total_tok if total_tok else float("nan")
+
+
+def _free_multimodal_towers(model) -> None:
+    """We train TEXT only, but FastModel loads the full Gemma-4 multimodal stack — the
+    vision + audio encoders sit in VRAM unused (~GBs). Detach them so that memory is
+    reclaimed on BOTH shards. Safe: with no pixel/audio inputs the text forward never
+    enters those branches. Defensive — any failure just leaves them loaded. Also prints
+    the top-level module names so if the towers are named differently we can target them."""
+    import gc
+    targets = ("vision_tower", "audio_tower", "vision_model", "audio_model", "vision",
+               "audio", "multi_modal_projector", "audio_projector", "vision_projector",
+               "embed_vision", "embed_audio")
+    roots = []
+    seen = set()
+    cur = model
+    for _ in range(3):  # model -> .model -> .model.model
+        if cur is None or id(cur) in seen:
+            break
+        seen.add(id(cur))
+        roots.append(cur)
+        cur = getattr(cur, "model", None)
+    freed = []
+    for root in roots:
+        try:
+            names = [n for n, _ in root.named_children()]
+        except Exception:
+            continue
+        for name in names:
+            if name in targets:
+                try:
+                    setattr(root, name, None)
+                    freed.append(f"{type(root).__name__}.{name}")
+                except Exception:
+                    pass
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    print(f"[mem] freed multimodal towers: {freed or 'none found'}", flush=True)
+    # one-time structure hint so we can target exact names if 'none found'
+    try:
+        top = [n for n, _ in model.named_children()]
+        inner = getattr(model, "model", None)
+        sub = [n for n, _ in inner.named_children()] if inner is not None else []
+        print(f"[mem] module tree top={top} inner={sub}", flush=True)
+    except Exception:
+        pass
 
 
 def _flush_mem() -> None:
@@ -304,6 +366,11 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     tokenizer = getattr(processor, "tokenizer", None) or processor
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    # Reclaim the unused vision/audio encoders BEFORE LoRA-wrapping (we train text only).
+    try:
+        _free_multimodal_towers(model)
+    except Exception as exc:
+        print(f"[mem] tower-free skipped ({exc})", flush=True)
     flags = _TARGET_FLAGS.get(config.lora_targets, _TARGET_FLAGS["attn-only"])
     model = FastModel.get_peft_model(
         model, r=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=0.0,
