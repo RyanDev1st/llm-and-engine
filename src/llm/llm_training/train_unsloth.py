@@ -142,50 +142,130 @@ def _evaluate(model: Any, batches: list[dict], device: torch.device) -> float:
     return total_loss / total_tok if total_tok else float("nan")
 
 
-def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_id, config, total_updates) -> tuple:
+def _flush_mem() -> None:
+    """Release cached/garbage GPU memory — called after a heavy save/eval so a long
+    multi-session run doesn't accumulate fragmentation toward an OOM."""
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag="checkpoint") -> None:
+    """Persist adapter + trainer state so a crash / 12h timeout / next session (even a
+    different Kaggle account) can resume. Adapter save is the critical part; optimizer
+    state is best-effort (resume degrades to a warm-start if it can't reload)."""
+    out = config.output_dir / tag
+    out.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(out))                       # adapter weights (critical)
+    state = {"update": update, "epoch": epoch, "best_val": best_val, "seed": config.seed}
+    try:
+        state["optimizer"] = optimizer.state_dict()
+        state["scheduler"] = scheduler.state_dict()
+    except Exception as exc:                              # paged 8-bit state can be odd
+        print(f"  [ckpt] optimizer/scheduler state not saved ({exc}); resume will warm-start", flush=True)
+    torch.save(state, out / "trainer_state.pt")
+    print(f"  [ckpt] saved {tag} @ update {update}", flush=True)
+    _flush_mem()
+
+
+def _load_ckpt(model, optimizer, scheduler, config) -> tuple[int, int, float]:
+    """Resume from output_dir/checkpoint if --resume. Returns (start_update, start_epoch,
+    best_val). Adapter reload FAILURE raises (a multi-day run must NOT silently restart
+    from zero); optimizer reload failure only warm-starts (loud warning)."""
+    if not getattr(config, "resume", False):
+        return 0, 0, float("inf")
+    ckpt = config.output_dir / "checkpoint"
+    state_path = ckpt / "trainer_state.pt"
+    if not state_path.exists():
+        print(f"  [resume] no checkpoint at {ckpt} — starting fresh", flush=True)
+        return 0, 0, float("inf")
+    # adapter weights (critical) — fail loud if the format doesn't load
+    from peft import set_peft_model_state_dict
+    adapter_sd = None
+    for fname in ("adapter_model.safetensors", "adapter_model.bin"):
+        p = ckpt / fname
+        if p.exists():
+            if fname.endswith(".safetensors"):
+                from safetensors.torch import load_file
+                adapter_sd = load_file(str(p))
+            else:
+                adapter_sd = torch.load(str(p), map_location="cpu")
+            break
+    if adapter_sd is None:
+        raise FileNotFoundError(f"[resume] {ckpt} has trainer_state but no adapter weights — refusing to restart from zero")
+    set_peft_model_state_dict(model, adapter_sd)
+    state = torch.load(state_path, map_location="cpu")
+    try:
+        if "optimizer" in state:
+            optimizer.load_state_dict(state["optimizer"])
+        if "scheduler" in state:
+            scheduler.load_state_dict(state["scheduler"])
+    except Exception as exc:
+        print(f"  [resume] optimizer/scheduler not restored ({exc}); warm-starting from saved adapter", flush=True)
+    su, se, bv = state.get("update", 0), state.get("epoch", 0), state.get("best_val", float("inf"))
+    print(f"  [resume] continuing from update {su} (epoch {se}, best_val {bv:.4f})", flush=True)
+    _flush_mem()
+    return su, se, bv
+
+
+def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_id, config,
+          total_updates, start_update=0, start_epoch=0, best_val=float("inf")) -> tuple:
     import time
     from .data_pipeline import make_batches
     losses: list[float] = []
     val_history: list[dict] = []
-    best_val = float("inf")
-    update = epoch = 0
+    update, epoch = start_update, start_epoch
+    save_every = config.save_every or config.eval_every  # crash-safety cadence
     _t_prev = time.time()
-    while update < total_updates:
-        batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle, config.seed + epoch)
-        for micro_idx in range(0, len(batches), config.grad_accum_steps):
-            optimizer.zero_grad()
-            accum_loss = 0.0
-            chunk = batches[micro_idx: micro_idx + config.grad_accum_steps]
-            for raw in chunk:
-                b = {k: v.to(device) for k, v in raw.items()}
-                labels = b.pop("labels")
-                weights = b.pop("weights", None)
-                loss = _masked_loss(model, b, labels, weights) / len(chunk)
-                loss.backward()
-                accum_loss += loss.item()
-            torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)
-            optimizer.step()
-            scheduler.step()
-            update += 1
-            losses.append(accum_loss)
-            _now = time.time()
-            _dt = _now - _t_prev
-            _t_prev = _now
-            _eta_h = _dt * (total_updates - update) / 3600.0
-            print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} "
-                  f"lr={scheduler.get_last_lr()[0]:.2e} {_dt:.1f}s/step eta~{_eta_h:.1f}h", flush=True)
-            if val_batches and update % config.eval_every == 0:
-                vloss = _evaluate(model, val_batches, device)
-                val_history.append({"update": update, "val_loss": vloss})
-                print(f"  val_loss={vloss:.4f}", flush=True)
-                if vloss < best_val:
-                    best_val = vloss
-                    model.save_pretrained(str(config.output_dir / "best"))
-                    print(f"  saved best (val_loss={vloss:.4f})", flush=True)
-            torch.cuda.empty_cache()
-            if update >= total_updates:
-                break
-        epoch += 1
+    try:
+        while update < total_updates:
+            batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle, config.seed + epoch)
+            for micro_idx in range(0, len(batches), config.grad_accum_steps):
+                optimizer.zero_grad()
+                accum_loss = 0.0
+                chunk = batches[micro_idx: micro_idx + config.grad_accum_steps]
+                for raw in chunk:
+                    b = {k: v.to(device) for k, v in raw.items()}
+                    labels = b.pop("labels")
+                    weights = b.pop("weights", None)
+                    loss = _masked_loss(model, b, labels, weights) / len(chunk)
+                    loss.backward()
+                    accum_loss += loss.item()
+                torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)
+                optimizer.step()
+                scheduler.step()
+                update += 1
+                losses.append(accum_loss)
+                _now = time.time()
+                _dt = _now - _t_prev
+                _t_prev = _now
+                _eta_h = _dt * (total_updates - update) / 3600.0
+                print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} "
+                      f"lr={scheduler.get_last_lr()[0]:.2e} {_dt:.1f}s/step eta~{_eta_h:.1f}h", flush=True)
+                if val_batches and update % config.eval_every == 0:
+                    vloss = _evaluate(model, val_batches, device)
+                    val_history.append({"update": update, "val_loss": vloss})
+                    print(f"  val_loss={vloss:.4f}", flush=True)
+                    if vloss < best_val:
+                        best_val = vloss
+                        model.save_pretrained(str(config.output_dir / "best"))
+                        print(f"  saved best (val_loss={vloss:.4f})", flush=True)
+                        _flush_mem()           # release memory once a best is banked
+                if update % save_every == 0:   # crash/timeout-safe resumable checkpoint
+                    _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config)
+                torch.cuda.empty_cache()
+                if update >= total_updates:
+                    break
+            epoch += 1
+    except (KeyboardInterrupt, Exception) as exc:
+        # 12h cutoff / OOM / disconnect: persist progress so the next session resumes.
+        print(f"\n[interrupted: {type(exc).__name__}: {exc}] saving checkpoint before exit...", flush=True)
+        try:
+            _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config)
+        except Exception as save_exc:
+            print(f"[checkpoint-on-exit FAILED: {save_exc}]", flush=True)
+        raise
     return losses, val_history
 
 
@@ -252,8 +332,14 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
     scheduler = build_scheduler(optimizer, warmup, total_updates)
     device = torch.device("cuda:0")
+    # Resume from a prior session's checkpoint (Kaggle 12h ceiling / account switch).
+    start_update, start_epoch, best_val = _load_ckpt(model, optimizer, scheduler, config)
+    if start_update >= total_updates:
+        print(f"[unsloth] already at/over target ({start_update}/{total_updates}); nothing to do. "
+              "Raise --max-steps to train further.", flush=True)
     losses, val_history = _loop(model, train_examples, val_batches, optimizer, scheduler,
-                                device, tokenizer.pad_token_id, config, total_updates)
+                                device, tokenizer.pad_token_id, config, total_updates,
+                                start_update=start_update, start_epoch=start_epoch, best_val=best_val)
 
     model.save_pretrained(str(config.output_dir))
     processor.save_pretrained(str(config.output_dir))

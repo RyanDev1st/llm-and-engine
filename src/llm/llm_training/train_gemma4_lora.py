@@ -43,6 +43,11 @@ class TrainConfig:
     val_path: Path | None = None
     seed: int = 42
     engine: str = "cuda"  # "cuda" = proven HF path; "unsloth" = faster Unsloth engine
+    # Multi-session (Kaggle 12h ceiling): periodically checkpoint adapter+optimizer+step
+    # to output_dir/checkpoint so a crash/timeout/next-session can resume. save_every=0
+    # -> use eval_every. resume=True -> load output_dir/checkpoint and continue.
+    save_every: int = 0
+    resume: bool = False
 
 
 def run_training(config: TrainConfig) -> dict:
