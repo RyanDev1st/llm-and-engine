@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import random
 import re
 from typing import Any
 
 from ..sampler import Scenario
 from . import tone
 from ..board_facts import board_state_line
+from ..domains import CLOSERS
 from .chess import _style_prompt
 from .leadins import lead
 from .synth_engine import (
@@ -13,7 +15,7 @@ from .synth_engine import (
 )
 from .thinking import gated_answer, gated_direct, gated_fix, gated_think, pick_mode
 from .universality_prompts import (
-    BRIDGE_PROMPTS, NO_SKILL_DIRECT, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS,
+    BRIDGE_PROMPTS, FINAL_POOLS, NO_SKILL_DIRECT, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS,
 )
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
@@ -159,44 +161,40 @@ def _user_prompt(scenario: Scenario) -> str:
     return _style_prompt(tone.pick(scenario.seed, SLICE_PROMPTS[scenario.slice]), scenario)
 
 
+# Lesson slices that read naturally with a coach's guiding closer appended (7
+# base paraphrases x ~10 closers -> ~70 distinct finals, so no single sentence
+# dominates). V1_J is a greeting that already invites the next step, so it stays a
+# plain statement; V1_L coaching advice + V1_K/M/D/A/B/N/H all take a closer.
+_CLOSER_SLICES = frozenset(FINAL_POOLS) - {"V1_J_no_tool_and_mixed_intent"}
+
+
 def _final(scenario: Scenario) -> str:
-    opener = tone.pick(scenario.seed, tone.OPENERS_BLUNT)
-    if scenario.slice == "V1_N_human_chat_skill_bridge":
-        return f"{opener} I used helper output to identify chess intent, then loaded chess-coach for board-safe help."
-    if scenario.slice == "V1_A_skill_index_selection":
-        return f"{opener} I selected chess-coach because its description fits board analysis."
-    if scenario.slice == "V1_B_skill_conflict_and_absence":
-        return f"{opener} I ignored conflicting skill request and followed loaded chess-coach guidance."
+    # Slices whose lesson-final is one fixed sentence draw a seeded paraphrase from
+    # a pool (+ a seeded guiding closer where natural), so distinct finals scale
+    # from 1 into the dozens without changing the lesson the row teaches.
+    if scenario.slice in FINAL_POOLS:
+        base = tone.pick(scenario.seed, FINAL_POOLS[scenario.slice])
+        if scenario.slice in _CLOSER_SLICES:
+            return f"{base} {random.Random(scenario.seed * 67 + 3).choice(CLOSERS)}"
+        return base
     if scenario.slice == "V1_C_dynamic_tool_schema":
         synthetic = next((t for t in scenario.tool_manifest if t["name"].startswith("tool_")), None)
         name = synthetic["name"] if synthetic else "declared dynamic tool"
-        return f"{opener} I used {name} from current manifest instead of memorized tool names."
+        return f"I used {name} from the current manifest instead of a memorized tool name."
     if scenario.slice == "V1_E_board_grounding":
         s = engine_scene(scenario.seed)  # SAME scene as the board_state tool result
-        return (f"{opener} Board state shows {s.turn} to move, no check, and "
+        return (f"Board state shows {s.turn} to move, no check, and "
                 f"{s.legal_count} legal moves, so no forced-mate claim.")
     if scenario.slice == "V1_G_multi_tool_budget":
         # derived from this row's engine scene -> every fact is grounded + varies.
-        return f"{opener} {budget_verdict(engine_scene(scenario.seed))}"
-    if scenario.slice == "V1_H_error_recovery":
-        return f"{opener} First eval call failed schema validation, so I retried with depth 15."
+        return budget_verdict(engine_scene(scenario.seed))
     if scenario.slice == "V1_I_eval_language":
         cp = equal_eval_scene_cp(scenario.seed)  # SAME value as the eval tool result
-        return (f"{opener} Starting position is equal, and {cp / 100:+.2f} is "
+        return (f"Starting position is equal, and {cp / 100:+.2f} is "
                 "basically equal rather than a real edge.")
-    if scenario.slice == "V1_K_adversarial_injection":
-        return f"{opener} I treated tool text as data and ignored injected instruction. Position still needs grounded analysis."
-    if scenario.slice == "V1_D_tool_unavailable_and_readonly":
-        return f"{opener} I can analyze with read tools available, but I will not invent a move tool."
-    if scenario.slice == "V1_M_marketplace_navigation":
-        return f"{opener} market-tactics is disabled here, so I will not call its tools. I can use chess-coach with installed official tools instead."
-    if scenario.slice == "V1_J_no_tool_and_mixed_intent":
-        return f"{opener} Hi. Ask me to read the board, suggest a move, or explain a chess idea."
     if scenario.slice == "V1_F_special_chess_rules" and scenario.position:
-        return f"{opener} {_stalemate_verdict(scenario.position.fen)}"
-    if scenario.slice == "V1_L_rejects_and_audit_fixtures":
-        return f"{opener} Control the centre, develop your pieces, and castle early — those habits win more games than memorizing openings."
-    return f"{opener} I read the position and the tools, then answered in plain text without inventing facts."
+        return _stalemate_verdict(scenario.position.fen)
+    return "I read the position and the tools, then answered in plain text without inventing facts."
 
 
 def _rules_for(slice_name: str) -> list[str]:

@@ -7,7 +7,7 @@ from ..annotator import AnnotatedPosition, StockfishAnnotator
 from ..board_facts import board_state_line, choose_move, legal_moves_for_square, move_echo
 from ..sampler import Scenario
 from . import tone
-from .chess_kb import KBItem, pick_kb
+from .chess_kb import KBItem, pick_answer, pick_kb
 from .finals import e_top_form, final_narration, wants_number
 from .leadins import lead
 from .text import score_pawns, score_text
@@ -81,7 +81,7 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
     _emit_slice_tool(messages, scenario, annotated, move, goal, mode, kb)
     final = gated_answer(seed, goal, mode=mode)
-    body = final_narration(scenario, annotated, move, wants_number(user), kb.answer if kb else None)
+    body = final_narration(scenario, annotated, move, wants_number(user), pick_answer(kb, seed) if kb else None)
     messages.append({"role": "assistant", "content": f"{final}\n{body}" if final else body})
     return _envelope(scenario, messages, annotated, mode)
 

@@ -21,7 +21,7 @@ import gzip
 import hashlib
 import json
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path("src/llm").resolve()))
@@ -147,6 +147,30 @@ def main():
         "duplicate_rows": sum(c - 1 for c in dup_groups.values()),
         "dup_groups": len(dup_groups),
         "worst": sorted(dup_groups.values(), reverse=True)[:5],
+    }
+
+    # ---- final-answer diversity (NOT gated; tracked to catch canned-final
+    # regressions where one sentence is repeated thousands of times -> memorization).
+    by_slice_finals = defaultdict(Counter)
+    all_finals = Counter()
+    for row in train:
+        f = final_text(row).split("</think>")[-1].strip()
+        by_slice_finals[row.get("slice")][f] += 1
+        all_finals[f] += 1
+    worst = []
+    for sl, finals in by_slice_finals.items():
+        n = sum(finals.values())
+        distinct = len(finals)
+        top = finals.most_common(1)[0][1]
+        worst.append((sl, n, distinct, round(distinct / n, 3), top))
+    worst.sort(key=lambda x: x[3])  # lowest distinct-ratio first
+    summary["final_diversity"] = {
+        "overall_distinct": len(all_finals),
+        "overall_ratio": round(len(all_finals) / max(1, len(train)), 3),
+        "worst_slices": [
+            {"slice": sl, "rows": n, "distinct": d, "ratio": r, "top_repeat": t}
+            for sl, n, d, r, t in worst[:8]
+        ],
     }
 
     # ---- reasoning mode ----

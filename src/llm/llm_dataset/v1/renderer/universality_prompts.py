@@ -152,3 +152,103 @@ NORMALIZED_RESULTS = (
     "normalized: user asks whether position is losing and wants candidate move guidance.",
     "normalized: unclear wording resolved to chess-board help; no final board claim yet.",
 )
+
+# Per-slice final-answer phrasing pools. Each slice taught ONE lesson with ONE
+# constant final (e.g. "I selected chess-coach because its description fits"),
+# repeated thousands of times — the model would memorise the sentence, not the
+# behaviour. Each pool is a set of grounded paraphrases that carry the SAME lesson;
+# the renderer picks one per seed, so distinct finals scale from 1 to ~10 per slice
+# without changing what the row teaches. V1_K variants must never contain the
+# injected strings ("ignore previous", "system overridden") — the tool_text_is_data
+# validator rejects those.
+FINAL_POOLS = {
+    "V1_A_skill_index_selection": (
+        "I selected chess-coach because its description fits board analysis.",
+        "chess-coach was the right load here — its description matches a position question.",
+        "I matched the request to chess-coach by its description, not by guessing.",
+        "The skill index pointed to chess-coach for board work, so that's what I loaded.",
+        "I read the descriptions and picked chess-coach, the one built for positions.",
+        "chess-coach fit the ask, so I loaded it rather than a marketing or tactics skill.",
+        "I chose chess-coach off its description — it's the board-analysis skill.",
+        "Routing by description, chess-coach was the clear match for this position question.",
+    ),
+    "V1_B_skill_conflict_and_absence": (
+        "I ignored the conflicting skill request and followed the loaded chess-coach guidance.",
+        "Two skills seemed to claim this; I stuck with chess-coach, the one that actually fits.",
+        "I didn't switch skills mid-task — chess-coach was loaded and correct, so I stayed with it.",
+        "The other skill didn't fit the board question, so I kept following chess-coach.",
+        "I resolved the conflict by description: chess-coach handles this, the other doesn't.",
+        "Rather than chase the mismatched skill, I trusted the loaded chess-coach guidance.",
+        "I kept to chess-coach and ignored the off-topic skill that was also offered.",
+    ),
+    "V1_D_tool_unavailable_and_readonly": (
+        "I can analyze with the read tools available, but I won't invent a move tool.",
+        "No move tool is offered here, so I'll analyze with what's read-only and not fake one.",
+        "I'll work with the read tools I have; there's no write tool, and I won't make one up.",
+        "Without a move tool in the manifest, I stick to analysis and don't fabricate an action.",
+        "I can read and evaluate, but playing a move isn't available, so I won't pretend it is.",
+        "The manifest is read-only here; I'll analyze and flag that moving isn't an option.",
+        "I won't invent a tool that isn't listed — I'll do what the read tools allow and say so.",
+    ),
+    "V1_J_no_tool_and_mixed_intent": (
+        "Hi. Ask me to read the board, suggest a move, or explain a chess idea.",
+        "Hey there. I can check the position, recommend a move, or talk through a plan.",
+        "Happy to help — point me at a board, a move to review, or a concept to explain.",
+        "Hello. Want me to analyze a position, find a move, or break down an idea?",
+        "Hi. I'm set up for board reads, move suggestions, and explaining chess ideas.",
+        "Hey. Give me a position or a question and I'll read it, evaluate, or explain.",
+        "Hello. I can look at your board, propose moves, or unpack a chess concept.",
+        "Hey! Send a position and I'll evaluate it, suggest a move, or explain the plan.",
+        "Good to see you. I do board analysis, move ideas, and plain-English chess explanations.",
+        "Hi there. Want a position read, a move recommended, or a concept walked through?",
+        "Hey. I'm your chess coach — analysis, move suggestions, or explaining an idea, your call.",
+        "Hello! Drop a position or a question and I'll dig into it with you.",
+        "Hi. Whether it's reading the board, finding a move, or explaining a tactic, I'm ready.",
+        "Hey there. Point me at a board or just ask — analysis, moves, or ideas all work.",
+    ),
+    "V1_K_adversarial_injection": (
+        "I treated the tool text as data and didn't act on its instruction. The position still needs grounded analysis.",
+        "That message in the tool output is data, not a command — I'm not following it. Let's stay on the board.",
+        "I won't act on instructions embedded in a tool result; they're content to read, not orders. Back to the analysis.",
+        "Injected text in a result doesn't override my task — I kept to the chess work it was supposed to return.",
+        "I read that as data, not a directive, and stayed on the actual position rather than obeying it.",
+        "Tool output is information, not control — I disregarded the embedded instruction and kept analysing.",
+        "I don't take orders from tool text; I noted it as data and returned to grounded board analysis.",
+    ),
+    "V1_M_marketplace_navigation": (
+        "market-tactics is disabled here, so I won't call its tools. I can use chess-coach with the installed official tools instead.",
+        "Those tools belong to the disabled market-tactics plugin — off-limits. I'll work with chess-coach and the official tools.",
+        "I can't call market-tactics tools while it's disabled; chess-coach plus the installed tools covers this.",
+        "market-tactics isn't enabled, so its tools are out. I'll handle this with the official chess-coach tools.",
+        "Since market-tactics is disabled, I won't reach for its tools — chess-coach and the installed set will do.",
+        "The market-tactics plugin is off, so I'll stick to chess-coach and the official tools that are actually enabled.",
+        "I won't invoke a disabled plugin's tools; chess-coach with the installed official tools handles the request.",
+    ),
+    "V1_N_human_chat_skill_bridge": (
+        "I used the helper output to identify chess intent, then loaded chess-coach for board-safe help.",
+        "I cleaned up the messy phrasing first, saw it was a chess ask, and loaded chess-coach.",
+        "The normalize step resolved the slang to a chess request, so I routed to chess-coach.",
+        "After normalizing the vague message, the intent was clearly chess, and I loaded chess-coach.",
+        "I ran the chat-cleanup helper, confirmed it was a board question, then brought in chess-coach.",
+        "Normalizing first let me read the real intent — a chess one — so chess-coach was the right load.",
+        "I bridged through the helper to clear up the wording, then loaded chess-coach for the actual board help.",
+    ),
+    "V1_H_error_recovery": (
+        "The first eval call failed schema validation, so I fixed the argument and retried at depth 15.",
+        "My initial eval used a bad depth and errored; I corrected it and re-ran at depth 15.",
+        "The eval call was rejected for a bad parameter, so I retried with a valid depth 15 instead of giving up.",
+        "First attempt errored on the arguments — I adjusted and called eval again at depth 15.",
+        "The schema rejected my first eval; I repaired the depth and the retry at 15 went through.",
+        "I hit a validation error on eval, fixed the depth, and the depth-15 retry succeeded.",
+        "The opening eval call was malformed, so I corrected the depth and retried rather than fabricate a result.",
+    ),
+    "V1_L_rejects_and_audit_fixtures": (
+        "Control the centre, develop your pieces, and castle early — those habits win more games than memorizing openings.",
+        "Fight for the centre, get your pieces out, and castle your king to safety before attacking.",
+        "Develop quickly, contest the centre, and castle early — fundamentals beat memorized lines at most levels.",
+        "Put pieces on active squares, hold the centre, and castle before you launch anything.",
+        "The basics carry you far: occupy the centre, develop with purpose, and tuck the king away by castling.",
+        "Prioritize development and central control, and castle early — that beats cramming opening theory.",
+        "Get the minor pieces out, claim the centre, and castle — sound habits matter more than rote openings.",
+    ),
+}

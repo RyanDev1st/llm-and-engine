@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 from ..catalog import HUMAN_CHAT_SKILL, OFFICIAL_SKILL
-from ..domains import REAL_DOMAINS, Domain
+from ..domains import CLOSERS, REAL_DOMAINS, Domain
 from .thinking import gated_answer, gated_think, pick_mode
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)", re.DOTALL)
@@ -89,6 +89,12 @@ def _join(*parts: str) -> str:
 def render_skill_routing_row(domain: Domain, seed: int, style: str, normalize: bool) -> dict[str, Any]:
     rng = random.Random(seed)
     prompt = _style(rng.choice(domain.prompts), style)
+    # Pick one of the domain's scenes (varied call/result/finding) and a guiding
+    # closer, so the same skill yields many distinct grounded finals, not one canned
+    # line repeated hundreds of times. The finding states the result; the closer
+    # offers a next step (no facts -> stays grounded).
+    call, tool_result, finding = rng.choice(domain.scenes)
+    answer = f"{finding} {rng.choice(CLOSERS)}"
     goal = f"route this {domain.skill.replace('-', ' ')} request"
     mode = pick_mode(seed)
     messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
@@ -104,9 +110,9 @@ def render_skill_routing_row(domain: Domain, seed: int, style: str, normalize: b
     messages += [
         {"role": "assistant", "content": _join(gated_think(seed, "load_skill", 2, mode=mode, kind="select", goal=goal), rng.choice(_LEAD_LOAD), f"<skill>{domain.skill}</skill>")},
         {"role": "tool", "content": domain.body},
-        {"role": "assistant", "content": _join(gated_think(seed, domain.tool, 3, mode=mode, kind="routine", goal=goal, have="skill"), rng.choice(_LEAD_TOOL), f"<tool>{domain.tool} {domain.call}</tool>")},
-        {"role": "tool", "content": domain.tool_result},
-        {"role": "assistant", "content": _join(gated_answer(seed, goal, mode=mode), domain.answer)},
+        {"role": "assistant", "content": _join(gated_think(seed, domain.tool, 3, mode=mode, kind="routine", goal=goal, have="skill"), rng.choice(_LEAD_TOOL), f"<tool>{domain.tool} {call}</tool>")},
+        {"role": "tool", "content": tool_result},
+        {"role": "assistant", "content": _join(gated_answer(seed, goal, mode=mode), answer)},
     ]
     return _envelope(domain, seed, style, selected, messages, _index(domain, rng), _manifest(domain, rng, normalize), mode)
 
