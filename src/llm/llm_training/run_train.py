@@ -62,7 +62,7 @@ def main() -> None:
     ap.add_argument("--max-examples", type=int, default=None, dest="max_examples",
                     help="cap training rows loaded (quick local de-risk runs); smoke forces 32")
     ap.add_argument("--epochs", type=int, default=3)
-    ap.add_argument("--max-seq", type=int, default=1280, dest="max_seq")
+    ap.add_argument("--max-seq", type=int, default=1664, dest="max_seq")  # v1_2 floor: max row 1655, median 1291; lower truncates finals
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--targets", default="all-linear")
     ap.add_argument("--grad-accum", type=int, default=16, dest="grad_accum")
