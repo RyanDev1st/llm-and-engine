@@ -95,7 +95,7 @@ def test_human_chat_skill_bridge_uses_style_prompt():
 
 
     p = profile("v1.2")
-    assert p.accepted_target == 50_000
+    assert p.accepted_target == 75_000
     assert 5_000 <= p.rejected_target <= 10_000
     assert p.gold_dir.as_posix().endswith("data/sft/v1_2")
     assert p.train_path.as_posix().endswith("data/sft/v1_2_train.jsonl")

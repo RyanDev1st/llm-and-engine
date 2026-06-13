@@ -20,25 +20,34 @@ from .validate import validate_row
 
 ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
 
+# GENERAL-FIRST mix (~75% general / ~25% chess): the product is a general
+# skill+tool harness operator, chess is the flagship demo domain (one of many).
+# Chess = A-K + V1_P (~25%); general = V1_A-O (~75%) with cross-domain routing
+# (V1_O) dominant since "choose the right skill/tool across ANY domain" is the
+# core capability. Proportions are preserved through plan_for_profile scaling.
 DEFAULT_PLAN: dict[str, int] = {
-    "A": 632, "B": 394, "C": 292, "D": 326, "E": 360, "F": 326,
-    "G": 156, "H": 224, "I": 428, "J": 292, "K": 190,
-    "V1_A_skill_index_selection": 70,
-    "V1_B_skill_conflict_and_absence": 70,
-    "V1_C_dynamic_tool_schema": 70,
-    "V1_D_tool_unavailable_and_readonly": 70,
-    "V1_E_board_grounding": 70,
-    "V1_F_special_chess_rules": 70,
-    "V1_G_multi_tool_budget": 70,
-    "V1_H_error_recovery": 70,
-    "V1_I_eval_language": 70,
-    "V1_J_no_tool_and_mixed_intent": 70,
-    "V1_K_adversarial_injection": 70,
-    "V1_L_rejects_and_audit_fixtures": 70,
-    "V1_M_marketplace_navigation": 70,
-    "V1_N_human_chat_skill_bridge": 70,
-    "V1_O_cross_domain_skill_routing": 70,
-    "V1_P_multiturn_followup": 70,
+    # chess coaching (flagship domain) — ~20% of base
+    "A": 180, "B": 110, "C": 80, "D": 95, "E": 100, "F": 95,
+    "G": 50, "H": 65, "I": 120, "J": 80, "K": 55,
+    # domain-agnostic harness lessons — ~48% of base
+    "V1_A_skill_index_selection": 180,
+    "V1_B_skill_conflict_and_absence": 180,
+    "V1_C_dynamic_tool_schema": 200,
+    "V1_D_tool_unavailable_and_readonly": 180,
+    "V1_E_board_grounding": 180,
+    "V1_F_special_chess_rules": 150,
+    "V1_G_multi_tool_budget": 220,
+    "V1_H_error_recovery": 220,
+    "V1_I_eval_language": 150,
+    "V1_J_no_tool_and_mixed_intent": 150,
+    "V1_K_adversarial_injection": 180,
+    "V1_L_rejects_and_audit_fixtures": 120,
+    "V1_M_marketplace_navigation": 180,
+    "V1_N_human_chat_skill_bridge": 200,
+    # cross-domain routing across the whole domain pool — the general flagship
+    "V1_O_cross_domain_skill_routing": 1400,
+    # multi-turn dialogue-state (chess-flavored) — ~6% of base
+    "V1_P_multiturn_followup": 300,
 }
 
 

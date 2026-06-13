@@ -59,9 +59,9 @@ def test_missing_rejects_generic_final_concentration():
 
 
 def test_v1_2_missing_enforces_modern_scale():
-    accepted = [row() for _ in range(49999)]
+    accepted = [row() for _ in range(74999)]
     rejected = [row() for _ in range(7500)]
-    assert "accepted < 50000" in missing_for(accepted, rejected, profile("v1.2"))
+    assert "accepted < 75000" in missing_for(accepted, rejected, profile("v1.2"))
 
 
 def test_v1_2_missing_enforces_prompt_diversity():
@@ -71,7 +71,7 @@ def test_v1_2_missing_enforces_prompt_diversity():
 
 
 def test_v1_2_profile_scales_chess_slice_tolerance():
-    accepted = [row(slice_name="A") for _ in range(6976)]
+    accepted = [row(slice_name="A") for _ in range(2585)]  # 180/5222 * 75000 ≈ 2585
     rejected = [row() for _ in range(7500)]
     assert "A outside target tolerance" not in missing_for(accepted, rejected, profile("v1.2"))
 
