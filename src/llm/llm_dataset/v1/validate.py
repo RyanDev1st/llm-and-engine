@@ -228,6 +228,9 @@ def _narration_grounded(row: dict[str, Any]) -> list[Violation]:
     messages = row["messages"]
 
     def facts(text: str) -> set[str]:
+        # <think> is intent/plan reasoning, never facts — strip it so the grounding
+        # check ignores it (the trained thinking trace must not be fact-checked).
+        text = re.sub(r"<think>.*?</think>", " ", text, flags=re.DOTALL)
         return {f.lstrip("+-") for f in _FACT.findall(text)}
 
     tool_facts: set[str] = set()

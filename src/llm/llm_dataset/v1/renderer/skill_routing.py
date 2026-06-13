@@ -12,6 +12,7 @@ from typing import Any
 
 from ..catalog import HUMAN_CHAT_SKILL, OFFICIAL_SKILL
 from ..domains import REAL_DOMAINS, Domain
+from .thinking import think, think_answer
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)", re.DOTALL)
 
@@ -87,22 +88,23 @@ def _manifest(domain: Domain, rng: random.Random, normalize: bool) -> list[dict]
 def render_skill_routing_row(domain: Domain, seed: int, style: str, normalize: bool) -> dict[str, Any]:
     rng = random.Random(seed)
     prompt = _style(rng.choice(domain.prompts), style)
+    goal = f"route this {domain.skill.replace('-', ' ')} request"
     messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
     selected = [domain.skill]
     if normalize:
         selected = ["hood-human-chat", domain.skill]
         messages += [
-            {"role": "assistant", "content": f"{rng.choice(_LEAD_HOOD)}\n<tool>load_skill name=hood-human-chat</tool>"},
+            {"role": "assistant", "content": f"{think(seed, 'load_skill', 0, goal=goal, have='')}\n{rng.choice(_LEAD_HOOD)}\n<tool>load_skill name=hood-human-chat</tool>"},
             {"role": "tool", "content": _HOOD_BODY},
-            {"role": "assistant", "content": f"{rng.choice(_LEAD_NORMALIZE)}\n<tool>normalize_human_chat text=messy_user_chat</tool>"},
+            {"role": "assistant", "content": f"{think(seed, 'normalize_human_chat', 1, goal=goal, have='skill')}\n{rng.choice(_LEAD_NORMALIZE)}\n<tool>normalize_human_chat text=messy_user_chat</tool>"},
             {"role": "tool", "content": _NORMALIZED},
         ]
     messages += [
-        {"role": "assistant", "content": f"{rng.choice(_LEAD_LOAD)}\n<tool>load_skill name={domain.skill}</tool>"},
+        {"role": "assistant", "content": f"{think(seed, 'load_skill', 2, goal=goal, have='')}\n{rng.choice(_LEAD_LOAD)}\n<tool>load_skill name={domain.skill}</tool>"},
         {"role": "tool", "content": domain.body},
-        {"role": "assistant", "content": f"{rng.choice(_LEAD_TOOL)}\n<tool>{domain.tool} {domain.call}</tool>"},
+        {"role": "assistant", "content": f"{think(seed, domain.tool, 3, goal=goal, have='skill')}\n{rng.choice(_LEAD_TOOL)}\n<tool>{domain.tool} {domain.call}</tool>"},
         {"role": "tool", "content": domain.tool_result},
-        {"role": "assistant", "content": domain.answer},
+        {"role": "assistant", "content": f"{think_answer(seed, goal)}\n{domain.answer}"},
     ]
     return _envelope(domain, seed, style, selected, messages, _index(domain, rng), _manifest(domain, rng, normalize))
 

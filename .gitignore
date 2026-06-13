@@ -27,3 +27,6 @@ ruvector.db
 # Python caches
 __pycache__/
 *.pyc
+
+# throwaway inspection scratch (never commit)
+scratch_*
