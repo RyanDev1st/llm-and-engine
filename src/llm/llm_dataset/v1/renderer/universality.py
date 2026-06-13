@@ -5,6 +5,7 @@ from typing import Any
 
 from ..sampler import Scenario
 from . import tone
+from .chess import _style_prompt
 from .leadins import lead
 from .thinking import gated_answer, gated_fix, gated_think, pick_mode
 from .universality_prompts import BRIDGE_PROMPTS, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS
@@ -110,7 +111,9 @@ def _user_prompt(scenario: Scenario) -> str:
     if scenario.slice == "V1_M_marketplace_navigation":
         prompts = STYLE_PROMPTS.get(scenario.prompt_style, STYLE_PROMPTS["casual"])
         return f"{tone.pick(scenario.seed, prompts)} #{scenario.intent.rsplit('_', 1)[-1]}"
-    return SLICE_PROMPTS[scenario.slice]
+    # several phrasings per slice + a style affix -> no single normalized prompt
+    # dominates the (now large) universality slices, and trains real generalization.
+    return _style_prompt(tone.pick(scenario.seed, SLICE_PROMPTS[scenario.slice]), scenario)
 
 
 def _final(scenario: Scenario) -> str:
