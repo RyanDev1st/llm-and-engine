@@ -362,10 +362,14 @@ def run_unsloth_training(config: TrainConfig) -> dict:
         # card OOMs on seq-1664 activations. Capping each GPU's WEIGHT budget below the
         # model size makes balanced shard it across both, freeing ~9GB/card for
         # activations. cpu cap allows graceful overflow if a card is tight.
-        cap = os.environ.get("CHESS_GPU_CAP_GIB", "6")
+        # cap must be BELOW the one-GPU model size (~10GB E4B) to force a split, but high
+        # enough that n_gpus*cap comfortably holds the model so nothing spills to CPU
+        # (bnb-4bit refuses CPU offload). 8GiB: 8<10 forces the shard, 2*8=16>>10 avoids
+        # CPU. Tune via CHESS_GPU_CAP_GIB if the model size differs.
+        cap = os.environ.get("CHESS_GPU_CAP_GIB", "8")
         load_kwargs["max_memory"] = {i: f"{cap}GiB" for i in range(n_gpus)}
-        load_kwargs["max_memory"]["cpu"] = "24GiB"
-        print(f"[unsloth] {n_gpus} GPUs -> balanced + max_memory {cap}GiB/GPU (force shard, not DDP)", flush=True)
+        load_kwargs["max_memory"]["cpu"] = "0GiB"   # forbid CPU offload (bnb-4bit can't) -> GPU-only split
+        print(f"[unsloth] {n_gpus} GPUs -> balanced + max_memory {cap}GiB/GPU, cpu=0 (force shard, not DDP)", flush=True)
     with _capture_load_warnings() as load_log:
         model, processor = FastModel.from_pretrained(**load_kwargs)
     _print_gpu_mem("after load")
