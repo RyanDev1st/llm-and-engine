@@ -21,6 +21,22 @@ _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](
 
 _SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
 
+# Tools whose final arg is FREE TEXT (may contain spaces / '='): it captures the
+# rest of the call, mirroring backend.toolfmt.parse_call so train-time validation
+# and the serve-time parser agree. python's code= carries a whole script.
+_FREE = {"ask_chessbot": "query=", "load_fen": "fen=", "python": "code="}
+
+
+def _parse_args(name: str, inner: str) -> dict[str, str]:
+    inner = inner.strip()
+    free = _FREE.get(name)
+    if free and free in inner:
+        head, tail = inner.split(free, 1)
+        args = dict(_ARG.findall(head))
+        args[free[:-1]] = tail.strip()
+        return args
+    return dict(_ARG.findall(inner))
+
 
 def _tool_matches(content: str) -> list[re.Match]:
     return list(_CALL.finditer(content))
@@ -115,7 +131,7 @@ def _tool_calls(messages: list[dict[str, str]]) -> list[tuple[str, dict[str, str
         if message.get("role") != "assistant":
             continue
         for match in _tool_matches(message.get("content", "")):
-            calls.append((match.group(1), dict(_ARG.findall(match.group(2))), match.group(0)))
+            calls.append((match.group(1), _parse_args(match.group(1), match.group(2)), match.group(0)))
     return calls
 
 

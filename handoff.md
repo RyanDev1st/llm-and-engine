@@ -119,6 +119,53 @@ is the "do things that don't help" trap the user warned against.
 
 ---
 
+## 1.5 Stage 0 — BUILT + GATED (this session, committed; NOT yet trained)
+
+Stage 0 from §2/§8 is now in the corpus. The keystone is a real **`python` tool** the
+trained model calls to **verify a claim by running a script and reading stdout** — the
+way Claude verifies instead of fabricating (NOT a calculator front-end; that was the
+first wrong cut, corrected on user feedback).
+
+- **`src/llm/backend/sandbox.py`** — `run_python(code)`: isolated `python -I` subprocess,
+  3s timeout, code/output caps, temp cwd. Returns `output: …` / clean `error: …`. Security
+  posture documented in-file: contains hangs/crashes/floods; NOT a boundary vs hostile code
+  (`-I` still exposes stdlib) → fine for the LOCAL single-user 4060 demo; OS-sandbox before
+  any untrusted/multi-user exposure. Executor wired in `backend/tools.py` (`python` →
+  `run_python`); served via `serving_tool_manifest` + `_TOOL_NAMES`.
+- **Free-text `code=` arg** — scripts have spaces, so `code=` captures the rest of the call,
+  mirroring `query=`/`fen=`. Wired in BOTH `backend/toolfmt.parse_call` AND
+  `llm_dataset/v1/validate._parse_args` (train==serve parse agreement; the gate's per-row
+  validation depends on it).
+- **`V1_R_compute_grounding` slice** (`renderer/compute.py`, 374 train rows, plan=30 base):
+  **~70% verify-then-claim** (user asks a judgment — "am I averaging above 85?" — model runs
+  the script, reads the value, asserts the GROUNDED verdict) + **~30% compute-on-request**
+  (raw number). The verify-then-claim shape is box-auditing in miniature → seeds Stage 1/2.
+  No domain skill fits → tool-direct. `<think>` + tool description are **verification-forward**
+  ("verify before I claim it, not guess"). Grounding enforced by the existing
+  `narration_grounded` gate (every two-decimal number in the final ⊆ the tool's stdout).
+- **Plug-and-play calculator template** (user ask): `catalog.CALC_TEMPLATE = print(f"{EXPR:.2f}")`
+  — ONE known-good snippet, single-sourced, surfaced in the tool description AND used verbatim
+  by the renderer, so a weak coder model substitutes the expression instead of composing code.
+
+**Verified:** sandbox 5/5, compute 9/9 (incl. real-subprocess exec match), my-change dataset
+tests 38/38, full dataset suite 111. **GATE: PASS** (validate_failures 0/75,060, over_seq 0,
+all 8 gate fields 0). Serve path executes end-to-end (`output: 12.96`, matches train render).
+
+**The seq number (handoff §8 go/no-go, MEASURED):** a single python-verify chain tokenizes to
+**max 1469** (p99 1450; fast 1357 / think 1444 / auto 1469) vs the 1664 ceiling — Stage 0 fits
+with ~195 headroom. Corpus max unchanged at **1653**. **Implication for Stage 1:** the
+contract+manifest floor is ~1255–1290 tok; ONE audited step (think + tool + result) adds
+~130–180. So only **~2–3 audited boxes fit 1664** before it blows — Stage 1's multi-box chains
+will be seq-tight; measure each realistic chain before training (this is the real constraint the
+§3 Colab table keys off).
+
+**What Stage 0 still needs (NOT done): TRAIN it.** Run the E4B QLoRA notebook on Kaggle, serve,
+and measure the empirical unknown that gates everything in §2: **does E4B reliably
+call→read→narrate the computed value (not fabricate)?** If no → the agentic architecture can't
+stand. If yes → we've shipped a fabrication fix worth having alone, and Stage 1 is unlocked.
+
+---
+
 ## 2. The architecture we brainstormed next — "truly agentic E4B" (NOT yet built)
 
 User's question that opened it: *does the model know to call MULTIPLE skills and tools in one
@@ -367,10 +414,15 @@ Backend/serve: `src/llm/backend/` (`inference.py` translates `<skill>`→canonic
 
 ## 8. Immediate next action for the fresh session
 
-If continuing the agentic architecture: **Stage 0.** Add a sandboxed `python`/`calc` tool to
-the catalog + a small SFT slice where the model grounds a numeric claim by calling it, train on
-Kaggle, and measure (a) does E4B reliably call→read→narrate the computed value, (b) the rendered
-seq of that chain. That single result gates the entire §2 program and the Colab spend.
+**Stage 0 is BUILT, gated, and committed (see §1.5) — the remaining step is to TRAIN it.**
+Run the E4B QLoRA notebook on Kaggle on the current `v1_2` split (train 73,130 / val 1,930,
+now incl. the 374 `V1_R` python-verify rows), pull the adapter, `serve_check` train/serve
+base-parity, and measure the ONE thing that gates the whole §2 program + the Colab spend:
+**does E4B reliably call the `python` tool, read its stdout, and narrate THAT value instead of
+fabricating?** (seq is already measured — Stage-0 chain max 1469, fits 1664.)
+- If **yes** → fabrication fix shipped; proceed to Stage 1 (self-authored `<goal>`+`<plan>`,
+  but mind the seq: only ~2–3 audited boxes fit 1664, see §1.5).
+- If **no** → STOP; the agentic loop architecture can't stand on E4B.
 
 If instead shipping the current corpus: it's ready — run the E4B QLoRA notebook on Kaggle, pull
 the adapter, `serve_check` for train/serve base-parity before trusting the GGUF, export Q5_K_M,

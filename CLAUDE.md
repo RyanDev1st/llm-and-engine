@@ -26,7 +26,7 @@ The product is a **general agentic HARNESS operator** = an LLM that **chooses am
 | `src/llm/llm_dataset/v1/` | **ACTIVE** SFT generator. Spec = `contracts.py`; `profiles.py` writes the v1_2 corpus. Source of truth for harness behavior |
 | `data/sft/v1_2_train.jsonl`, `data/sft/v1_2_val.jsonl`, `data/sft/v1_2/` | **ACTIVE** SFT corpus (split + accepted/rejected). The ONLY corpus trainers read |
 | `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py` |
-| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server. Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Plugin bundles = `backend/plugins/` (each contributes tools+skills+hooks; registry aggregates enabled ones into the served manifest — tests cross-bundle routing). Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`) |
+| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server + `sandbox.py` (the domain-neutral `python` verification tool — isolated subprocess, used to ground/verify a claim by running a script; Stage-0 keystone). Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Plugin bundles = `backend/plugins/` (each contributes tools+skills+hooks; registry aggregates enabled ones into the served manifest — tests cross-bundle routing). Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`) |
 | `src/llm/skills_demo/` | 40 chess SKILL.md fixtures for routing tests + presentation demo. `_specs.py` (data) + `_generate.py` (renderer); NOT auto-loaded by the backend (pass as `load_skills` root) |
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
 | `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |
@@ -114,7 +114,6 @@ If verification fails, fix or report the failure with the failing command and er
 - After tasks are **confirmed with the user**, respond **AYE** once that turn (team convention).
 - **Max four concurrent threads** (orchestrator + subagents). Do not fan out beyond four.
 - Prefer parallel subagents for independent work. If a Claude subagent fails for more than 3 times, retry with **codex** (`codex-rescue` or project Codex runtime).
-- RTK (token reduction) hooks: `~/.claude/RTK.md`
 
 ## Git and delivery
 
@@ -122,10 +121,6 @@ If verification fails, fix or report the failure with the failing command and er
 - **Push / PR** only when the user explicitly requests it.
 - Commit messages: conventional, scoped, one logical change per commit; subject states *why*.
 - Never commit secrets, `.env`, or large generated artifacts unless they are intentional, documented fixtures.
-
-## OpenSpec
-
-When the user drives OpenSpec changes, use skills under `.claude/skills/openspec-*` and respect `openspec/config.yaml`. Do not bypass the OpenSpec workflow for tracked changes unless the user directs a hotfix path.
 
 ## Maintaining this file
 

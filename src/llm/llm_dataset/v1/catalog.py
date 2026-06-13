@@ -23,6 +23,27 @@ USER_SKILL_TOOLS: list[dict[str, Any]] = [
     {"name": "normalize_human_chat", "description": "Translate slang, shorthand, typos, or vague chat into explicit task intent.", "args": {"text": "required"}, "applies_when": "always"},
 ]
 
+# Canonical "calculator" template: the model substitutes its expression into this
+# known-good snippet (plug-and-play) instead of composing novel code, so a weak
+# coder still produces a runnable, two-decimal-grounded script. SINGLE SOURCE —
+# surfaced in the tool description here AND used verbatim by the V1_R renderer.
+CALC_TEMPLATE = 'print(f"{EXPR:.2f}")'
+
+# Domain-neutral CORE verification tool (no plugin tag -> always callable; the
+# plugin-gating validator skips tools without a plugin). The agent RUNS a short
+# script and reads stdout to GROUND a computed/checkable claim instead of asserting
+# it — the keystone of the Stage-0 "verification as tool-use" test. `code` is a
+# free-text arg (captures the rest of the call; see toolfmt/validate). Defined here
+# so build_system renders it identically at train and serve; executor is
+# backend.sandbox.run_python.
+COMPUTE_TOOLS: list[dict[str, Any]] = [
+    {"name": "python", "description": "Run a short Python script and return its stdout. Write a script that print()s the answer, then read the result — use it to verify any computed or checkable claim instead of asserting it from your head. For plain arithmetic, fill in this working template and run it: " + CALC_TEMPLATE, "args": {"code": "required"}, "applies_when": "always"},
+]
+
+
+def compute_tools() -> list[dict[str, Any]]:
+    return [dict(tool) for tool in COMPUTE_TOOLS]
+
 OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "move", "description": "Play a SAN move on the live board.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
     {"name": "load_fen", "description": "Set the board to a position from a FEN string (e.g. to set up a puzzle).", "args": {"fen": "required"}, "applies_when": "always"},

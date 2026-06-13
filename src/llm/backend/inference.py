@@ -7,7 +7,7 @@ from __future__ import annotations
 import re as _re
 from typing import Protocol
 
-from llm_dataset.v1.catalog import official_tools
+from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
@@ -308,7 +308,9 @@ def normalize_tool_call(text: str) -> str:
 
 
 # Known tool names, longest-first so e.g. best_move matches before a prefix.
-_TOOL_NAMES = sorted({t["name"] for t in official_tools()} | {"load_skill"}, key=len, reverse=True)
+_TOOL_NAMES = sorted(
+    {t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()} | {"load_skill"},
+    key=len, reverse=True)
 _NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
 # </tool> always closes a call; the bare > / end-of-string forms (for a stop-
 # trimmed call like "<move san=b3") only count when NOT followed by a word char,
@@ -394,9 +396,10 @@ def serving_skills_index(plugin_context: dict | None = None) -> list[dict]:
 
 
 def serving_tool_manifest(plugin_context: dict | None = None) -> list[dict]:
-    """The full callable tool manifest: official catalog tools + enabled plugins' tools."""
+    """The full callable tool manifest: official catalog tools + the domain-neutral
+    compute tool (calc) + enabled plugins' tools."""
     from . import plugins
-    return official_tools() + plugins.plugin_tools(plugin_context)
+    return official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
 
 
 def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None,

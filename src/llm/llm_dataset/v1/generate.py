@@ -12,10 +12,13 @@ from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
 from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
-from .sampler import CHESS_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES, plan_scenarios
+from .sampler import (
+    CHESS_SLICES, COMPUTE_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES, plan_scenarios,
+)
 from .validate import validate_row
 
 ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
@@ -51,6 +54,9 @@ DEFAULT_PLAN: dict[str, int] = {
     # NO listed skill fits -> answer directly (greeting/meta/off-domain); teaches
     # that loading a skill is conditional, not reflexive.
     "V1_Q_no_skill_direct": 180,
+    # compute-grounding (Stage 0): ground a numeric claim by CALLING the calc tool
+    # instead of computing in-head. Small additive slice (~400 after scaling).
+    "V1_R_compute_grounding": 30,
 }
 
 
@@ -127,6 +133,8 @@ def run(
                 )
             elif scenario.slice in UNIVERSALITY_SLICES:
                 row = render_universality_row(scenario)
+            elif scenario.slice in COMPUTE_SLICES:
+                row = render_compute_row(scenario)
             else:
                 if progress and _should_report(index, total):
                     progress(index, total, len(accepted), len(rejected))

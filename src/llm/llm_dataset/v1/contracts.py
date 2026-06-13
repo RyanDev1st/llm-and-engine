@@ -19,6 +19,7 @@ SLICES = (
     "V1_O_cross_domain_skill_routing",
     "V1_P_multiturn_followup",
     "V1_Q_no_skill_direct",
+    "V1_R_compute_grounding",
 )
 
 FINAL_NO_XML = "final_no_xml"
@@ -43,7 +44,7 @@ HARNESS_RULES = (
     "multi-skill composition accepted coverage",
 )
 
-ROW_KINDS = ("harness_chess", "universality", "skill_routing")
+ROW_KINDS = ("harness_chess", "universality", "skill_routing", "compute")
 
 OFFICIAL_PLUGIN = "chess-official"
 USER_SKILLS_PLUGIN = "user-skills"
@@ -51,7 +52,7 @@ USER_SKILLS_PLUGIN = "user-skills"
 REAL_TOOL_NAMES = (
     "move", "eval", "best_move", "review_move", "threats",
     "legal_moves", "undo", "list_pieces", "ask_chessbot",
-    "board_state", "normalize_human_chat",
+    "board_state", "normalize_human_chat", "python",
 )
 # Skills are loaded with the <skill>NAME</skill> verb, NOT a load_skill tool.
 SKILL_VERB_OPEN, SKILL_VERB_CLOSE = "<skill>", "</skill>"

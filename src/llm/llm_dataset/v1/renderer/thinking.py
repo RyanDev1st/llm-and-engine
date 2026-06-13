@@ -30,6 +30,9 @@ _DECIDE = {
     "ask_chessbot": ("look that up in the knowledge base", "pull that general fact"),
     "normalize_human_chat": ("normalize the messy phrasing before I route it",
                              "clean up what they said so I route it right"),
+    "python": ("verify this with a script before I claim it, not guess the number",
+               "let the tool settle it — run the numbers, don't assert them",
+               "check the real figure by running it instead of trusting my head"),
 }
 _HAVE = {
     0: ("nothing gathered yet", "haven't read anything yet", "starting fresh"),

@@ -80,6 +80,12 @@ class ToolExecutor:
             return self.game.list_pieces(args.get("color", "mine"))
         if name == "ask_chessbot":
             return ask_kb.answer(args.get("query", ""))
+        if name == "python":
+            # Domain-neutral verification primitive: ground a computed/checkable
+            # claim by RUNNING a short script and reading stdout, not by asserting.
+            # Sandboxed subprocess — see sandbox.run_python.
+            from .sandbox import run_python
+            return run_python(args.get("code", ""))
         if name == "eval":
             depth = clamp_depth(args, DEFAULT_EVAL_DEPTH)
             if self.game.board.fen() == chess.STARTING_FEN:
