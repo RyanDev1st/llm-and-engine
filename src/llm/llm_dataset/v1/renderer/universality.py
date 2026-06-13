@@ -5,6 +5,7 @@ from typing import Any
 
 from ..sampler import Scenario
 from . import tone
+from ..board_facts import board_state_line
 from .chess import _style_prompt
 from .leadins import lead
 from .thinking import gated_answer, gated_fix, gated_think, pick_mode
@@ -39,6 +40,21 @@ _SELECT_SLICES = {"V1_A_skill_index_selection", "V1_B_skill_conflict_and_absence
 
 def _goal_of(scenario: Scenario) -> str:
     return _SLICE_GOAL.get(scenario.slice, "help with the position")
+
+
+def _stalemate_verdict(fen: str) -> str:
+    """Grounded stalemate ruling from the real position (matches the board_state
+    tool result), so V1_F judges the rule instead of deflecting."""
+    import chess
+    b = chess.Board(fen)
+    side = "White" if b.turn == chess.WHITE else "Black"
+    n = b.legal_moves.count()
+    if n == 0 and b.is_check():
+        return f"{side} is in check with no legal move — that's checkmate, not stalemate."
+    if n == 0:
+        return f"{side} has no legal move and isn't in check — that's stalemate, so it's a draw."
+    return (f"{side} has {n} legal moves, so it's not stalemate — stalemate needs "
+            "zero legal moves with the side to move not in check.")
 
 
 def _act(seed: int, name: str, step: int, call: str, goal: str, have: str,
@@ -105,10 +121,12 @@ def render_universality_row(scenario: Scenario) -> dict[str, Any]:
         # ground the eval number in a real tool result (was fabricated before).
         messages.append({"role": "assistant", "content": _act(seed, "eval", 3, "<tool>eval depth=15</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": "score: +0.12 pawns from white POV, depth=15 (starting position is equal)"})
-    elif scenario.slice == "V1_F_special_chess_rules":
-        # actually read the board before judging the rule (was a "I would call…" deflection).
+    elif scenario.slice == "V1_F_special_chess_rules" and scenario.position:
+        # actually read the board before judging the rule (was a "I would call…"
+        # deflection). The board_state result is REAL (matches the FEN side), so the
+        # turn/legal_count the answer cites are grounded.
         messages.append({"role": "assistant", "content": _act(seed, "board_state", 3, "<tool>board_state fields=all</tool>", goal, "skill", mode=mode, kind="routine")})
-        messages.append({"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=28"})
+        messages.append({"role": "tool", "content": board_state_line(scenario.position.fen, "all")})
     ans = gated_answer(seed, goal, mode=mode)
     messages.append({"role": "assistant", "content": f"{ans}\n{_final(scenario)}" if ans else _final(scenario)})
     return _envelope(scenario, messages, mode)
@@ -163,8 +181,8 @@ def _final(scenario: Scenario) -> str:
         return f"{opener} market-tactics is disabled here, so I will not call its tools. I can use chess-coach with installed official tools instead."
     if scenario.slice == "V1_J_no_tool_and_mixed_intent":
         return f"{opener} Hi. Ask me to read the board, suggest a move, or explain a chess idea."
-    if scenario.slice == "V1_F_special_chess_rules":
-        return f"{opener} Board state shows white to move with 28 legal moves and no check, so it's not stalemate — stalemate needs no legal move and no check."
+    if scenario.slice == "V1_F_special_chess_rules" and scenario.position:
+        return f"{opener} {_stalemate_verdict(scenario.position.fen)}"
     if scenario.slice == "V1_L_rejects_and_audit_fixtures":
         return f"{opener} Control the centre, develop your pieces, and castle early — those habits win more games than memorizing openings."
     return f"{opener} I read the position and the tools, then answered in plain text without inventing facts."
