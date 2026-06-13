@@ -355,18 +355,19 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     n_gpus = torch.cuda.device_count()
     load_kwargs = dict(model_name=str(config.model_path), max_seq_length=config.max_seq_len,
                        load_in_4bit=config.load_in_4bit, dtype=None)
-    if n_gpus > 1:
+    # DO NOT pass device_map by default. Unsloth loads on a single GPU and its gradient
+    # checkpointing frees per-layer activations. Passing device_map="balanced" adds
+    # accelerate DISPATCH HOOKS that BREAK that checkpointing -> every layer's activation
+    # is retained -> ~8GB activation at seq 1664 even for tiny E2B (6.5GB weights) -> OOM.
+    # That single mistake caused the whole OOM saga. Multi-GPU sharding is opt-in ONLY via
+    # CHESS_GPU_CAP_GIB (experimental; still hook-bound, expect the same issue).
+    cap = os.environ.get("CHESS_GPU_CAP_GIB")
+    if n_gpus > 1 and cap:
         load_kwargs["device_map"] = "balanced"
-        print(f"[unsloth] {n_gpus} GPUs -> device_map='balanced'", flush=True)
-        # OPT-IN forced 2-GPU split (full-seq run): set CHESS_GPU_CAP_GIB to a value
-        # BELOW the one-GPU model size (~10GB E4B) so balanced can't pile it on one card.
-        # Off by default — E4B 4-bit fits/loads on one T4; the de-risk runs single-GPU at
-        # seq>=1469 (V1_R max). bnb-4bit refuses CPU offload, so the cap must also keep
-        # n_gpus*cap above the model size. Experimental; was spilling to CPU on E4B.
-        cap = os.environ.get("CHESS_GPU_CAP_GIB")
-        if cap:
-            load_kwargs["max_memory"] = {i: f"{cap}GiB" for i in range(n_gpus)}
-            print(f"[unsloth] forced shard: max_memory {cap}GiB/GPU", flush=True)
+        load_kwargs["max_memory"] = {i: f"{cap}GiB" for i in range(n_gpus)}
+        print(f"[unsloth] EXPERIMENTAL forced shard: balanced + max_memory {cap}GiB/GPU", flush=True)
+    else:
+        print(f"[unsloth] single-GPU load (no device_map) — gradient checkpointing active", flush=True)
     with _capture_load_warnings() as load_log:
         model, processor = FastModel.from_pretrained(**load_kwargs)
     _print_gpu_mem("after load")
