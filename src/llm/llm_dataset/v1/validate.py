@@ -20,6 +20,11 @@ _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](
 
 
 _SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
+# PLAN-mode structure: <goal>…</goal>, <plan>…</plan>, and checkbox bindings (the
+# trailing "(name)" the serve gate maps to the executed skill/tool).
+_GOAL_TAG = re.compile(r"<goal>(.*?)</goal>", re.DOTALL)
+_PLAN_TAG = re.compile(r"<plan>(.*?)</plan>", re.DOTALL)
+_BOX_BIND = re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
 
 # Tools whose final arg is FREE TEXT (may contain spaces / '='): it captures the
 # rest of the call, mirroring backend.toolfmt.parse_call so train-time validation
@@ -94,6 +99,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_board_state_turn(row))
     violations.extend(_one_tool_per_message(row["messages"]))
     violations.extend(_reasoning_mode(row))
+    violations.extend(_plan_structure(row))
     return violations
 
 
@@ -387,6 +393,36 @@ def _reasoning_mode(row: dict[str, Any]) -> list[Violation]:
         if m.get("role") == "assistant" and "<think>" in m.get("content", ""):
             return [Violation("reasoning_mode_fast_no_think", "fast row contains <think>")]
     return []
+
+
+def _plan_structure(row: dict[str, Any]) -> list[Violation]:
+    """PLAN-mode (Stage 1/2) deterministic gates:
+    - goal_before_plan: a <goal> AND a <plan> exist, and <goal> comes first (commit the
+      objective before the checklist — the anti-early-stop contract).
+    - plan_boxes_bound: every checkbox's binding "(name)" maps to a real listed skill or
+      tool (or the literal synthesis marker), so the serve box-tracking gate can map each
+      box to an executed action — no dangling boxes."""
+    rules = row.get("acceptance_rules", [])
+    if "goal_before_plan" not in rules and "plan_boxes_bound" not in rules:
+        return []
+    text = "\n".join(m.get("content", "") for m in row["messages"] if m.get("role") == "assistant")
+    out: list[Violation] = []
+    gm, pm = _GOAL_TAG.search(text), _PLAN_TAG.search(text)
+    if "goal_before_plan" in rules:
+        if not gm or not pm:
+            out.append(Violation("goal_before_plan", "missing <goal> or <plan>"))
+        elif gm.start() > pm.start():
+            out.append(Violation("goal_before_plan", "<plan> appears before <goal>"))
+    if "plan_boxes_bound" in rules and pm:
+        names = {s.get("name") for s in row.get("skills_index", [])}
+        names |= {t.get("name") for t in row.get("tool_manifest", [])}
+        for binding in _BOX_BIND.findall(pm.group(1)):
+            b = binding.strip()
+            if b in ("none", "synthesize", "synthesis"):
+                continue
+            if b not in names:
+                out.append(Violation("plan_boxes_bound", f"box binding '{b}' not a listed skill/tool"))
+    return out
 
 
 def _injection(row: dict[str, Any]) -> list[Violation]:

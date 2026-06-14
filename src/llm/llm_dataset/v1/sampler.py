@@ -38,6 +38,8 @@ UNIVERSALITY_SLICES = {
 }
 # Compute-grounding slice: its own renderer, domain-neutral, calls the calc tool.
 COMPUTE_SLICES = {"V1_R_compute_grounding"}
+# Stage 1 compound-plan slice: its own renderer builds the multi-skill index/manifest.
+COMPOUND_SLICES = {"V1_S_compound_plan"}
 
 PROMPT_STYLES = ("formal", "casual", "slang", "typo", "anxious", "beginner")
 

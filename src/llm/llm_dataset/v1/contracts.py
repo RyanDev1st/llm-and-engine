@@ -20,6 +20,7 @@ SLICES = (
     "V1_P_multiturn_followup",
     "V1_Q_no_skill_direct",
     "V1_R_compute_grounding",
+    "V1_S_compound_plan",
 )
 
 FINAL_NO_XML = "final_no_xml"
@@ -44,7 +45,7 @@ HARNESS_RULES = (
     "multi-skill composition accepted coverage",
 )
 
-ROW_KINDS = ("harness_chess", "universality", "skill_routing", "compute")
+ROW_KINDS = ("harness_chess", "universality", "skill_routing", "compute", "compound_plan")
 
 OFFICIAL_PLUGIN = "chess-official"
 USER_SKILLS_PLUGIN = "user-skills"
@@ -57,11 +58,16 @@ REAL_TOOL_NAMES = (
 # Skills are loaded with the <skill>NAME</skill> verb, NOT a load_skill tool.
 SKILL_VERB_OPEN, SKILL_VERB_CLOSE = "<skill>", "</skill>"
 
+# Stage 1/2 PLAN-mode deterministic gates: goal committed before the checklist, and
+# every checkbox binding maps to a real listed skill/tool.
+GOAL_BEFORE_PLAN = "goal_before_plan"
+PLAN_BOXES_BOUND = "plan_boxes_bound"
+
 RULES = (
     FINAL_NO_XML, KNOWN_TOOL_ONLY, ARGS_MATCH_SCHEMA, MAX_SIX_TOOL_CALLS,
     NO_EXACT_DUPLICATE_CALL, SKILL_INDEX_ONLY_BEFORE_LOAD, SELECTED_SKILL_EXISTS,
     BOARD_CLAIM_GROUNDED, START_POSITION_EQUAL, CLOSE_EVAL_EQUAL_LANGUAGE,
-    TOOL_TEXT_IS_DATA, NARRATION_GROUNDED,
+    TOOL_TEXT_IS_DATA, NARRATION_GROUNDED, GOAL_BEFORE_PLAN, PLAN_BOXES_BOUND,
 ) + HARNESS_RULES
 
 REQUIRED_FIELDS = (

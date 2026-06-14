@@ -12,12 +12,14 @@ from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.compound_plan import render_compound_plan_row
 from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
 from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
 from .sampler import (
-    CHESS_SLICES, COMPUTE_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES, plan_scenarios,
+    CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES,
+    plan_scenarios,
 )
 from .validate import validate_row
 
@@ -59,6 +61,9 @@ DEFAULT_PLAN: dict[str, int] = {
     # (3 reasoning modes × ~12 prompt families) cell, the threshold for a 4B to
     # learn the behavior robustly rather than sample it (audit 2026-06-14).
     "V1_R_compute_grounding": 80,
+    # Stage 1 compound-plan: goal-driven completion across 2 skills (anti-early-stop).
+    # base 90 -> ~1000 rows after scaling, broad domain-pair coverage.
+    "V1_S_compound_plan": 90,
 }
 
 
@@ -137,6 +142,8 @@ def run(
                 row = render_universality_row(scenario)
             elif scenario.slice in COMPUTE_SLICES:
                 row = render_compute_row(scenario)
+            elif scenario.slice in COMPOUND_SLICES:
+                row = render_compound_plan_row(scenario.seed)
             else:
                 if progress and _should_report(index, total):
                     progress(index, total, len(accepted), len(rejected))
