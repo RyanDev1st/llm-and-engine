@@ -74,6 +74,14 @@ _REASONING_LINE = {
     "auto": "Reasoning mode: AUTO — use a brief <think> ONLY before a hard choice "
             "(which skill/tool fits, recovering from an error, or deciding you have "
             "enough to answer); skip it on obvious steps. The <think> is hidden.",
+    "plan": "Reasoning mode: PLAN — a compound goal needing several skills/tools. "
+            "First commit the goal: <goal>restate what to accomplish</goal>. Then author "
+            "a checklist: <plan> with one '- [ ] action (skill-or-tool)' line per sub-goal. "
+            "Then work the boxes IN ORDER, one action per step (load the named skill / call "
+            "the named tool, read the result). Finish with a grounded synthesis across the "
+            "boxes. If a box can't be cleared, stop and report what's done and what's blocked "
+            "— never claim a box you didn't actually complete. <goal>/<plan> show in the plan "
+            "panel, not the chat.",
 }
 
 
