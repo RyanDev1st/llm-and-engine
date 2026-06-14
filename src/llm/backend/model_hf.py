@@ -5,12 +5,16 @@ HF path is the reliable live runtime that loads the same 4-bit weights + adapter
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import torch
 
 LLM_DIR = Path(__file__).resolve().parents[1]
-BASE = LLM_DIR / "models" / "gemma4_e2b"
+# Base model the adapter was trained on. Default e2b (back-compat); override with
+# CHESS_HF_BASE for an E4B adapter (e.g. a downloaded unsloth/gemma-4-E4B-it dir).
+# An E4B LoRA on an E2B base = shape mismatch, so this MUST match the training base.
+BASE = Path(os.environ.get("CHESS_HF_BASE") or (LLM_DIR / "models" / "gemma4_e2b"))
 
 
 class HFModel:
