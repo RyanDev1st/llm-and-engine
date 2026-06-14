@@ -40,6 +40,8 @@ UNIVERSALITY_SLICES = {
 COMPUTE_SLICES = {"V1_R_compute_grounding"}
 # Stage 1 compound-plan slice: its own renderer builds the multi-skill index/manifest.
 COMPOUND_SLICES = {"V1_S_compound_plan"}
+# Stage 2 audited-plan slice: its own renderer (audit skill + python-verified boxes).
+AUDIT_SLICES = {"V1_T_audited_plan"}
 
 PROMPT_STYLES = ("formal", "casual", "slang", "typo", "anxious", "beginner")
 

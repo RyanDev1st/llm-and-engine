@@ -12,14 +12,15 @@ from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.audited_plan import render_audited_plan_row
 from .renderer.compound_plan import render_compound_plan_row
 from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
 from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
 from .sampler import (
-    CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES,
-    plan_scenarios,
+    AUDIT_SLICES, CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE,
+    UNIVERSALITY_SLICES, plan_scenarios,
 )
 from .validate import validate_row
 
@@ -64,6 +65,9 @@ DEFAULT_PLAN: dict[str, int] = {
     # Stage 1 compound-plan: goal-driven completion across 2 skills (anti-early-stop).
     # base 90 -> ~1000 rows after scaling, broad domain-pair coverage.
     "V1_S_compound_plan": 90,
+    # Stage 2 audited-plan: load the audit skill, verify each checkable box via the
+    # python tool (never assert), split-determinism on semantic boxes, honest-partial.
+    "V1_T_audited_plan": 90,
 }
 
 
@@ -144,6 +148,8 @@ def run(
                 row = render_compute_row(scenario)
             elif scenario.slice in COMPOUND_SLICES:
                 row = render_compound_plan_row(scenario.seed)
+            elif scenario.slice in AUDIT_SLICES:
+                row = render_audited_plan_row(scenario.seed)
             else:
                 if progress and _should_report(index, total):
                     progress(index, total, len(accepted), len(rejected))

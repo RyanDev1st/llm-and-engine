@@ -100,6 +100,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_one_tool_per_message(row["messages"]))
     violations.extend(_reasoning_mode(row))
     violations.extend(_plan_structure(row))
+    violations.extend(_audit_boxes(row, calls))
     return violations
 
 
@@ -423,6 +424,26 @@ def _plan_structure(row: dict[str, Any]) -> list[Violation]:
             if b not in names:
                 out.append(Violation("plan_boxes_bound", f"box binding '{b}' not a listed skill/tool"))
     return out
+
+
+def _audit_boxes(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
+    """Stage 2: every plan box bound to `python` must be CLOSED by a real python audit —
+    the model runs the script and reads the output, it does not assert. Enforced only when
+    the audit procedure actually ran (plan-audit in selected_skills); an honest-partial
+    abort (audit skill disabled -> not selected) is exempt, since the point is it couldn't."""
+    if "audit_boxes_grounded" not in row.get("acceptance_rules", []):
+        return []
+    if "plan-audit" not in row.get("selected_skills", []):
+        return []                                   # honest-partial abort -> nothing to audit
+    text = "\n".join(m.get("content", "") for m in row["messages"] if m.get("role") == "assistant")
+    pm = _PLAN_TAG.search(text)
+    if not pm:
+        return [Violation("audit_boxes_grounded", "missing <plan>")]
+    py_boxes = sum(1 for b in _BOX_BIND.findall(pm.group(1)) if b.strip() == "python")
+    py_calls = sum(1 for name, _, _ in calls if name == "python")
+    if py_calls < py_boxes:
+        return [Violation("audit_boxes_grounded", f"{py_calls} python audits for {py_boxes} checkable boxes")]
+    return []
 
 
 def _injection(row: dict[str, Any]) -> list[Violation]:
