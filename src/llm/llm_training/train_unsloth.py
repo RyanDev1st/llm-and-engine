@@ -219,6 +219,28 @@ def _flush_mem() -> None:
         torch.cuda.empty_cache()
 
 
+def _hub_push(local_dir, path_in_repo: str) -> None:
+    """Mirror a saved folder (checkpoint/ or best/) to a private HF Hub repo, OFF the
+    kernel. A full E4B epoch is ~30h > Kaggle's 12h ceiling, so every session is
+    SIGKILLed at the wall — and a SIGKILL is not a Python exception, so the in-process
+    crash-save can't fire and a timed-out committed run's local Output is not guaranteed
+    to persist. Pushing each checkpoint to the Hub makes resume bulletproof across
+    sessions AND accounts (the Hub is the shared store). Opt-in via CHESS_CKPT_REPO;
+    best-effort — an upload hiccup must never crash training."""
+    import os
+    repo = os.environ.get("CHESS_CKPT_REPO")
+    if not repo:
+        return
+    try:
+        from huggingface_hub import create_repo, upload_folder
+        create_repo(repo, repo_type="model", private=True, exist_ok=True)
+        upload_folder(folder_path=str(local_dir), repo_id=repo, repo_type="model",
+                      path_in_repo=path_in_repo, commit_message=f"{path_in_repo} sync")
+        print(f"  [hub] pushed {path_in_repo} -> {repo}", flush=True)
+    except Exception as exc:
+        print(f"  [hub] push skipped ({type(exc).__name__}: {exc})", flush=True)
+
+
 def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag="checkpoint") -> None:
     """Persist adapter + trainer state so a crash / 12h timeout / next session (even a
     different Kaggle account) can resume. Adapter save is the critical part; optimizer
@@ -234,6 +256,7 @@ def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag
         print(f"  [ckpt] optimizer/scheduler state not saved ({exc}); resume will warm-start", flush=True)
     torch.save(state, out / "trainer_state.pt")
     print(f"  [ckpt] saved {tag} @ update {update}", flush=True)
+    _hub_push(out, tag)                                   # mirror off-kernel (survives 12h SIGKILL)
     _flush_mem()
 
 
@@ -353,6 +376,7 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
                             best_val = vloss
                             saver.save_pretrained(str(config.output_dir / "best"))
                             print(f"  saved best (val_loss={vloss:.4f})", flush=True)
+                            _hub_push(config.output_dir / "best", "best")   # mirror off-kernel
                             _flush_mem()           # release memory once a best is banked
                 if main and update % save_every == 0:   # crash/timeout-safe resumable checkpoint
                     _save_ckpt(saver, optimizer, scheduler, update, epoch, best_val, config)
@@ -465,6 +489,8 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
     scheduler = build_scheduler(optimizer, warmup, total_updates)
     # Resume BEFORE any DDP wrap (set_peft_model_state_dict needs the raw PEFT model).
+    # Hub PULL is done once in the notebook (Cell 6.6), before accelerate launch, so the
+    # 2 DDP ranks just read the staged local checkpoint (no concurrent-download race).
     start_update, start_epoch, best_val = _load_ckpt(model, optimizer, scheduler, config)
     if start_update >= total_updates:
         print(f"[unsloth] already at/over target ({start_update}/{total_updates}); nothing to do. "
