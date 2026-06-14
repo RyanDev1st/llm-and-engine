@@ -383,6 +383,15 @@ def extract_call(decision: str) -> str | None:
     return None
 
 
+# Map the internal load_skill execution form BACK to the trained <skill>NAME</skill> verb,
+# for conversation history (train==serve) and UI display. Preserves any lead-in text.
+_LOAD_SKILL_CALL = _re.compile(r"<tool>\s*load_skill\s+name=([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</tool>")
+
+
+def _to_skill_verb(call: str) -> str:
+    return _LOAD_SKILL_CALL.sub(lambda m: f"<skill>{m.group(1)}</skill>", call)
+
+
 def serving_skills_index(plugin_context: dict | None = None) -> list[dict]:
     """Catalog entries (name + description) for every skill the model may load: the
     SKILL.md files from the skills dir PLUS the skills bundled by enabled plugins."""
@@ -478,11 +487,13 @@ class CoachLoop:
         reply = _correct_move_names(reply, tool_results)
         reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
         new_turns.append({"role": "assistant", "content": reply})
+        # Display the trained <skill> verb in the payload, not the internal load_skill form.
+        disp_calls = [_to_skill_verb(c) for c in tool_calls]
         return {
             "reply": reply,
-            "tool_call": tool_calls[-1] if tool_calls else None,
+            "tool_call": disp_calls[-1] if disp_calls else None,
             "tool_result": tool_results[-1] if tool_results else None,
-            "tool_calls": tool_calls,
+            "tool_calls": disp_calls,
             "tool_results": tool_results,
             "turns": new_turns,
             "context": ctx_stats.as_payload(),
@@ -592,6 +603,10 @@ class CoachLoop:
             # Dedup on the call itself, not the full text — a differing lead-in
             # ("Let me check" vs "I'll look") must not let the same call re-run and
             # re-hit the engine. Key = the <tool>…</tool> span.
+            # Dedup + execution use the canonical load_skill form; HISTORY + DISPLAY use
+            # the <skill> verb the model was TRAINED on. Storing the load_skill form in
+            # convo fed off-distribution history back to the model (it never saw load_skill
+            # in training) — a cause of skill re-loading. hist keeps train==serve.
             i0 = decision.find("<tool>")
             key = decision[i0:] if i0 >= 0 else decision
             tool_result = "error: duplicate_tool_call" if key in seen_calls else self.executor.execute(decision)
@@ -599,13 +614,15 @@ class CoachLoop:
             name = parse_call(decision)[0] or ""
             if name:
                 seen_names.add(name)
+            hist = _to_skill_verb(decision)        # <tool>load_skill name=X</tool> -> <skill>X</skill>
             tool_calls.append(decision)
             tool_results.append(tool_result)
             if on_event:  # live progress: surface each tool step as it completes (streaming UI)
-                on_event({"type": "tool", "name": name, "call": decision, "result": tool_result})
-            convo += [{"role": "assistant", "content": decision},
+                ev_name = "skill" if name == "load_skill" else name
+                on_event({"type": "tool", "name": ev_name, "call": hist, "result": tool_result})
+            convo += [{"role": "assistant", "content": hist},
                       {"role": "tool", "content": tool_result}]
-            new_turns += [{"role": "assistant", "content": decision},
+            new_turns += [{"role": "assistant", "content": hist},
                           {"role": "tool", "content": tool_result}]
             if tool_result == "error: duplicate_tool_call":
                 break

@@ -19,7 +19,15 @@ class ScriptedModel:
 
 
 def _names(out):
-    return [parse_call(c)[0] for c in out["tool_calls"]]
+    # tool_calls now DISPLAYS skill loads as the trained verb <skill>NAME</skill>
+    # (execution still uses load_skill); map it back so these behavior assertions hold.
+    names = []
+    for c in out["tool_calls"]:
+        n = parse_call(c)[0]
+        if n is None and "<skill>" in c:
+            n = "load_skill"
+        names.append(n)
+    return names
 
 
 def _loop(steps, game=None):
