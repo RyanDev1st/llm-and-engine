@@ -267,7 +267,24 @@ def _load_ckpt(model, optimizer, scheduler, config) -> tuple[int, int, float]:
             break
     if adapter_sd is None:
         raise FileNotFoundError(f"[resume] {ckpt} has trainer_state but no adapter weights — refusing to restart from zero")
-    set_peft_model_state_dict(model, adapter_sd)
+    # Load + VERIFY it actually took. A name/prefix mismatch on the Unsloth-wrapped PEFT
+    # model could match ZERO keys and silently resume with a RANDOM adapter (disaster on a
+    # multi-day run). So snapshot a trained LoRA weight, load, and assert it changed.
+    lora_params = {n: p for n, p in model.named_parameters() if "lora_" in n.lower()}
+    if not lora_params:
+        raise RuntimeError("[resume] model has no lora_ params — wrong model/targets, refusing to resume")
+    probe_name = next(iter(lora_params))
+    before = lora_params[probe_name].detach().float().clone()
+    result = set_peft_model_state_dict(model, adapter_sd)
+    after = dict(model.named_parameters())[probe_name].detach().float()
+    moved = not torch.equal(before, after)
+    n_unexpected = len(getattr(result, "unexpected_keys", []) or [])
+    n_loaded = len(adapter_sd) - n_unexpected
+    print(f"  [resume] adapter keys: {n_loaded}/{len(adapter_sd)} loaded, probe_changed={moved}", flush=True)
+    if n_loaded == 0 or not moved:
+        raise RuntimeError(
+            f"[resume] adapter load matched ~0 keys (unexpected={n_unexpected}) or weights didn't change "
+            "— key/prefix mismatch. Refusing to resume from a random adapter. Fix the load path before a real run.")
     state = torch.load(state_path, map_location="cpu")
     try:
         if "optimizer" in state:
