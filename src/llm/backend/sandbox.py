@@ -30,9 +30,21 @@ _MAX_CODE = 500     # a short verification script never needs more
 _MAX_OUT = 600      # cap echoed stdout so a runaway print can't flood the context
 
 
+def _unwrap(text: str) -> str:
+    """Strip one layer of matching outer quotes — small models sometimes emit
+    `code="print(...)"` (whole script wrapped), which would otherwise run as a bare
+    string literal -> no output. Only strips when the WHOLE thing is wrapped, so a real
+    script like print("hi") (starts with a letter) is untouched."""
+    t = text.strip()
+    for q in ('"""', "'''", '"', "'"):
+        if len(t) >= 2 * len(q) and t.startswith(q) and t.endswith(q):
+            return t[len(q):-len(q)].strip()
+    return t
+
+
 def run_python(code: str) -> str:
     """Execute `code` in an isolated subprocess; return `output: ...` / `error: ...`."""
-    text = (code or "").strip()
+    text = _unwrap((code or "").strip())
     if not text or len(text) > _MAX_CODE:
         return "error: python_invalid"
     try:
