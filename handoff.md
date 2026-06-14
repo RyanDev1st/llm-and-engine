@@ -6,6 +6,42 @@ architecture we're considering next, and candid notes. Written 2026-06-14, branc
 
 ---
 
+## ⚡ SESSION UPDATE 2026-06-14b (supersedes stale claims below — read FIRST)
+
+Big deltas since the body of this file was written (the older sections below are partly
+out of date where they conflict with this block):
+
+- **TRAINING WORKS ON FREE KAGGLE.** E4B 4-bit QLoRA fits **ONE** T4 at seq 1664 — the old
+  "DDP OOMs → single-GPU" / "needs Colab Pro" claims are WRONG. The whole OOM saga was a
+  self-inflicted broken-gradient-checkpointing bug (device_map=balanced hooks disabled
+  checkpointing; fix = `enable_input_require_grads()` + no device_map). See memory
+  [[e4b-needs-2xt4-balanced]] (RESOLVED) + [[qlora-single-gpu-oom-playbook]].
+- **DDP NOW WORKS** for ~1.82× on 2×T4 (`accelerate launch --num_processes 2 --multi_gpu`),
+  gated add-on; single-GPU byte-identical. Memory [[e4b-2xt4-three-miracles]] + the playbook.
+- **SCOUT PASSED (Stage 0 validated):** 250-step E4B scout served on T4 → verification-as-
+  tool-use, fast/think/auto gating, skill routing all EMERGED. [[scout-e4b-behaviors-emerged]].
+- **Multi-session resume + lean subset + 250-step de-risk** all built (the "3 miracles").
+- **Stage 0 SHIPPED** (python verify tool + V1_R). **Stage 1 BUILT** (this session):
+  `plan` reasoning mode + `V1_S_compound_plan` (goal-driven anti-early-stop loop), seq
+  max 1243, validates clean, NOT yet regen/trained. See [[stage1-plan-mode-built]].
+
+**Plan of record now (deadline ~1 week): build all stages into the DATA, then ONE train.**
+1. Stage 2 (audit skill verifies boxes via the python tool) — IN PROGRESS / next.
+2. Then ONE regen + `final_corpus_audit.py` gate + the full E4B train (Kaggle, multi-session).
+3. Serve-side (post-train, no retrain): plan box-tracking gate + the plan PANEL UI.
+
+**Two standing user requirements (2026-06-14b):**
+- **`<goal>` ALWAYS-ON** — every request starts with `<goal>` to force intent-understanding,
+  not only in plan mode. OPEN: every-row (big regen + seq cost) vs multi-step-only — DECIDE
+  before regen.
+- **Plan mode in the ACTUAL serve harness** — the runtime thinks to build the checklist +
+  the deterministic gate blocks the final until boxes clear. (Training data exists; serve
+  gate is the post-train task.)
+
+---
+
+---
+
 ## 0. What the product is (don't lose this framing)
 
 A **general agentic HARNESS operator**: an LLM that **chooses among the skills+tools listed
