@@ -105,47 +105,38 @@ def _weighted_ce(logits: torch.Tensor, labels: torch.Tensor, weights: torch.Tens
 
 def _masked_loss(model: Any, batch: dict, labels: torch.Tensor, weights: torch.Tensor | None,
                  unwrapped: Any = None) -> torch.Tensor:
-    # Swap lm_head -> Identity so the forward returns hidden states (no 262k-vocab
-    # logits materialized); apply the real head only on supervised tokens. This is
-    # the train_cuda trick, kept here with an Unsloth-aware head locator.
-    # Under DDP, `model` is the DistributedDataParallel wrapper (no .get_base_model):
-    # run the FORWARD through it so grads all-reduce, but locate/swap lm_head on the
-    # UNWRAPPED base. Single-GPU: unwrapped is None -> swap on model itself (unchanged).
-    holder = _lm_head_holder(unwrapped if unwrapped is not None else model)
-    real_head = holder.lm_head
-    holder.lm_head = torch.nn.Identity()
-    try:
-        hidden = model(**batch).logits
-    finally:
-        holder.lm_head = real_head
-    labels = labels.to(hidden.device)
-    flat_hidden = hidden[..., :-1, :].contiguous().view(-1, hidden.size(-1))
-    flat_labels = labels[..., 1:].contiguous().view(-1)
-    sel = flat_labels != -100
+    # Run the model's NORMAL forward and use its real logits — NO lm_head swap. The old
+    # swap-to-Identity trick (to skip the 262k-vocab logit materialization) BROKE under
+    # DDP: Unsloth's patched Gemma-4 forward reads lm_head.weight directly, so an Identity
+    # head -> "'Identity' object has no attribute 'weight'". Paying the ~0.9GB transient
+    # logits buys DDP-safety + simplicity AND keeps the per-token grounding weight (5x on
+    # fact tokens) — the anti-fabrication mechanism. `unwrapped` is now unused (kept for
+    # call-site compatibility); forward goes through `model` so DDP grads all-reduce.
+    logits = model(**batch).logits
+    labels = labels.to(logits.device)
+    flat = logits[..., :-1, :].reshape(-1, logits.size(-1))
+    flab = labels[..., 1:].reshape(-1)
+    sel = flab != -100
     if not sel.any():
-        return hidden.sum() * 0.0
-    sel_hidden = flat_hidden[sel]
-    sel_labels = flat_labels[sel]
-    sel_weights = (weights.to(hidden.device)[..., 1:].contiguous().view(-1)[sel]
-                   if weights is not None else None)
-    # Chunk the vocab projection: real_head(sel_hidden) over a 262k vocab in fp32 is a
-    # multi-hundred-MB spike on the GPU that holds lm_head (the one that OOMs under
-    # naive model-parallel). Projecting in row-chunks bounds that peak; result is
-    # identical (weighted sum / total weight).
-    CH = 256
-    tot_loss = sel_hidden.new_zeros(())
-    tot_w = sel_hidden.new_zeros(())
-    for i in range(0, sel_hidden.size(0), CH):
-        logits_i = real_head(sel_hidden[i:i + CH]).float()
-        labels_i = sel_labels[i:i + CH]
-        if sel_weights is None:
-            tot_loss = tot_loss + F.cross_entropy(logits_i, labels_i, reduction="sum")
-            tot_w = tot_w + labels_i.numel()
+        return logits.sum() * 0.0
+    sl = flat[sel]
+    slab = flab[sel]
+    sw = (weights.to(logits.device)[..., 1:].reshape(-1)[sel] if weights is not None else None)
+    # Chunk the fp32 CE upcast so the supervised-token logits don't spike all at once.
+    CH = 512
+    tot = sl.new_zeros(())
+    tw = sl.new_zeros(())
+    for i in range(0, sl.size(0), CH):
+        li = sl[i:i + CH].float()
+        la = slab[i:i + CH]
+        if sw is None:
+            tot = tot + F.cross_entropy(li, la, reduction="sum")
+            tw = tw + la.numel()
         else:
-            w_i = sel_weights[i:i + CH]
-            tot_loss = tot_loss + (F.cross_entropy(logits_i, labels_i, reduction="none") * w_i).sum()
-            tot_w = tot_w + w_i.sum()
-    return tot_loss / tot_w.clamp(min=1.0)
+            wi = sw[i:i + CH]
+            tot = tot + (F.cross_entropy(li, la, reduction="none") * wi).sum()
+            tw = tw + wi.sum()
+    return tot / tw.clamp(min=1.0)
 
 
 @torch.no_grad()
