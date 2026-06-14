@@ -35,8 +35,13 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     loop = CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None))
     out = loop.respond([], "how's my game?")
 
-    # all three tools actually ran, in order (lead-in did NOT swallow the call)
-    names = [re.search(r"<tool>\s*([a-z_]+)", c).group(1) for c in out["tool_calls"]]
+    # all three actions ran, in order (lead-in did NOT swallow the call). load_skill
+    # is displayed via the trained <skill> verb, fact tools as <tool> — the serve
+    # display contract (inference._to_skill_verb).
+    def _action_name(c):
+        sk = re.search(r"<skill>\s*([A-Za-z0-9_-]+)\s*</skill>", c)
+        return "load_skill" if sk else re.search(r"<tool>\s*([a-z_]+)", c).group(1)
+    names = [_action_name(c) for c in out["tool_calls"]]
     assert names == ["load_skill", "board_state", "eval"]
     # the stored assistant turn keeps the lead-in narration before the call
     assert out["tool_calls"][0].startswith("Let me load")

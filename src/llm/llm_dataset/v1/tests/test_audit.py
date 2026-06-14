@@ -71,9 +71,19 @@ def test_v1_2_missing_enforces_prompt_diversity():
 
 
 def test_v1_2_profile_scales_chess_slice_tolerance():
-    accepted = [row(slice_name="A") for _ in range(2585)]  # 180/5222 * 75000 ≈ 2585
+    # Derive the on-target A count from the audit's OWN scaling so this never goes
+    # stale when the slice set / plan grows (V1_R, V1_S, ... were added after the
+    # original hardcoded 2585, which then fell outside the tolerance band).
+    from llm_dataset.v1.audit import BASE_UNIVERSAL_TARGET, CHESS_TARGETS
+    from llm_dataset.v1.contracts import SLICES
+
+    p = profile("v1.2")
+    n_universal = sum(1 for s in SLICES if s.startswith("V1_"))
+    scale = p.accepted_target / (sum(CHESS_TARGETS.values()) + n_universal * BASE_UNIVERSAL_TARGET)
+    on_target_a = round(180 * scale)
+    accepted = [row(slice_name="A") for _ in range(on_target_a)]
     rejected = [row() for _ in range(7500)]
-    assert "A outside target tolerance" not in missing_for(accepted, rejected, profile("v1.2"))
+    assert "A outside target tolerance" not in missing_for(accepted, rejected, p)
 
 
 def test_v1_2_missing_enforces_plugin_provenance_diversity():
