@@ -53,6 +53,27 @@ def to_gguf(merged: Path, gguf_f16: Path) -> bool:
     return subprocess.run(cmd).returncode == 0
 
 
+def to_mmproj(base: Path, mmproj_out: Path) -> bool:
+    """Export the VISION/AUDIO projector (mmproj) GGUF so the served GGUF keeps image
+    reading. Sourced from the BASE model: our LoRA trains text attention only and never
+    touches the vision tower, so the base projector IS the full, unsacrificed image
+    capability. Verified supported by the bundled stack: convert registers
+    Gemma4VisionAudioModel (GEMMA4V/GEMMA4A) and mtmd.dll decodes gemma4v at inference.
+    Serve with: llama-mtmd-cli -m <text gguf> --mmproj <this> --image pic.jpg -p '...'.
+    Best-effort: vision is a bonus over the text path, so a failure never blocks export."""
+    conv = find_tool("convert_hf_to_gguf.py")
+    if not conv:
+        return False
+    cmd = [sys.executable, str(conv), str(base), "--mmproj",
+           "--outfile", str(mmproj_out), "--outtype", "f16"]
+    print(" ".join(cmd), flush=True)
+    try:
+        return subprocess.run(cmd).returncode == 0
+    except Exception as exc:
+        print(f"mmproj export skipped ({exc}); text GGUF still serves (no image input).", flush=True)
+        return False
+
+
 def quantize(gguf_f16: Path, gguf_out: Path, quant_type: str = "Q4_0") -> bool:
     qbin = find_tool("llama-quantize.exe") or find_tool("quantize.exe")
     if not qbin:
@@ -71,6 +92,7 @@ def main() -> None:
     merged = REPO / "runs" / "gemma4_chess_merged"
     gguf_f16 = REPO / "runs" / "gemma4-E2B-chesscoach-f16.gguf"
     gguf_out = REPO / "runs" / f"gemma4-E2B-chesscoach-{quant}.gguf"
+    mmproj = REPO / "runs" / "mmproj-gemma4-vision-f16.gguf"
     # Reuse an existing f16 GGUF if present (skip the costly merge + convert).
     if not gguf_f16.exists():
         merge(adapter, merged)
@@ -83,6 +105,16 @@ def main() -> None:
         print(f"DONE: {gguf_out}", flush=True)
     else:
         print("quantize failed; ship via transformers 4-bit + adapter (model_hf).", flush=True)
+    # Vision projector (keeps image reading on the GGUF path). Skip if already present.
+    if mmproj.exists():
+        print(f"reusing existing mmproj: {mmproj}", flush=True)
+    elif to_mmproj(BASE, mmproj):
+        print(f"DONE mmproj: {mmproj}", flush=True)
+        print(f"  serve+image: llama-mtmd-cli -m {gguf_out.name} --mmproj {mmproj.name} "
+              "--image <pic> -p 'describe this image'", flush=True)
+    else:
+        print("mmproj export skipped — text GGUF serves text-only; for image input serve "
+              "via transformers (model_hf, base+adapter) instead.", flush=True)
 
 
 if __name__ == "__main__":
