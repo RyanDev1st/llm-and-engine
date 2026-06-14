@@ -3,13 +3,36 @@ through here. Returns python-chess primitives; spec-string formatting lives in
 tools.py."""
 from __future__ import annotations
 
+import os
+import shutil
 from pathlib import Path
 
 import chess
 import chess.engine
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SF = ROOT / "src/llm/runtime/stockfish/stockfish/stockfish-windows-x86-64-avx2.exe"
+_BUNDLED_SF = ROOT / "src/llm/runtime/stockfish/stockfish/stockfish-windows-x86-64-avx2.exe"
+
+
+def _resolve_sf() -> str:
+    """Find a runnable Stockfish: explicit CHESS_SF env > the bundled Windows exe (if it
+    exists) > a `stockfish` on PATH (Linux/Colab/Kaggle apt install) > common locations.
+    Returns a path string; popen errors surface later if truly absent."""
+    env = os.environ.get("CHESS_SF")
+    if env and Path(env).exists():
+        return env
+    if _BUNDLED_SF.exists():
+        return str(_BUNDLED_SF)
+    found = shutil.which("stockfish")
+    if found:
+        return found
+    for p in ("/usr/games/stockfish", "/usr/bin/stockfish", "/usr/local/bin/stockfish"):
+        if Path(p).exists():
+            return p
+    return str(_BUNDLED_SF)   # fall back to the documented default; popen_uci will error clearly
+
+
+DEFAULT_SF = _resolve_sf()
 
 
 class Engine:
