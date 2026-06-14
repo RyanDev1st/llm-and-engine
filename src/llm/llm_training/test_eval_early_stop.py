@@ -73,6 +73,21 @@ def test_rollout_silent_early_stop_when_second_tool_skipped():
     assert classify(final, fired, case) == "silent_early_stop"
 
 
+def test_rollout_treats_plan_panel_as_continue_not_final():
+    # A plan-mode model emits the <goal>/<plan> panel FIRST. The rollout must not
+    # mistake that for the final answer (which would record an instant early-stop).
+    case = build_cases(1)[0]
+    model = ScriptModel([
+        f"<goal>1) {case.a.skill}; 2) {case.b.skill}</goal>\n<plan>\n"
+        f"- [ ] a ({case.a.skill})\n- [ ] b ({case.b.skill})\n- [ ] synth (none)\n</plan>",
+        f"<skill>{case.a.skill}", f"<tool>{case.a.tool} q=x",
+        f"<skill>{case.b.skill}", f"<tool>{case.b.tool} q=x",
+        "Combined answer for both parts."])
+    final, fired, _ = rollout(model, "sys", case)
+    assert fired == {case.a.tool, case.b.tool}
+    assert classify(final, fired, case) == "complete"
+
+
 def test_run_reports_positive_reduction_when_goal_helps():
     report = run(ABModel(), build_cases(3))
     assert report["goal_on"]["completion_rate"] == 1.0

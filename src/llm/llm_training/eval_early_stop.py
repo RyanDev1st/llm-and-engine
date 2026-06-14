@@ -41,6 +41,7 @@ PLUGINS = {"installed": ["user-skills"], "enabled": ["user-skills"], "marketplac
 _BLOCKER = re.compile(r"\b(block|can'?t|cannot|unable|couldn'?t|disabled|stuck)\b", re.I)
 _SKILL_OPEN = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)")
 _TOOL_OPEN = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
+_PANEL = re.compile(r"</?(?:goal|plan)>")     # plan-mode panel turn (not an action, not a final)
 
 
 class ModelBackend(Protocol):
@@ -124,6 +125,11 @@ def rollout(model: ModelBackend, system: str, case: Case) -> tuple[str, set, int
             steps += 1
             convo += [{"role": "assistant", "content": _close(out)},
                       {"role": "tool", "content": _execute(name, "skill", case)}]
+        elif _PANEL.search(out):
+            # plan-mode panel turn (<goal>/<plan>): commit it and KEEP GOING — it is
+            # NOT the final answer (the model proceeds to work each box next). Without
+            # this, the harness would mis-score the panel as an instant early-stop.
+            convo.append({"role": "assistant", "content": out})
         else:
             return out, fired, steps          # plain final reply
     return "", fired, steps                    # never finalized -> non-complete
