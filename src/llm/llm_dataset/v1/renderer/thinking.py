@@ -70,17 +70,19 @@ def think_fix(seed: int, action: str) -> str:
 
 def think_answer(seed: int, goal: str = "", *, enough: bool = True) -> str:
     """`<think>` before the FINAL reply: verify the goal is met, decide to answer (not
-    call another tool). This is the self-check that stops 'rookie' re-routing."""
+    call another tool). This is the self-check that stops 'rookie' re-routing. Goal-FREE:
+    the objective is already committed in the leading <goal> tag (open_goal), so restating
+    it here is redundant AND ungrammatical (goals are verb phrases — 'time to answer decide
+    between the options' broke). `goal` kept for call-site compat, unused."""
     r = random.Random(seed * 103 + 9)
-    g = (goal or "their question").strip().rstrip("?.!")
     if enough:
         return "<think>" + r.choice(
-            (f"I have what I need to {g} — answer now, no more tools",
-             f"that covers it; time to answer {g} directly",
-             f"goal met — reply to {g}, don't call anything else")) + ".</think>"
+            ("I have what I need — answer now, no more tools",
+             "that covers it; time to answer directly",
+             "goal met — reply now, don't call anything else")) + ".</think>"
     return "<think>" + r.choice(
-        (f"already covered {g} earlier — reference it, don't re-run a tool",
-         f"nothing new needed for {g}; answer from what's established")) + ".</think>"
+        ("already covered this earlier — reference it, don't re-run a tool",
+         "nothing new needed; answer from what's established")) + ".</think>"
 
 
 # --- reasoning MODE gating (fast / think / auto) -----------------------------
