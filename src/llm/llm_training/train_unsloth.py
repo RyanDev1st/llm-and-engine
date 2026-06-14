@@ -103,11 +103,15 @@ def _weighted_ce(logits: torch.Tensor, labels: torch.Tensor, weights: torch.Tens
     return (losses * weights).sum() / weights.sum().clamp(min=1.0)
 
 
-def _masked_loss(model: Any, batch: dict, labels: torch.Tensor, weights: torch.Tensor | None) -> torch.Tensor:
+def _masked_loss(model: Any, batch: dict, labels: torch.Tensor, weights: torch.Tensor | None,
+                 unwrapped: Any = None) -> torch.Tensor:
     # Swap lm_head -> Identity so the forward returns hidden states (no 262k-vocab
     # logits materialized); apply the real head only on supervised tokens. This is
     # the train_cuda trick, kept here with an Unsloth-aware head locator.
-    holder = _lm_head_holder(model)
+    # Under DDP, `model` is the DistributedDataParallel wrapper (no .get_base_model):
+    # run the FORWARD through it so grads all-reduce, but locate/swap lm_head on the
+    # UNWRAPPED base. Single-GPU: unwrapped is None -> swap on model itself (unchanged).
+    holder = _lm_head_holder(unwrapped if unwrapped is not None else model)
     real_head = holder.lm_head
     holder.lm_head = torch.nn.Identity()
     try:
@@ -300,17 +304,32 @@ def _load_ckpt(model, optimizer, scheduler, config) -> tuple[int, int, float]:
 
 
 def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_id, config,
-          total_updates, start_update=0, start_epoch=0, best_val=float("inf")) -> tuple:
+          total_updates, start_update=0, start_epoch=0, best_val=float("inf"),
+          accelerator=None, unwrapped=None, save_model=None) -> tuple:
     import time
     from .data_pipeline import make_batches
     losses: list[float] = []
     val_history: list[dict] = []
     update, epoch = start_update, start_epoch
     save_every = config.save_every or config.eval_every  # crash-safety cadence
+    # DDP: only rank 0 prints/saves; backward goes through accelerator so grads all-reduce.
+    # save_model is the UNWRAPPED model (save_pretrained on the DDP wrapper writes nothing).
+    main = (accelerator is None) or accelerator.is_main_process
+    saver = save_model if save_model is not None else model
+    eval_target = unwrapped if unwrapped is not None else model
+
+    def _backward(loss):
+        if accelerator is not None:
+            accelerator.backward(loss)
+        else:
+            loss.backward()
+
     _t_prev = time.time()
     try:
         while update < total_updates:
-            batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle, config.seed + epoch)
+            # DDP: vary the shuffle seed by RANK too, so each replica sees different rows.
+            seed = config.seed + epoch + (1000 * accelerator.process_index if accelerator is not None else 0)
+            batches = make_batches(train_examples, config.batch_size, pad_id, config.shuffle, seed)
             for micro_idx in range(0, len(batches), config.grad_accum_steps):
                 optimizer.zero_grad()
                 accum_loss = 0.0
@@ -319,8 +338,8 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
                     b = {k: v.to(device) for k, v in raw.items()}
                     labels = b.pop("labels")
                     weights = b.pop("weights", None)
-                    loss = _masked_loss(model, b, labels, weights) / len(chunk)
-                    loss.backward()
+                    loss = _masked_loss(model, b, labels, weights, unwrapped=unwrapped) / len(chunk)
+                    _backward(loss)
                     accum_loss += loss.item()
                 torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], config.grad_clip)
                 optimizer.step()
@@ -331,30 +350,33 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
                 _dt = _now - _t_prev
                 _t_prev = _now
                 _eta_h = _dt * (total_updates - update) / 3600.0
-                print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} "
-                      f"lr={scheduler.get_last_lr()[0]:.2e} {_dt:.1f}s/step eta~{_eta_h:.1f}h", flush=True)
+                if main:
+                    print(f"upd {update}/{total_updates} ep {epoch+1} loss={accum_loss:.4f} "
+                          f"lr={scheduler.get_last_lr()[0]:.2e} {_dt:.1f}s/step eta~{_eta_h:.1f}h", flush=True)
                 if val_batches and update % config.eval_every == 0:
-                    vloss = _evaluate(model, val_batches, device)
+                    vloss = _evaluate(eval_target, val_batches, device)
                     val_history.append({"update": update, "val_loss": vloss})
-                    print(f"  val_loss={vloss:.4f}", flush=True)
-                    if vloss < best_val:
-                        best_val = vloss
-                        model.save_pretrained(str(config.output_dir / "best"))
-                        print(f"  saved best (val_loss={vloss:.4f})", flush=True)
-                        _flush_mem()           # release memory once a best is banked
-                if update % save_every == 0:   # crash/timeout-safe resumable checkpoint
-                    _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config)
+                    if main:
+                        print(f"  val_loss={vloss:.4f}", flush=True)
+                        if vloss < best_val:
+                            best_val = vloss
+                            saver.save_pretrained(str(config.output_dir / "best"))
+                            print(f"  saved best (val_loss={vloss:.4f})", flush=True)
+                            _flush_mem()           # release memory once a best is banked
+                if main and update % save_every == 0:   # crash/timeout-safe resumable checkpoint
+                    _save_ckpt(saver, optimizer, scheduler, update, epoch, best_val, config)
                 torch.cuda.empty_cache()
                 if update >= total_updates:
                     break
             epoch += 1
     except (KeyboardInterrupt, Exception) as exc:
         # 12h cutoff / OOM / disconnect: persist progress so the next session resumes.
-        print(f"\n[interrupted: {type(exc).__name__}: {exc}] saving checkpoint before exit...", flush=True)
-        try:
-            _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config)
-        except Exception as save_exc:
-            print(f"[checkpoint-on-exit FAILED: {save_exc}]", flush=True)
+        if main:
+            print(f"\n[interrupted: {type(exc).__name__}: {exc}] saving checkpoint before exit...", flush=True)
+            try:
+                _save_ckpt(saver, optimizer, scheduler, update, epoch, best_val, config)
+            except Exception as save_exc:
+                print(f"[checkpoint-on-exit FAILED: {save_exc}]", flush=True)
         raise
     return losses, val_history
 
@@ -451,20 +473,49 @@ def run_unsloth_training(config: TrainConfig) -> dict:
 
     optimizer = build_optimizer(model, config.optimizer, config.learning_rate, config.weight_decay)
     scheduler = build_scheduler(optimizer, warmup, total_updates)
-    device = torch.device("cuda:0")
-    # Resume from a prior session's checkpoint (Kaggle 12h ceiling / account switch).
+    # Resume BEFORE any DDP wrap (set_peft_model_state_dict needs the raw PEFT model).
     start_update, start_epoch, best_val = _load_ckpt(model, optimizer, scheduler, config)
     if start_update >= total_updates:
         print(f"[unsloth] already at/over target ({start_update}/{total_updates}); nothing to do. "
               "Raise --max-steps to train further.", flush=True)
+
+    # DDP (Kaggle 2xT4): launched via `accelerate launch`/`torchrun` -> num_processes>1.
+    # Each rank holds a FULL replica (data-parallel), trains a DISJOINT data shard, and
+    # all-reduces the (tiny LoRA) grads each step -> ~2x throughput. Single-process: the
+    # Accelerator is a no-op and the path is byte-identical to before.
+    accelerator = unwrapped = save_model = None
+    device = torch.device("cuda:0")
+    try:
+        from accelerate import Accelerator
+        acc = Accelerator()
+        if acc.num_processes > 1:
+            train_examples = train_examples[acc.process_index::acc.num_processes]  # disjoint shard
+            model, optimizer = acc.prepare(model, optimizer)
+            accelerator = acc
+            unwrapped = acc.unwrap_model(model)
+            save_model = unwrapped
+            device = acc.device
+            if acc.is_main_process:
+                print(f"[ddp] {acc.num_processes} processes; per-rank shard={len(train_examples)} "
+                      f"examples; device={device}", flush=True)
+    except Exception as exc:  # accelerate missing / single-process -> plain single-GPU
+        print(f"[ddp] not active ({exc}); single-GPU path", flush=True)
+
     losses, val_history = _loop(model, train_examples, val_batches, optimizer, scheduler,
                                 device, tokenizer.pad_token_id, config, total_updates,
-                                start_update=start_update, start_epoch=start_epoch, best_val=best_val)
+                                start_update=start_update, start_epoch=start_epoch, best_val=best_val,
+                                accelerator=accelerator, unwrapped=unwrapped, save_model=save_model)
 
-    model.save_pretrained(str(config.output_dir))
-    processor.save_pretrained(str(config.output_dir))
-    result = {"engine": "unsloth", "total_updates": total_updates, "training_completed": True,
-              "final_train_loss": losses[-1] if losses else None, "train_losses": losses,
-              "val_losses": val_history, "output_dir": str(config.output_dir)}
-    (config.output_dir / "train_result.json").write_text(json.dumps(result, indent=2, default=str))
-    return result
+    is_main = (accelerator is None) or accelerator.is_main_process
+    if accelerator is not None:
+        accelerator.wait_for_everyone()
+    if is_main:
+        (save_model or model).save_pretrained(str(config.output_dir))
+        processor.save_pretrained(str(config.output_dir))
+        result = {"engine": "unsloth", "total_updates": total_updates, "training_completed": True,
+                  "final_train_loss": losses[-1] if losses else None, "train_losses": losses,
+                  "val_losses": val_history, "output_dir": str(config.output_dir),
+                  "ddp_world": (accelerator.num_processes if accelerator is not None else 1)}
+        (config.output_dir / "train_result.json").write_text(json.dumps(result, indent=2, default=str))
+        return result
+    return {"engine": "unsloth", "rank": accelerator.process_index, "training_completed": True}
