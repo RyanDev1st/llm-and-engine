@@ -392,6 +392,45 @@ def _to_skill_verb(call: str) -> str:
     return _LOAD_SKILL_CALL.sub(lambda m: f"<skill>{m.group(1)}</skill>", call)
 
 
+# --- PLAN-mode serve handling (Stage 1) --------------------------------------
+# A <goal>/<plan> panel turn commits the objective + checklist but carries NO
+# executable action, so the loop must surface it and KEEP working the boxes — not
+# treat it as the final reply. A box is satisfied when its bound skill/tool runs.
+_PLAN_TAG = _re.compile(r"<plan>(.*?)</plan>", _re.DOTALL)
+_GOAL_TAG = _re.compile(r"<goal>(.*?)</goal>", _re.DOTALL)
+_PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
+_SKILL_ARG = _re.compile(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)")
+
+
+def is_plan_panel(raw: str) -> bool:
+    """True when `raw` is a plan-mode panel turn: it has a <goal>/<plan> and no
+    executable action (so it must NOT be accepted as the final reply)."""
+    return bool(_GOAL_TAG.search(raw) or _PLAN_TAG.search(raw)) and extract_call(raw) is None
+
+
+def plan_bindings(raw: str) -> list[str]:
+    """Box bindings (skill/tool names) from an emitted <plan>, minus the
+    'none'/'synthesis' markers — the actions the model committed to taking."""
+    m = _PLAN_TAG.search(raw)
+    out: list[str] = []
+    if m:
+        for b in _PLAN_BOX.findall(m.group(1)):
+            b = b.strip()
+            if b not in ("none", "synthesize", "synthesis") and b not in out:
+                out.append(b)
+    return out
+
+
+def fired_binding(call: str) -> str:
+    """The plan-box binding a just-executed call satisfies: the loaded skill's name
+    for load_skill, else the tool name."""
+    name = parse_call(call)[0] or ""
+    if name == "load_skill":
+        m = _SKILL_ARG.search(call)
+        return m.group(1) if m else name
+    return name
+
+
 def serving_skills_index(plugin_context: dict | None = None) -> list[dict]:
     """Catalog entries (name + description) for every skill the model may load: the
     SKILL.md files from the skills dir PLUS the skills bundled by enabled plugins."""
@@ -477,6 +516,23 @@ class CoachLoop:
             convo.pop()  # scaffolding; never persisted
         return extract_call(verdict)  # next tool to continue with, or None (DONE/fulfilled)
 
+    @staticmethod
+    def _next_plan_action(convo: list[dict], gen_quiet, pending_box: str) -> str | None:
+        """PLAN-box backstop (Stage 1 anti-early-stop). When the model tries to finalize
+        but a plan box is still unfilled, ask it for the ONE next action that fills it.
+        Returns the next call to execute, or None when it says blocked / nothing more (so
+        the loop finalizes as honest-partial). Scaffolding — never persisted. Generalizes
+        to any domain via the model's OWN plan, no keyword map needed."""
+        convo.append({"role": "user", "content":
+            f'Your plan is not finished — "{pending_box}" still needs doing. Output the ONE '
+            "next action (a <skill> or <tool> call) that does it now. If it genuinely cannot "
+            "be done, say what is blocked instead — do not fake it."})
+        try:
+            out = gen_quiet(96, ["</tool>", "</tool_code>", "</skill>"])
+        finally:
+            convo.pop()  # scaffolding; never persisted
+        return extract_call(out)
+
     def _finalize(self, reply: str, required: dict, tool_calls: list[str],
                   tool_results: list[str], new_turns: list[dict], ctx_stats) -> dict:
         """Apply the output guards (strip skill/tool announce, fix a fabricated eval number
@@ -537,6 +593,9 @@ class CoachLoop:
         tool_results: list[str] = []
         seen_calls: set[str] = set()   # full <tool> spans, for dedup (same call never re-runs)
         seen_names: set[str] = set()   # tool NAMES gathered, for coverage (best_move != best_move top=3)
+        plan_boxes: list[str] = []     # outstanding <plan> box bindings (Stage 1 plan mode)
+        plan_fired: set[str] = set()   # bindings satisfied by an executed skill/tool
+        plan_nudges = 0                # plan-box steers used this turn (cap = number of boxes)
 
         # True token streaming: when the caller wants events AND the backend supports it,
         # stream each generation's tokens out as `token` events so the UI fills live. The
@@ -560,46 +619,57 @@ class CoachLoop:
         for _ in range(MAX_TOOL_CALLS):
             raw = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
+            if decision is None and is_plan_panel(raw):
+                # PLAN-mode panel turn (<goal>/<plan>): surface it, register the boxes, and
+                # KEEP GOING — it is NOT the final answer. Without this the loop would show the
+                # raw panel as the reply and never work the boxes (the Stage-1 serve trap).
+                plan_boxes = plan_bindings(raw) or plan_boxes
+                convo.append({"role": "assistant", "content": raw})
+                new_turns.append({"role": "assistant", "content": raw})
+                if on_event:
+                    on_event({"type": "plan", "content": raw})
+                continue
             if decision is None:  # the model wants to give the final reply
                 outstanding = [t for t in required if t not in seen_names]
                 if not outstanding:
-                    # All required intents covered. An empty reply — or a bare tool-intent
-                    # lead-in the model stopped on ("Loading the chess-coach skill.") after
-                    # tools ran — is a non-answer.
-                    whiffed = (not raw) or bool(tool_calls and _is_leadin_only(raw))
-                    if not whiffed:
-                        reply = raw
-                    else:
-                        # The model whiffed the answer. If it ONLY loaded context (skills),
-                        # a loaded skill must be FOLLOWED by the real answer — so retry once
-                        # with an explicit "answer now" nudge BEFORE falling back to a generic
-                        # greeting. This is the "explain chess -> loaded chess-coach skill ->
-                        # 'What would you like to look at?'" bug: the skill ate the turn.
-                        reply = self._force_answer(convo, gen_quiet, tool_calls) \
-                            or _fallback_reply(tool_calls, tool_results)
-                    reply = _strip_announce_leadin(reply)
-                    # Design B — robust self-verification: after a context-only (skill-load)
-                    # turn, the reply may be a fluent DEFLECTION ("skill loaded, what would
-                    # you like to do?") that ignores the original request. The whiff guard
-                    # can't catch that (it's not empty). Ask the model to self-check; if it
-                    # didn't fulfil the request, it returns the next tool — execute it and
-                    # let the loop continue (then it narrates the real result). Gated to
-                    # turns that LOADED A SKILL and ran no fact tool (+ one pass) — so plain
-                    # chat (no tools) and fact turns never pay for it.
-                    loaded_skill_only = bool(tool_calls) and _only_context(tool_calls)
-                    if coverage and not verified and loaded_skill_only:
-                        verified = True
-                        nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
+                    # PLAN-box backstop (Stage 1 anti-early-stop): if a <plan> was emitted and
+                    # a box is still unfilled, don't accept the final yet — ask for the ONE next
+                    # action that fills it (or let it declare honest-partial). Keyed on plan
+                    # PRESENCE, so it generalizes to any domain; a no-op when no plan was emitted.
+                    pending = [b for b in plan_boxes if b not in plan_fired]
+                    if pending and plan_nudges < len(plan_boxes):
+                        plan_nudges += 1
+                        nxt = self._next_plan_action(convo, gen_quiet, pending[0])
                         if nxt is not None:
-                            decision = nxt           # not fulfilled -> continue with this tool
+                            decision = nxt           # fill the box; fall through to execute
+                    if decision is None:
+                        # All required intents covered. An empty reply — or a bare tool-intent
+                        # lead-in the model stopped on after tools ran — is a non-answer.
+                        whiffed = (not raw) or bool(tool_calls and _is_leadin_only(raw))
+                        if not whiffed:
+                            reply = raw
+                        else:
+                            # Whiffed: if it ONLY loaded context (skills), retry once with an
+                            # explicit "answer now" nudge before the generic fallback.
+                            reply = self._force_answer(convo, gen_quiet, tool_calls) \
+                                or _fallback_reply(tool_calls, tool_results)
+                        reply = _strip_announce_leadin(reply)
+                        # Design B — self-verification after a context-only (skill-load) turn:
+                        # the reply may be a fluent DEFLECTION that ignores the request. Ask the
+                        # model to self-check; if not fulfilled it returns the next tool to run.
+                        loaded_skill_only = bool(tool_calls) and _only_context(tool_calls)
+                        if coverage and not verified and loaded_skill_only:
+                            verified = True
+                            nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
+                            if nxt is not None:
+                                decision = nxt           # not fulfilled -> continue with this tool
+                            else:
+                                return self._finalize(reply, required, tool_calls,
+                                                      tool_results, new_turns, ctx_stats)
                         else:
                             return self._finalize(reply, required, tool_calls,
                                                   tool_results, new_turns, ctx_stats)
-                    else:
-                        return self._finalize(reply, required, tool_calls,
-                                              tool_results, new_turns, ctx_stats)
-                    # reached only when verify returned a tool (decision=nxt) -> fall through
-                    # to execute it; the force-route below is for the outstanding case only.
+                        # reached only when verify returned a tool (decision=nxt) -> fall through
                 else:
                     # A required intent is still ungathered: force-route it directly
                     # (deterministic coverage) — no nudge round-trip on a small model.
@@ -618,6 +688,7 @@ class CoachLoop:
             name = parse_call(decision)[0] or ""
             if name:
                 seen_names.add(name)
+            plan_fired.add(fired_binding(decision))   # mark the plan box this call satisfies
             hist = _to_skill_verb(decision)        # <tool>load_skill name=X</tool> -> <skill>X</skill>
             tool_calls.append(decision)
             tool_results.append(tool_result)

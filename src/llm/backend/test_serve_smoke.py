@@ -57,6 +57,44 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     assert ctx["turns_kept"] + ctx["turns_evicted"] == ctx["turns_total"]
 
 
+def _act_name(c):
+    sk = re.search(r"<skill>\s*([A-Za-z0-9_-]+)\s*</skill>", c)
+    return "load_skill" if sk else re.search(r"<tool>\s*([a-z_]+)", c).group(1)
+
+
+def test_plan_panel_is_not_final_and_loop_works_the_boxes():
+    # A plan-mode model emits the <goal>/<plan> panel first. The loop must surface it
+    # and KEEP GOING (work both boxes), not show the raw panel as the answer.
+    panel = ("<goal>two things</goal>\n<plan>\n- [ ] load the coach (chess-coach)\n"
+             "- [ ] read the board (board_state)\n- [ ] synthesize (none)\n</plan>")
+    steps = [panel,
+             "Loading the coach.\n<tool>load_skill name=chess-coach",
+             "Now the board.\n<tool>board_state fields=basic",
+             "You're set up fine at the start. Want the plan, or Black's reply first?"]
+    out = CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None)).respond([], "help with two things")
+    assert "<plan>" not in out["reply"] and "<goal>" not in out["reply"]   # panel not leaked as reply
+    assert out["reply"].rstrip().endswith("?")
+    fired = {_act_name(c) for c in out["tool_calls"]}
+    assert "load_skill" in fired and "board_state" in fired                 # both boxes ran
+    assert any("<plan>" in t.get("content", "") for t in out["turns"])      # panel kept in history
+
+
+def test_plan_box_backstop_fills_an_unfilled_box_before_final():
+    # The model tries to finalize after only one box. The plan-box backstop must steer it
+    # to fill the remaining box before the answer is accepted.
+    panel = ("<goal>g</goal>\n<plan>\n- [ ] load the coach (chess-coach)\n"
+             "- [ ] read the board (board_state)\n- [ ] synthesize (none)\n</plan>")
+    steps = [panel,
+             "Loading.\n<tool>load_skill name=chess-coach",
+             "I'll just answer now.",                              # premature: board box unfilled
+             "Now the board.\n<tool>board_state fields=basic",     # produced by the backstop nudge
+             "All set at the start. Anything else to check?"]
+    out = CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None)).respond([], "do two things")
+    fired = {_act_name(c) for c in out["tool_calls"]}
+    assert "board_state" in fired                                  # backstop forced the unfilled box
+    assert "<plan>" not in out["reply"]
+
+
 def test_game_over_is_detected_and_loop_states_result():
     # Fool's mate: after 1.f3 e5 2.g4 Qh4# White is checkmated.
     game = Game()
