@@ -34,7 +34,7 @@ from backend.sandbox import run_python
 from ..catalog import CALC_TEMPLATE
 from ..sampler import Scenario
 from .leadins import lead
-from .thinking import gated_answer, gated_think, pick_mode
+from .thinking import gated_answer, gated_think, pick_mode, prepend_open_goal
 
 _GOAL = "settle this with the real number"
 _VERIFY_SHARE = 0.70           # ~70% verify-then-claim, ~30% compute-on-request
@@ -235,6 +235,7 @@ def render_compute_row(scenario: Scenario) -> dict[str, Any]:
         {"role": "tool", "content": _exec(code)},
         {"role": "assistant", "content": f"{ans}\n{final}" if ans else final},
     ]
+    prepend_open_goal(messages, seed, mode, _GOAL)   # lead with <goal> in thinking modes
     return {
         "id": f"v1_{scenario.slice.lower()}_{seed:09d}",
         "slice": scenario.slice,

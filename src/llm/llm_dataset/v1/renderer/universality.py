@@ -13,7 +13,7 @@ from .leadins import lead
 from .synth_engine import (
     budget_verdict, chain, engine_scene, equal_eval_scene_cp, recovery_eval_cp,
 )
-from .thinking import gated_answer, gated_direct, gated_fix, gated_think, pick_mode
+from .thinking import gated_answer, gated_direct, gated_fix, gated_think, pick_mode, prepend_open_goal
 from .universality_prompts import (
     BRIDGE_PROMPTS, FINAL_POOLS, NO_SKILL_DIRECT, NORMALIZED_RESULTS, SLICE_PROMPTS, STYLE_PROMPTS,
 )
@@ -146,6 +146,7 @@ def render_universality_row(scenario: Scenario) -> dict[str, Any]:
         messages.append({"role": "tool", "content": board_state_line(scenario.position.fen, "all")})
     ans = gated_answer(seed, goal, mode=mode)
     messages.append({"role": "assistant", "content": f"{ans}\n{_final(scenario)}" if ans else _final(scenario)})
+    prepend_open_goal(messages, seed, mode, goal)   # lead with <goal> in thinking modes
     return _envelope(scenario, messages, mode)
 
 

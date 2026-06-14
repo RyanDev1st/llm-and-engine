@@ -68,21 +68,26 @@ def _render_plugins(plugin_context: dict) -> str:
 
 
 _REASONING_LINE = {
-    "think": "Reasoning mode: THINK — open every step with a brief <think>your plan; "
-             "no facts</think>, then act. The <think> is hidden from the user.",
-    "fast": "Reasoning mode: FAST — no <think>; act and answer directly.",
-    "auto": "Reasoning mode: AUTO — use a brief <think> ONLY before a hard choice "
-            "(which skill/tool fits, recovering from an error, or deciding you have "
-            "enough to answer); skip it on obvious steps. The <think> is hidden.",
+    "think": "Reasoning mode: THINK — FIRST commit what the user wants, once: "
+             "<goal>their objective</goal>. Then open every step with a brief "
+             "<think>your state and next move; no facts</think> and act. <goal> shows "
+             "in the plan panel; <think> is hidden from the user.",
+    "fast": "Reasoning mode: FAST — no <goal>, no <think>; act and answer directly.",
+    "auto": "Reasoning mode: AUTO — FIRST commit what the user wants, once: "
+            "<goal>their objective</goal>. Then use a brief <think> ONLY before a hard "
+            "choice (which skill/tool fits, recovering from an error, or deciding you have "
+            "enough to answer); skip it on obvious steps. <goal> shows in the plan panel; "
+            "<think> is hidden.",
     "plan": "Reasoning mode: PLAN — this request needs SEVERAL tools/skills to fully "
-            "answer; do not stop after one. Commit the objective so you finish it: "
-            "<goal>what fully answering requires</goal>. List the needed steps: <plan> with "
-            "one '- [ ] step (skill-or-tool)' line per necessary tool/skill. Then DO EVERY "
-            "box in order — load the named skill / call the named tool and read each result "
-            "— and do NOT give the final answer until every box is done. Then synthesize "
-            "across all the results. If a box genuinely can't be done, say what's finished "
-            "and what's blocked — never skip a box silently or claim one you didn't do. "
-            "<goal>/<plan> show in the plan panel, not the chat.",
+            "answer; do not stop after one. FIRST commit EVERY objective the request "
+            "contains (there may be more than one): <goal>each ask, enumerated</goal>. "
+            "Then list the needed steps: <plan> with one '- [ ] step (skill-or-tool)' line "
+            "per necessary tool/skill, covering every goal. Then DO EVERY box in order — "
+            "load the named skill / call the named tool and read each result — and do NOT "
+            "give the final answer until every box is done. Then synthesize across all the "
+            "results. If a box genuinely can't be done, say what's finished and what's "
+            "blocked — never skip a box silently or claim one you didn't do. <goal>/<plan> "
+            "show in the plan panel, not the chat.",
 }
 
 

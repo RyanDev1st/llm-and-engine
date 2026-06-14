@@ -97,14 +97,18 @@ def render_compound_plan_row(seed: int) -> dict[str, Any]:
     a, b = _two_domains(seed)
     partial = (seed % 8 == 0)                 # ~12% honest-partial (skill b disabled)
     mode = "plan"
-    goal_text = f"{a.skill.replace('-', ' ')} and {b.skill.replace('-', ' ')} for this request"
+    # BOTH goals are committed explicitly (compound request = two distinct asks), then
+    # the plan covers each — "a planning mode that gets both goals and writes the plans".
+    goal_a = f"the {a.skill.replace('-', ' ')} ask"
+    goal_b = f"the {b.skill.replace('-', ' ')} ask"
+    goal_text = f"{goal_a} and {goal_b}"     # for gated_think goal= (held intent)
     boxes = [(f"handle the {a.skill.replace('-', ' ')} part", a.skill),
              (f"handle the {b.skill.replace('-', ' ')} part", b.skill),
              ("synthesize one combined answer", "none")]
 
     messages: list[dict[str, str]] = [{"role": "user", "content": _compound_prompt(rng, a, b)}]
-    # Plan panel: commit goal + author the checklist (one assistant turn -> the panel).
-    messages.append({"role": "assistant", "content": goal_block(seed, goal_text) + "\n" + plan_block(boxes)})
+    # Plan panel: commit BOTH goals + author the checklist (one assistant turn -> panel).
+    messages.append({"role": "assistant", "content": goal_block(seed, [goal_a, goal_b]) + "\n" + plan_block(boxes)})
 
     box_a, finding_a = _box_steps(seed, a, 1, goal_text, mode)
     messages += box_a

@@ -12,7 +12,7 @@ from typing import Any
 
 from ..catalog import HUMAN_CHAT_SKILL, OFFICIAL_SKILL
 from ..domains import CLOSERS, REAL_DOMAINS, Domain
-from .thinking import gated_answer, gated_think, pick_mode
+from .thinking import gated_answer, gated_think, pick_mode, prepend_open_goal
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)", re.DOTALL)
 
@@ -114,6 +114,7 @@ def render_skill_routing_row(domain: Domain, seed: int, style: str, normalize: b
         {"role": "tool", "content": tool_result},
         {"role": "assistant", "content": _join(gated_answer(seed, goal, mode=mode), answer)},
     ]
+    prepend_open_goal(messages, seed, mode, goal)   # lead with <goal> in thinking modes
     return _envelope(domain, seed, style, selected, messages, _index(domain, rng), _manifest(domain, rng, normalize), mode)
 
 

@@ -11,7 +11,7 @@ from .chess_kb import KBItem, pick_answer, pick_kb
 from .finals import e_top_form, final_narration, wants_number
 from .leadins import lead
 from .text import score_pawns, score_text
-from .thinking import gated_answer, gated_think, pick_mode
+from .thinking import gated_answer, gated_think, pick_mode, prepend_open_goal
 
 _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
 
@@ -83,6 +83,7 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     final = gated_answer(seed, goal, mode=mode)
     body = final_narration(scenario, annotated, move, wants_number(user), pick_answer(kb, seed) if kb else None)
     messages.append({"role": "assistant", "content": f"{final}\n{body}" if final else body})
+    prepend_open_goal(messages, seed, mode, goal)   # lead with <goal> in thinking modes
     return _envelope(scenario, messages, annotated, mode)
 
 

@@ -1,13 +1,16 @@
-"""PLAN-mode emission for Stage 1 (goal-driven completion) and Stage 2 (audited plan).
+"""Goal + plan emission. `goal_block` is SHARED: thinking modes (think/auto/plan) lead
+with a single `<goal>` (via thinking.open_goal), and PLAN mode additionally writes the
+`<plan>` checklist for multi-step completion (Stage 1) and audited plans (Stage 2).
 
 Purpose is NOT implementation planning. `<goal>` is an ANTI-EARLY-STOP / turn-looping
 mechanism: a small model's failure is doing ONE tool call then giving a half-answer when
 the request needed several. Committing the objective as held state makes it KEEP LOOPING
-through every necessary tool/skill until the goal is met. The checklist (`<plan>`) is just
-the set of necessary steps so it knows when it is actually done -- inspiration from the
-superpowers plan/execute loop, not a copy. Complements think mode (think = reason per
-step; goal = hold the objective across the loop). Deterministic by design: the structure
-forces a weak model to finish the multi-step sequence instead of abandoning it.
+through every necessary tool/skill until the goal is met. For a COMPOUND request (several
+asks) `goal_block` captures EVERY goal, so the model commits to all of them before acting.
+The checklist (`<plan>`) is just the set of necessary steps so it knows when it is actually
+done -- inspiration from the superpowers plan/execute loop, not a copy. Complements think
+mode (think = reason per step; goal = hold the objective across the loop). Deterministic by
+design: the structure forces a weak model to finish the multi-step sequence.
 
 Flow: COMMIT goal -> LIST needed steps -> DO EVERY box in order -> SYNTHESIZE. Honest-
 partial if a box truly can't be done (loop-cap).
@@ -29,7 +32,16 @@ import random
 _GOAL_LEAD = ("", "", "Goal: ", "I need to ", "The ask: ")
 
 
-def goal_block(seed: int, goal: str) -> str:
+def goal_block(seed: int, goal) -> str:
+    """`<goal>` committing the objective(s). `goal` is a str (one objective) or a
+    list/tuple of strings (a compound request) -> every ask enumerated as
+    "1) … ; 2) …" so the model captures ALL goals before planning."""
+    if isinstance(goal, (list, tuple)):
+        goals = [str(x).strip().rstrip("?.!") for x in goal if str(x).strip()]
+        if len(goals) > 1:
+            inner = "; ".join(f"{i}) {g}" for i, g in enumerate(goals, 1))
+            return f"<goal>{inner}</goal>"
+        goal = goals[0] if goals else ""
     g = (goal or "").strip().rstrip("?.!")
     lead = random.Random(seed * 13 + 2).choice(_GOAL_LEAD)
     inner = (lead + g) if not lead or lead.endswith(" ") else f"{lead}{g}"
