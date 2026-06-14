@@ -525,8 +525,12 @@ class CoachLoop:
         # Coverage set: tool -> canonical call for each detected intent. Empty on a
         # finished game or when coverage is off.
         required = {} if (game_over or not coverage) else matched_calls(user_message)
-        kept_history, ctx_stats = self.window.fit(system, history, user_message)
-        convo = [{"role": "system", "content": system}, *kept_history,
+        kept_history, ctx_stats = self.window.fit(system, history, user_message, compress=True)
+        # Clever compaction: when old turns are evicted, their distilled note (goal/plan
+        # anchor + what's already done) rides the system prompt so the model keeps the
+        # thread instead of forgetting. Empty string when nothing was evicted.
+        sys_content = system + (("\n\n" + ctx_stats.digest) if ctx_stats.digest else "")
+        convo = [{"role": "system", "content": sys_content}, *kept_history,
                  {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []
