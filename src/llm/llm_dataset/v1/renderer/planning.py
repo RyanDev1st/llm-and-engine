@@ -1,9 +1,16 @@
-"""PLAN-mode emission for Stage 1 (compound-goal checklist) and Stage 2 (audited plan).
+"""PLAN-mode emission for Stage 1 (goal-driven completion) and Stage 2 (audited plan).
 
-Mimics the superpowers writing-plans + executing-plans loop, adapted to the harness:
-the model COMMITS the goal (`<goal>`), AUTHORS a checkbox plan (`<plan>` — one bite-sized
-action per box, each bound to a skill/tool), WORKS the boxes in order, then SYNTHESIZES.
-If a box can't be cleared it stops and reports honestly (loop-cap / honest-partial).
+Purpose is NOT implementation planning. `<goal>` is an ANTI-EARLY-STOP / turn-looping
+mechanism: a small model's failure is doing ONE tool call then giving a half-answer when
+the request needed several. Committing the objective as held state makes it KEEP LOOPING
+through every necessary tool/skill until the goal is met. The checklist (`<plan>`) is just
+the set of necessary steps so it knows when it is actually done -- inspiration from the
+superpowers plan/execute loop, not a copy. Complements think mode (think = reason per
+step; goal = hold the objective across the loop). Deterministic by design: the structure
+forces a weak model to finish the multi-step sequence instead of abandoning it.
+
+Flow: COMMIT goal -> LIST needed steps -> DO EVERY box in order -> SYNTHESIZE. Honest-
+partial if a box truly can't be done (loop-cap).
 
 Serve routing: `<goal>` and `<plan>` go to a separate plan PANEL (like Claude Code's todo
 list), NOT the chat. The row emits the plan ONCE (seq economy); the deterministic serve
