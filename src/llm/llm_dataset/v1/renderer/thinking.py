@@ -20,30 +20,56 @@ import random
 from .planning import goal_block
 
 # Why each step happens, keyed by the tool being called — PLAN language, no facts.
+# Each pool is paraphrase-rich so the thinking panel never shows one rote sentence
+# thousands of times (memorization). Every phrase stays fact-free (intent/state only)
+# and short (<= the longest legacy phrase, to keep the seq ceiling unmoved).
 _DECIDE = {
     "load_skill": ("load the skill that fits this", "pull the matching skill first",
-                   "bring up the right skill before acting"),
+                   "bring up the right skill before acting", "open the skill whose description matches",
+                   "grab the skill that covers this request", "reach for the fitting skill before I act"),
     "board_state": ("read the board — I can't see it, so no claims until I do",
-                    "check the live position first", "ground myself in the board before judging"),
-    "move": ("play the move they named", "send that move to the board"),
-    "eval": ("ask the engine where this stands", "get the evaluation to answer that"),
-    "best_move": ("pull the engine's best line", "get candidate moves from the engine"),
-    "review_move": ("grade the move that was just played", "score that last move"),
-    "threats": ("check the opponent's best threat", "see what they're threatening"),
-    "legal_moves": ("list the legal moves there", "see what's actually legal"),
-    "list_pieces": ("read the remaining pieces off the board", "list the material"),
-    "ask_chessbot": ("look that up in the knowledge base", "pull that general fact"),
+                    "check the live position first", "ground myself in the board before judging",
+                    "snapshot the position before I say anything", "look at the board before any claim"),
+    "move": ("play the move they named", "send that move to the board", "make the move they asked for"),
+    "eval": ("ask the engine where this stands", "get the evaluation to answer that",
+             "let the engine score the position", "pull the eval before I judge it"),
+    "best_move": ("pull the engine's best line", "get candidate moves from the engine",
+                  "ask the engine for the strongest move", "see what the engine prefers here"),
+    "review_move": ("grade the move that was just played", "score that last move",
+                    "have the engine check that move", "judge the move against the engine"),
+    "threats": ("check the opponent's best threat", "see what they're threatening",
+                "find the threat before I answer", "look for what's hanging first"),
+    "legal_moves": ("list the legal moves there", "see what's actually legal",
+                    "pull the legal moves before guessing", "check which moves are allowed"),
+    "list_pieces": ("read the remaining pieces off the board", "list the material",
+                    "count what's left on the board", "see the pieces before I judge material"),
+    "ask_chessbot": ("look that up in the knowledge base", "pull that general fact",
+                     "check the reference before answering", "get the fact from the KB, not my head"),
     "normalize_human_chat": ("normalize the messy phrasing before I route it",
-                             "clean up what they said so I route it right"),
+                             "clean up what they said so I route it right",
+                             "untangle the slang before picking a skill",
+                             "restate this clearly before routing"),
     "python": ("verify this with a script before I claim it, not guess the number",
                "let the tool settle it — run the numbers, don't assert them",
-               "check the real figure by running it instead of trusting my head"),
+               "check the real figure by running it instead of trusting my head",
+               "compute it for real rather than estimating", "run it to get the exact value, no guessing"),
 }
+# Generic decision verbs for any tool not in _DECIDE (the cross-domain tools:
+# validate_json, regex_test, sum_spend, diff_view, search_kb, ...). Keeps those
+# steps from all collapsing onto one "call X" string.
+_DECIDE_GENERIC = ("call {a} to get that", "run {a} for the detail I need",
+                   "use {a} to settle this", "check it with {a}", "lean on {a} for the specifics",
+                   "let {a} surface the answer")
 _HAVE = {
-    0: ("nothing gathered yet", "haven't read anything yet", "starting fresh"),
-    "skill": ("skill is loaded", "have the skill's guidance now"),
-    "board": ("board is read", "have the position now"),
-    "results": ("I have the engine's result", "the tool result is in hand"),
+    0: ("nothing gathered yet", "haven't read anything yet", "starting fresh", "no context yet",
+        "nothing in hand so far", "blank slate right now", "no results read yet",
+        "I've pulled nothing yet"),
+    "skill": ("skill is loaded", "have the skill's guidance now", "the skill body is in front of me",
+              "guidance from the skill is loaded", "skill steps are in hand now"),
+    "board": ("board is read", "have the position now", "the position is in front of me",
+              "I've read the live board"),
+    "results": ("I have the engine's result", "the tool result is in hand", "the result came back",
+                "got the output I called for"),
 }
 
 
@@ -54,7 +80,8 @@ def think(seed: int, action: str, step: int = 0, *, goal: str = "", have: str = 
     `goal` is kept for signature compat with the callers."""
     r = random.Random(seed * 101 + step)
     state = r.choice(_HAVE[have]) if have in _HAVE else r.choice(_HAVE[0])
-    decide = r.choice(_DECIDE.get(action, (f"call {action}",)))
+    options = _DECIDE.get(action) or tuple(g.format(a=action) for g in _DECIDE_GENERIC)
+    decide = r.choice(options)
     return "<think>" + "; ".join((state, f"so I'll {decide}")) + ".</think>"
 
 
@@ -65,7 +92,12 @@ def think_fix(seed: int, action: str) -> str:
     return "<think>" + r.choice(
         (f"that call errored — fix the arguments and retry {action}",
          f"the tool rejected my input; correct it and call {action} again",
-         f"bad call last step — adjust and re-run {action}, don't fabricate a result")) + ".</think>"
+         f"bad call last step — adjust and re-run {action}, don't fabricate a result",
+         f"wrong args that time — repair them and call {action} once more",
+         f"that failed; read the error, fix the call, retry {action}",
+         f"my input was off — adjust and re-run {action}, no faking the output",
+         f"the call bounced — correct the arguments and try {action} again",
+         f"error on that step; diagnose it, then re-issue {action} properly")) + ".</think>"
 
 
 def think_answer(seed: int, goal: str = "", *, enough: bool = True) -> str:
@@ -79,10 +111,29 @@ def think_answer(seed: int, goal: str = "", *, enough: bool = True) -> str:
         return "<think>" + r.choice(
             ("I have what I need — answer now, no more tools",
              "that covers it; time to answer directly",
-             "goal met — reply now, don't call anything else")) + ".</think>"
+             "goal met — reply now, don't call anything else",
+             "enough gathered — write the answer, no more calls",
+             "got the result I needed; answer from it now",
+             "that's the piece I was missing — reply now",
+             "no gap left; answer directly instead of calling again",
+             "the result settles it — respond, don't re-run",
+             "I can answer this now without another tool",
+             "everything needed is in hand — reply",
+             "done gathering; time to give the answer",
+             "that's sufficient — answer straight, no extra calls",
+             "the tool gave what I needed; answer now",
+             "nothing else to fetch — write the reply",
+             "I'm set — answer the question directly",
+             "have the basis to answer now; reply, don't loop")) + ".</think>"
     return "<think>" + r.choice(
         ("already covered this earlier — reference it, don't re-run a tool",
-         "nothing new needed; answer from what's established")) + ".</think>"
+         "nothing new needed; answer from what's established",
+         "this was settled earlier — point back to it, no new call",
+         "I already have this from before; reuse it, don't re-fetch",
+         "no fresh tool needed — the earlier result still holds",
+         "answer from what's already on the table",
+         "covered above — restate it, skip another call",
+         "the prior step answers this; lean on it")) + ".</think>"
 
 
 # --- reasoning MODE gating (fast / think / auto) -----------------------------
@@ -175,7 +226,13 @@ def think_direct(seed: int) -> str:
         "no listed skill fits this — answer directly from what I know",
         "nothing in the skill list matches; just reply directly",
         "this needs no skill or tool — answer it straight",
-        "none of the available skills apply here, so I'll answer plainly")) + ".</think>"
+        "none of the available skills apply here, so I'll answer plainly",
+        "general enough to answer without loading anything",
+        "the list has nothing for this — answer from what I know",
+        "skip the skills here; a direct reply fits",
+        "nothing to load for this one — answer plainly",
+        "no tool or skill applies; I'll just respond",
+        "this is straightforward — answer it without routing")) + ".</think>"
 
 
 def gated_direct(seed: int, *, mode: str) -> str:

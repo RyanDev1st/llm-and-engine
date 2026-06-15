@@ -111,12 +111,26 @@ def _arch_reference(messages, scenario, annotated, mode):
     return _prepend(th, _final_a(annotated, seed)), [], _REF_RULES
 
 
+# Clarify-branch follow-ups: a fixed base ("do you want the attacking plan…")
+# repeated ~270x. Pool of grounded-neutral next-step offers (no facts), seeded;
+# each ends with '?' so ask() leaves it as-is (no double question).
+_CLARIFY_OFFERS = (
+    "happy to take it further — do you want the attacking plan, or to shore up your defense first?",
+    "glad to keep going — should we build the attacking plan, or firm up the defense first?",
+    "we can dig deeper — want to press for the attack, or stabilize the position first?",
+    "plenty more here — go on the offensive, or solidify what you've got first?",
+    "let's keep at it — chase the initiative, or tighten the defense first?",
+    "happy to continue — push for an attack, or settle the position down first?",
+    "we can go either way — map an attacking plan, or patch the weak spots first?",
+    "more to do here — would you rather create threats, or neutralize theirs first?",
+)
+
+
 def _arch_clarify(messages, scenario, annotated, mode):
     seed = scenario.seed
     messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_CLARIFY), scenario)})
     backref = tone.pick(seed, BACKREF_A)
-    answer = ask(f"{backref} happy to take it further — do you want the attacking plan, "
-                 f"or to shore up your defense first?", seed, 4)
+    answer = ask(f"{backref} {tone.pick(seed * 31 + 5, _CLARIFY_OFFERS)}", seed, 4)
     th = gated_answer(seed, GOAL, mode=mode, enough=False)
     return _prepend(th, answer), [], _REF_RULES
 

@@ -26,7 +26,20 @@ _LEAD_TOOL = ("Now the data I need.", "Let me check the specifics.", "Pulling th
 _HOOD_BODY = ("# hood-human-chat\nWhen to use: the message is slang, shorthand, or vague.\n"
               "Steps:\n1. Restate the message as explicit intent.\n2. Keep the domain signal.\n"
               "Constraint: ask when slang stays ambiguous.")
-_NORMALIZED = "normalized: vague phrasing resolved to an explicit request; routing to the fitting skill."
+# Varied normalize results — reflects the messy->intent translation per domain, no
+# facts. One fixed string repeated thousands of times was a memorization smell.
+_NORMALIZED_POOL = (
+    "normalized: shorthand resolved to an explicit {d} request.",
+    "normalized: slang cleaned up — the user wants {d} help.",
+    "normalized: vague wording mapped to a clear {d} ask.",
+    "normalized: typo-filled message restated as a {d} request.",
+    "normalized: messy phrasing resolved; routing to {d}.",
+    "normalized: intent is clear now — a {d} task.",
+)
+
+
+def _normalized(domain: Domain, rng: random.Random) -> str:
+    return rng.choice(_NORMALIZED_POOL).format(d=domain.skill.replace("-", " "))
 
 _RULES = ["final_no_xml", "known_tool_only", "args_match_schema", "selected_skill_exists",
           "skill_index_only_before_load", "skill_body_strict", "plugin_only_tools",
@@ -105,7 +118,7 @@ def render_skill_routing_row(domain: Domain, seed: int, style: str, normalize: b
             {"role": "assistant", "content": _join(gated_think(seed, "load_skill", 0, mode=mode, kind="select", goal=goal), rng.choice(_LEAD_HOOD), "<skill>hood-human-chat</skill>")},
             {"role": "tool", "content": _HOOD_BODY},
             {"role": "assistant", "content": _join(gated_think(seed, "normalize_human_chat", 1, mode=mode, kind="decide", goal=goal, have="skill"), rng.choice(_LEAD_NORMALIZE), "<tool>normalize_human_chat text=messy_user_chat</tool>")},
-            {"role": "tool", "content": _NORMALIZED},
+            {"role": "tool", "content": _normalized(domain, rng)},
         ]
     messages += [
         {"role": "assistant", "content": _join(gated_think(seed, "load_skill", 2, mode=mode, kind="select", goal=goal), rng.choice(_LEAD_LOAD), f"<skill>{domain.skill}</skill>")},

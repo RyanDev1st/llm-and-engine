@@ -25,6 +25,10 @@ from .sampler import (
 from .validate import validate_row
 
 ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
+# Prompt styles whose rendered text is genuinely messy (shorthand/typos) — the only
+# inputs that justify a normalize_human_chat step. formal/casual/anxious/beginner
+# render as coherent sentences (see renderer.skill_routing._style).
+_MESSY_STYLES = frozenset({"slang", "typo"})
 
 # GENERAL-FIRST mix (~75% general / ~25% chess): the product is a general
 # skill+tool harness operator, chess is the flagship demo domain (one of many).
@@ -136,11 +140,17 @@ def run(
                         progress(index, total, len(accepted), len(rejected))
                     continue
             elif scenario.slice == ROUTING_SLICE:
+                # Normalize ONLY when the input is genuinely messy (slang/typo) — loading
+                # the chat-cleaner on an already-clean "Please total my spend" taught a
+                # pointless ritual. Gated further by seed so the model still sees messy
+                # inputs answered BOTH with and without a normalize step (judge when it's
+                # needed, not a fixed dance). The dedicated V1_N slice fully covers the
+                # human-chat bridge regardless.
                 row = render_skill_routing_row(
                     pick_domain(scenario.seed),
                     scenario.seed,
                     scenario.prompt_style,
-                    normalize=scenario.seed % 4 == 0,
+                    normalize=scenario.prompt_style in _MESSY_STYLES and scenario.seed % 2 == 0,
                 )
             elif scenario.slice in UNIVERSALITY_SLICES:
                 row = render_universality_row(scenario)

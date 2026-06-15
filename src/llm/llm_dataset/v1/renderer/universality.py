@@ -47,19 +47,42 @@ def _goal_of(scenario: Scenario) -> str:
     return _SLICE_GOAL.get(scenario.slice, "help with the position")
 
 
-def _stalemate_verdict(fen: str) -> str:
+# V1_F grounded stalemate rulings. Each branch's verdict was one fixed sentence;
+# the common "not stalemate" case repeated ~270x. Pools vary the wording, seeded;
+# every variant states the SAME correct ruling from the real legal-move count.
+_NOT_STALEMATE = (
+    "{side} has {n} legal moves, so it's not stalemate — stalemate needs zero legal moves with the side to move not in check.",
+    "Not stalemate: {side} still has {n} legal moves, and stalemate requires none with the side to move not in check.",
+    "{side} can still move ({n} legal options), so this isn't stalemate — that needs no legal moves and no check.",
+    "This isn't stalemate — {side} has {n} legal replies; stalemate means zero legal moves while not in check.",
+    "{side} has {n} moves available, so stalemate is off the table — it requires no legal move and no check.",
+    "No stalemate here: with {n} legal moves for {side}, the position is live; stalemate needs zero and no check.",
+)
+_CHECKMATE = (
+    "{side} is in check with no legal move — that's checkmate, not stalemate.",
+    "{side} has no legal move while in check — that's checkmate, not stalemate.",
+    "It's checkmate, not stalemate: {side} is in check and has no legal move.",
+)
+_STALEMATE = (
+    "{side} has no legal move and isn't in check — that's stalemate, so it's a draw.",
+    "{side} can't move and isn't in check — that's stalemate, a draw.",
+    "Stalemate: {side} has no legal move and isn't in check, so the game is drawn.",
+)
+
+
+def _stalemate_verdict(fen: str, seed: int = 0) -> str:
     """Grounded stalemate ruling from the real position (matches the board_state
     tool result), so V1_F judges the rule instead of deflecting."""
     import chess
     b = chess.Board(fen)
     side = "White" if b.turn == chess.WHITE else "Black"
     n = b.legal_moves.count()
+    r = random.Random(seed * 43 + 19)
     if n == 0 and b.is_check():
-        return f"{side} is in check with no legal move — that's checkmate, not stalemate."
+        return r.choice(_CHECKMATE).format(side=side)
     if n == 0:
-        return f"{side} has no legal move and isn't in check — that's stalemate, so it's a draw."
-    return (f"{side} has {n} legal moves, so it's not stalemate — stalemate needs "
-            "zero legal moves with the side to move not in check.")
+        return r.choice(_STALEMATE).format(side=side)
+    return r.choice(_NOT_STALEMATE).format(side=side, n=n)
 
 
 def _act(seed: int, name: str, step: int, call: str, goal: str, have: str,
@@ -169,6 +192,27 @@ def _user_prompt(scenario: Scenario) -> str:
 _CLOSER_SLICES = frozenset(FINAL_POOLS) - {"V1_J_no_tool_and_mixed_intent"}
 
 
+# V1_I: grounded eval-language finals. The cp value is copied from the eval tool
+# result (narration_grounded); every variant keeps the literal "Starting position
+# is equal" the validator requires and never says "slightly better" (it would
+# overstate a near-zero eval). Pool varies the prose so one template doesn't repeat
+# hundreds of times.
+_EVAL_EQUAL = (
+    "Starting position is equal, and {v} is basically equal rather than a real edge.",
+    "Starting position is equal — {v} is within the noise, not a genuine advantage.",
+    "Starting position is equal; a reading of {v} is effectively level, not an edge.",
+    "Starting position is equal, so {v} just means dead even, not better for either side.",
+    "Starting position is equal — at {v} neither side is actually ahead.",
+    "Starting position is equal, and {v} is too small to call an advantage.",
+    "Starting position is equal; {v} rounds to even in practical terms.",
+    "Starting position is equal, so treat {v} as balanced rather than winning for anyone.",
+)
+
+
+def _eval_equal_final(cp: int, seed: int) -> str:
+    return random.Random(seed * 41 + 17).choice(_EVAL_EQUAL).format(v=f"{cp / 100:+.2f}")
+
+
 def _final(scenario: Scenario) -> str:
     # Slices whose lesson-final is one fixed sentence draw a seeded paraphrase from
     # a pool (+ a seeded guiding closer where natural), so distinct finals scale
@@ -191,10 +235,9 @@ def _final(scenario: Scenario) -> str:
         return budget_verdict(engine_scene(scenario.seed))
     if scenario.slice == "V1_I_eval_language":
         cp = equal_eval_scene_cp(scenario.seed)  # SAME value as the eval tool result
-        return (f"Starting position is equal, and {cp / 100:+.2f} is "
-                "basically equal rather than a real edge.")
+        return _eval_equal_final(cp, scenario.seed)
     if scenario.slice == "V1_F_special_chess_rules" and scenario.position:
-        return _stalemate_verdict(scenario.position.fen)
+        return _stalemate_verdict(scenario.position.fen, scenario.seed)
     return "I read the position and the tools, then answered in plain text without inventing facts."
 
 
