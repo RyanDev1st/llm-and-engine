@@ -55,8 +55,11 @@ def push(run_dir: str, repo: str) -> None:
             print(f"[hub] skip {tag}: {local} absent/empty", flush=True)
             continue
         try:
+            # skip *.md — PEFT's README model-card has base_model=local path, which the
+            # Hub validator rejects; nothing downstream reads it (see train_unsloth._HUB_IGNORE).
             upload_folder(folder_path=str(local), repo_id=repo, repo_type="model",
-                          path_in_repo=tag, commit_message=f"manual {tag} push")
+                          path_in_repo=tag, commit_message=f"manual {tag} push",
+                          ignore_patterns=["README.md", "*.md"])
             print(f"[hub] pushed {tag} -> {repo}", flush=True)
             pushed += 1
         except Exception as exc:

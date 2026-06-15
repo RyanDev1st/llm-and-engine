@@ -231,21 +231,31 @@ def _hub_env() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 
-def _hub_push(local_dir, path_in_repo: str) -> None:
+# Files PEFT's save_pretrained writes that must NOT go to the Hub. The generated
+# adapter model-card (README.md) carries base_model = the LOCAL load path, which the
+# Hub's model-card validator REJECTS ("not a valid model id from hf.co/models"). It is
+# a card only — resume reads adapter_model.safetensors + trainer_state.pt and serve
+# reads the adapter weights; nothing reads README.md. Skip every .md so the folder
+# upload has NO Hub-validated file left and cannot be rejected.
+_HUB_IGNORE = ["README.md", "*.md"]
+
+
+def _hub_push(local_dir, path_in_repo: str) -> bool:
     """Mirror a saved folder (checkpoint/ or best/) to a private HF Hub repo, OFF the
     kernel. A full E4B epoch is ~30h > Kaggle's 12h ceiling, so every session is
     SIGKILLed at the wall — and a SIGKILL is not a Python exception, so the in-process
     crash-save can't fire and a timed-out committed run's local Output is not guaranteed
     to persist. Pushing each checkpoint to the Hub makes resume bulletproof across
     sessions AND accounts (the Hub is the shared store). Opt-in via CHESS_CKPT_REPO.
-    Best-effort (never crashes training) BUT now LOUD: full traceback on give-up + retries,
-    because a silently-broken mirror = a lost 12h session."""
+    Returns True on success. Best-effort (never crashes training) BUT LOUD: full
+    traceback on give-up + retries, because a silently-broken mirror = a lost session.
+    Skips *.md (the only Hub-validated files) — see _HUB_IGNORE."""
     import os
     import time
     import traceback
     repo = os.environ.get("CHESS_CKPT_REPO")
     if not repo:
-        return
+        return False
     _hub_env()
     last = None
     for attempt in range(1, 4):
@@ -253,34 +263,59 @@ def _hub_push(local_dir, path_in_repo: str) -> None:
             from huggingface_hub import create_repo, upload_folder
             create_repo(repo, repo_type="model", private=True, exist_ok=True)
             upload_folder(folder_path=str(local_dir), repo_id=repo, repo_type="model",
-                          path_in_repo=path_in_repo, commit_message=f"{path_in_repo} sync")
+                          path_in_repo=path_in_repo, commit_message=f"{path_in_repo} sync",
+                          ignore_patterns=_HUB_IGNORE)
             print(f"  [hub] pushed {path_in_repo} -> {repo}", flush=True)
-            return
+            return True
         except Exception as exc:
             last = exc
             print(f"  [hub] push attempt {attempt}/3 failed: {exc!r}", flush=True)
             time.sleep(5 * attempt)
     print(f"  [hub] push GAVE UP for {path_in_repo}: {last!r} — full traceback:", flush=True)
     traceback.print_exc()
+    return False
 
 
 def _hub_selftest() -> None:
-    """Push a 2-byte marker at startup so a broken off-kernel mirror is discovered in the
-    FIRST MINUTE, not at hour 12 when the SIGKILL eats an un-mirrored session. If
-    CHESS_CKPT_REPO is set but the test push fails, RAISE — a multi-session full-epoch run
-    with no failsafe is worse than failing immediately so the user can fix auth/xet now."""
+    """Prove the mirror works in the FIRST MINUTE by exercising the EXACT real push path
+    — not a toy file. A plain-file test passed last time while the real folder push died
+    at step 50 on README model-card validation. So here we build a folder that mimics a
+    saved PEFT adapter (a weights-like file + a README.md carrying the same invalid
+    `base_model: /local/path` metadata PEFT generates), push it through _hub_push, and
+    VERIFY the weights file (not the README) landed in the repo. If the real path is
+    broken for ANY reason — xet, README validation, auth, transport — this RAISES now,
+    before the run invests hours. Opt-in via CHESS_CKPT_REPO."""
     import os
-    import io
+    import tempfile
+    from pathlib import Path
     repo = os.environ.get("CHESS_CKPT_REPO")
     if not repo:
         print("[hub] CHESS_CKPT_REPO unset — off-kernel mirror DISABLED (local Output only)", flush=True)
         return
     _hub_env()
-    from huggingface_hub import create_repo, upload_file
-    create_repo(repo, repo_type="model", private=True, exist_ok=True)
-    upload_file(path_or_fileobj=io.BytesIO(b"ok"), path_in_repo="_selftest/ok.txt",
-                repo_id=repo, repo_type="model", commit_message="hub mirror self-test")
-    print(f"[hub] self-test OK -> {repo} (off-kernel mirror is LIVE)", flush=True)
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d)
+        # mimic exactly what _save_ckpt uploads: a weights blob, a config, a state file,
+        # AND the poison README that broke the real push.
+        (p / "adapter_model.safetensors").write_bytes(b"\x00" * 64)
+        (p / "adapter_config.json").write_text('{"base_model_name_or_path": "/kaggle/working/local/path"}')
+        (p / "trainer_state.pt").write_bytes(b"\x00" * 16)
+        (p / "README.md").write_text(
+            "---\nbase_model: /kaggle/working/local/path\nlibrary_name: peft\n---\nselftest")
+        ok = _hub_push(p, "_selftest")
+    if not ok:
+        raise RuntimeError(
+            "[hub] off-kernel mirror SELF-TEST FAILED — the real checkpoint push path is broken "
+            "(see the traceback above). Refusing to train a multi-session run with no failsafe. "
+            "Fix the mirror (token write scope? repo?) before launching.")
+    # confirm the weights actually landed (README is intentionally skipped).
+    from huggingface_hub import HfApi
+    files = HfApi().list_repo_files(repo_id=repo, repo_type="model")
+    if "_selftest/adapter_model.safetensors" not in files:
+        raise RuntimeError(
+            f"[hub] self-test push reported OK but the weights file is NOT in {repo} "
+            f"(files seen: {sorted(files)[:10]}). Mirror is unreliable — fix before training.")
+    print(f"[hub] self-test OK -> {repo} (REAL folder round-trip verified; mirror is LIVE)", flush=True)
 
 
 def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag="checkpoint") -> None:
