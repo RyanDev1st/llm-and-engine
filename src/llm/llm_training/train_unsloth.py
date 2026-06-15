@@ -219,26 +219,68 @@ def _flush_mem() -> None:
         torch.cuda.empty_cache()
 
 
+def _hub_env() -> None:
+    """Force the battle-tested LFS upload path. huggingface_hub now defaults NEW private
+    repos to xet storage, and Kaggle images frequently lack `hf_xet` -> upload_folder
+    errors while the plain-API create_repo succeeds. That exact split left the ckpt repo
+    holding only .gitattributes for a whole session (the silent-failure bug). Disabling
+    xet + hf_transfer makes uploads boring and reliable."""
+    import os
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
+
 def _hub_push(local_dir, path_in_repo: str) -> None:
     """Mirror a saved folder (checkpoint/ or best/) to a private HF Hub repo, OFF the
     kernel. A full E4B epoch is ~30h > Kaggle's 12h ceiling, so every session is
     SIGKILLed at the wall — and a SIGKILL is not a Python exception, so the in-process
     crash-save can't fire and a timed-out committed run's local Output is not guaranteed
     to persist. Pushing each checkpoint to the Hub makes resume bulletproof across
-    sessions AND accounts (the Hub is the shared store). Opt-in via CHESS_CKPT_REPO;
-    best-effort — an upload hiccup must never crash training."""
+    sessions AND accounts (the Hub is the shared store). Opt-in via CHESS_CKPT_REPO.
+    Best-effort (never crashes training) BUT now LOUD: full traceback on give-up + retries,
+    because a silently-broken mirror = a lost 12h session."""
     import os
+    import time
+    import traceback
     repo = os.environ.get("CHESS_CKPT_REPO")
     if not repo:
         return
-    try:
-        from huggingface_hub import create_repo, upload_folder
-        create_repo(repo, repo_type="model", private=True, exist_ok=True)
-        upload_folder(folder_path=str(local_dir), repo_id=repo, repo_type="model",
-                      path_in_repo=path_in_repo, commit_message=f"{path_in_repo} sync")
-        print(f"  [hub] pushed {path_in_repo} -> {repo}", flush=True)
-    except Exception as exc:
-        print(f"  [hub] push skipped ({type(exc).__name__}: {exc})", flush=True)
+    _hub_env()
+    last = None
+    for attempt in range(1, 4):
+        try:
+            from huggingface_hub import create_repo, upload_folder
+            create_repo(repo, repo_type="model", private=True, exist_ok=True)
+            upload_folder(folder_path=str(local_dir), repo_id=repo, repo_type="model",
+                          path_in_repo=path_in_repo, commit_message=f"{path_in_repo} sync")
+            print(f"  [hub] pushed {path_in_repo} -> {repo}", flush=True)
+            return
+        except Exception as exc:
+            last = exc
+            print(f"  [hub] push attempt {attempt}/3 failed: {exc!r}", flush=True)
+            time.sleep(5 * attempt)
+    print(f"  [hub] push GAVE UP for {path_in_repo}: {last!r} — full traceback:", flush=True)
+    traceback.print_exc()
+
+
+def _hub_selftest() -> None:
+    """Push a 2-byte marker at startup so a broken off-kernel mirror is discovered in the
+    FIRST MINUTE, not at hour 12 when the SIGKILL eats an un-mirrored session. If
+    CHESS_CKPT_REPO is set but the test push fails, RAISE — a multi-session full-epoch run
+    with no failsafe is worse than failing immediately so the user can fix auth/xet now."""
+    import os
+    import io
+    repo = os.environ.get("CHESS_CKPT_REPO")
+    if not repo:
+        print("[hub] CHESS_CKPT_REPO unset — off-kernel mirror DISABLED (local Output only)", flush=True)
+        return
+    _hub_env()
+    from huggingface_hub import create_repo, upload_file
+    create_repo(repo, repo_type="model", private=True, exist_ok=True)
+    upload_file(path_or_fileobj=io.BytesIO(b"ok"), path_in_repo="_selftest/ok.txt",
+                repo_id=repo, repo_type="model", commit_message="hub mirror self-test")
+    print(f"[hub] self-test OK -> {repo} (off-kernel mirror is LIVE)", flush=True)
 
 
 def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag="checkpoint") -> None:
@@ -517,6 +559,10 @@ def run_unsloth_training(config: TrainConfig) -> dict:
                       f"examples; device={device}", flush=True)
     except Exception as exc:  # accelerate missing / single-process -> plain single-GPU
         print(f"[ddp] not active ({exc}); single-GPU path", flush=True)
+
+    # Verify the off-kernel mirror BEFORE burning hours — fail fast on a broken failsafe.
+    if (accelerator is None) or accelerator.is_main_process:
+        _hub_selftest()
 
     losses, val_history = _loop(model, train_examples, val_batches, optimizer, scheduler,
                                 device, tokenizer.pad_token_id, config, total_updates,
