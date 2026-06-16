@@ -68,6 +68,7 @@ The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay
 2. No `_copy`, `_old`, `temp`, or duplicate scripts.
 3. Every new path is referenced by code, tests, or docs in the same change set.
 4. New top-level or feature folder → add one row to **Repository map** in this file in the same change set.
+5. **Throwaways** (probes, one-off scripts, sample outputs) → name them `scratch_*` (already gitignored). Never commit them, never leave them in `src/`; promote to a real path (with refs) or delete before "done".
 
 ### Reports (required layout)
 
