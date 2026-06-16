@@ -15,6 +15,7 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 
 | Doc | What it is |
 | --- | --- |
+| [reference/glossary.md](reference/glossary.md) | Canonical terminology — skill, tool, plugin, skill index, tool manifest, hook gate, etc. |
 | [reference/harness-architecture.md](reference/harness-architecture.md) | The agent harness: deterministic routing layer, tools, skills, plugins, end-to-end turn trace |
 | [reference/2026-05-23-chess-coach-sft-design.md](reference/2026-05-23-chess-coach-sft-design.md) | Foundational SFT/agent design (the contract) |
 | [reference/2026-06-12-coverage-reliability-design.md](reference/2026-06-12-coverage-reliability-design.md) | Coverage + grounding reliability layer (shipped) |

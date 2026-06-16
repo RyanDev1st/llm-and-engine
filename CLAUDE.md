@@ -84,6 +84,8 @@ Every written artifact has ONE home, shape, and lifecycle. Decide BEFORE writing
 | Active plan + handoff state | root `implementation.md` + `handoff.md` | — | one set only; supersede in place |
 | Throwaway (probe, sample, scratch) | `scratch_*` (gitignored) | — | promote w/ refs or delete before "done" |
 
+**Prefer the smallest durable home:** before writing a `findings/` file, ask if it should instead update a `reference/` doc (then the investigation dies) or become an `adr/`. A finding is justified only when the dated snapshot itself has lasting value (e.g. an ML experiment/eval log). Don't let `findings/` rot into a graveyard.
+
 Rules: **`docs/README.md` is the ONE index** — add/remove its row in the SAME change a doc is added/archived. **Archive = `git mv` to `docs/legacy/`** + a why-line in `docs/legacy/README.md`; never delete, never edit an archived doc. **No dangling refs** — a tool that writes a report emits a fresh `docs/findings/YYYY-MM-DD-…` path; it never overwrites a `reference/` or archived doc. **Lessons live in memory, not a `docs/experience` folder** (the buckets above have no "experience" — that's what memory is). When asked to tidy: anything in `docs/` not reachable from `docs/README.md` and not current → `docs/legacy/`.
 
 ## Verification
