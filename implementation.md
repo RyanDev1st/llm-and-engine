@@ -8,7 +8,7 @@
 
 **Tech stack:** Python, transformers/peft/bitsandbytes/trl, python-chess, Stockfish, llama.cpp; Kaggle T4 (train), RTX 4060 (serve). Model: Gemma 4 **E4B** preferred (`google/gemma-4-E4B-it-qat-q4_0-unquantized` train / `…-q4_0-gguf` serve), **E2B** fallback if E4B OOMs on T4.
 
-**Decision (2026-06-06):** Option B from the alignment audit (`docs/2026-06-06-v1.2-dataset-alignment-audit.md`). `load_skill` + the skills/plugin envelope are intended capabilities, not noise.
+**Decision (2026-06-06):** Option B from the alignment audit (`docs/findings/2026-06-06-v1.2-dataset-alignment-audit.md`). `load_skill` + the skills/plugin envelope are intended capabilities, not noise.
 
 ---
 
@@ -198,7 +198,7 @@ Run full dataset tests green, then:
 python -m llm_dataset.v1.generate --profile v1.2
 python -m llm_dataset.v1.build    --profile v1.2
 ```
-Re-run the alignment audit (`docs/2026-06-06-...audit.md` script). **Gate (all must hold):** 0 tool calls to non-declared tools (every called tool is in the row's `tool_manifest`); 0 illegal moves; >1 distinct move; board_state turn always matches FEN; <1% val-final leak; 0 persona openers; 100% rows still `load_skill`-first. Commit the regenerated corpus.
+Re-run the alignment audit (`docs/findings/2026-06-06-...audit.md` script). **Gate (all must hold):** 0 tool calls to non-declared tools (every called tool is in the row's `tool_manifest`); 0 illegal moves; >1 distinct move; board_state turn always matches FEN; <1% val-final leak; 0 persona openers; 100% rows still `load_skill`-first. Commit the regenerated corpus.
 
 ### Task 8b: Cross-domain skill routing + conversational shape (added 2026-06-07, DONE — code)
 The renderer only ever LOADED chess-coach (loaded-skill diversity = 2 of ~2,737 offered) → the secondary objective (load *any* SKILL.md) was untrained. Added, TDD, committed:

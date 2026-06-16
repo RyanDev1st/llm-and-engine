@@ -4,7 +4,7 @@ split — N rows per slice, chosen by seeded random.sample over the whole bucket
 the offered skills/tools, selected skills, and every conversation turn verbatim.
 
 Run:  python scripts/make_sample_doc.py [N]
-Out:  docs/2026-06-13-v1.2-random-sample-inspection.md
+Out:  docs/findings/2026-06-13-v1.2-random-sample-inspection.md
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from transformers import AutoTokenizer  # noqa: E402
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 SEED = 1313
 TRAIN = Path("data/sft/v1_2_train.jsonl.gz")
-OUT = Path("docs/2026-06-13-v1.2-random-sample-inspection.md")
+OUT = Path("docs/findings/2026-06-13-v1.2-random-sample-inspection.md")
 tok = AutoTokenizer.from_pretrained("src/llm/models/gemma4_e2b", trust_remote_code=True)
 
 

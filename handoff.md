@@ -167,7 +167,7 @@ every slice now ≥5 distinct (V1_O 40→~990). Memory `sft-final-diversity`.
 - **GATE: PASS** — over_seq 0, template_fallback 0, tool_result_missing 0, val exact/final
   leak 0, reasoning integrity 0, **validate_failures 0/75,060**. token max **1653**.
 - 28 slices. Last commit `72f8055e`.
-- Human-inspectable sample: `docs/2026-06-13-v1.2-random-sample-inspection.md` (10 truly-random
+- Human-inspectable sample: `docs/findings/2026-06-13-v1.2-random-sample-inspection.md` (10 truly-random
   rows/slice, real token lengths; regenerate with `python scripts/make_sample_doc.py`).
 
 ### Honest quality rating (mine, end of session)
@@ -212,7 +212,7 @@ first wrong cut, corrected on user feedback).
 **Verified:** sandbox 5/5, compute 9/9 (incl. real-subprocess exec match), my-change dataset
 tests 38/38, full dataset suite 111. **GATE: PASS** (validate_failures 0/75,064, over_seq 0,
 all 8 gate fields 0). Serve path executes end-to-end (`output: 12.96`, matches train render).
-Full corpus audit `docs/2026-06-14-v1.2-corpus-audit.md`: 0 TRUE full-example dups, mix
+Full corpus audit `docs/findings/2026-06-14-v1.2-corpus-audit.md`: 0 TRUE full-example dups, mix
 75/25, fast/think/auto think-ratio 0.000/0.575/0.969 (three distinct behaviors, all modes in
 every slice). Caveat: val is a same-distribution loss probe (~92% prompt overlap, structural) —
 gauge generalization via `eval_routing.py`+serve, NOT val loss (V1_R is the held-out exception).
@@ -417,9 +417,9 @@ Backend/serve: `src/llm/backend/` (`inference.py` translates `<skill>`→canonic
 `scripts/make_sample_doc.py` (human inspection doc). The `scripts/_audit_*.log` /
 `_audit_out.json` / `_dup_*` are run artifacts, gitignore-able, not committed.
 
-**Docs:** `docs/README.md` (index), `docs/harness-architecture.md`,
-`docs/2026-06-13-v1.2-random-sample-inspection.md` (the sample doc),
-`docs/2026-06-06-v1.2-dataset-alignment-audit.md` (Option B basis).
+**Docs:** `docs/README.md` (index), `docs/reference/harness-architecture.md`,
+`docs/findings/2026-06-13-v1.2-random-sample-inspection.md` (the sample doc),
+`docs/findings/2026-06-06-v1.2-dataset-alignment-audit.md` (Option B basis).
 
 **Memory** (`~/.claude/projects/.../memory/`, loaded each session via MEMORY.md):
 `seq-ceiling-v1g-truncation`, `sft-final-diversity`, `seq-dominated-by-harness-contract`,

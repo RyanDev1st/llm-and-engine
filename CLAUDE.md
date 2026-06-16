@@ -69,26 +69,22 @@ The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay
 3. Every new path is referenced by code, tests, or docs in the same change set.
 4. New top-level or feature folder → add one row to **Repository map** in this file in the same change set.
 5. **Throwaways** (probes, one-off scripts, sample outputs) → name them `scratch_*` (already gitignored). Never commit them, never leave them in `src/`; promote to a real path (with refs) or delete before "done".
+6. **Wrote a doc or learned a lesson?** Doc sits in the right `docs/` bucket (reference/findings/adr) AND has its `docs/README.md` row; durable lesson is a memory one-fact file + `MEMORY.md` row. See **Writing artifacts** above.
 
-### Reports (required layout)
+### Writing artifacts — where does it go? (MANDATORY)
 
-- Path: `<scope-dir>/YYYY-MM-DD-<topic>-<artifact>.md`
-- Allowed `<scope-dir>`: `docs/` (default).
-- Line 1: `Parent: <relative-path>` or `Parent: none`
-- Sections in order: **Status**, **Scope**, **Evidence** (commands + outcomes), **Next** (numbered list)
-- Same topic + same calendar date → append to the existing file **or** supersede as `…-v2.md` with a link to the prior file. Do not create a parallel sibling for the same topic.
+Every written artifact has ONE home, shape, and lifecycle. Decide BEFORE writing; never default to repo root or a "misc" pile. Picking the wrong bucket is the #1 way the workspace rots.
 
-### Docs hygiene (MANDATORY — keep `docs/` legible so the human knows what to do)
+| What you're writing | Home | Shape | Lifecycle |
+| --- | --- | --- | --- |
+| How a thing works **now** | `docs/reference/<topic>.md` | living doc, no date in name | **mutable in place** |
+| Dated audit / triage / inspection / eval report | `docs/findings/YYYY-MM-DD-<topic>.md` | `Parent:` line 1, then Status / Scope / Evidence / Next | **immutable**; supersede by newer date → `docs/legacy/` |
+| Non-obvious decision (the **why**) | `docs/adr/NNNN-title.md` | Context / Decision / Consequences / Status | **immutable**; reverse via a new ADR |
+| Cross-session lesson / preference / gotcha | memory one-fact file + `MEMORY.md` row | typed frontmatter + **Why** + **How to apply** | update the file; delete if wrong |
+| Active plan + handoff state | root `implementation.md` + `handoff.md` | — | one set only; supersede in place |
+| Throwaway (probe, sample, scratch) | `scratch_*` (gitignored) | — | promote w/ refs or delete before "done" |
 
-`docs/` holds ONLY current, in-use documentation. Superseded docs (old handoffs, finished
-phase reports, abandoned-path runbooks, retired designs) move to **`docs/legacy/`** — a
-tracked, discoverable archive (distinct from the gitignored `legacy [ignore]/` code/data bin).
-
-1. **One index:** `docs/README.md` lists every active doc with a one-line purpose. Add a row when you add a doc; remove it when you archive one — in the **same change**.
-2. **Archive on supersede:** when a doc is replaced, finished, or its path is abandoned, `git mv` it to `docs/legacy/` and add a one-line "why retired" note in `docs/legacy/README.md`. Move, never delete.
-3. **No dangling refs:** never leave live code or an active plan pointing at a doc you moved to `docs/legacy/`. If a tool WRITES a report, it must write a fresh `docs/YYYY-MM-DD-…` path, not overwrite an archived one.
-4. **Root plan files stay at root:** `implementation.md` + `handoff.md` are the active plan set and do NOT live under `docs/`.
-5. **Check on cleanup:** when asked to tidy, audit `docs/` — anything not reachable from `docs/README.md` and not current → `docs/legacy/`.
+Rules: **`docs/README.md` is the ONE index** — add/remove its row in the SAME change a doc is added/archived. **Archive = `git mv` to `docs/legacy/`** + a why-line in `docs/legacy/README.md`; never delete, never edit an archived doc. **No dangling refs** — a tool that writes a report emits a fresh `docs/findings/YYYY-MM-DD-…` path; it never overwrites a `reference/` or archived doc. **Lessons live in memory, not a `docs/experience` folder** (the buckets above have no "experience" — that's what memory is). When asked to tidy: anything in `docs/` not reachable from `docs/README.md` and not current → `docs/legacy/`.
 
 ## Verification
 

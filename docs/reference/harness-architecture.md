@@ -296,7 +296,7 @@ thinking, reconcile is skipped and the backend is re-synced to the client instea
 > **Update (2026-06-12):** the reliability half of this is now implemented — the
 > **deterministic coverage layer** on the single loop (s1-style "Wait" + force-route
 > backstop + budget forcing), default ON. See
-> [`superpowers/specs/2026-06-12-coverage-reliability-design.md`](superpowers/specs/2026-06-12-coverage-reliability-design.md).
+> [`2026-06-12-coverage-reliability-design.md`](2026-06-12-coverage-reliability-design.md).
 > It guarantees multi-tool completeness on compound requests without extra model calls.
 > A staged Controller+Narrator was tried first and retired (slower + worse than the
 > single loop). The *genuine reasoning* half below remains future (E4B + R1-style
