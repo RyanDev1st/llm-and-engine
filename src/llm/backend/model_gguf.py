@@ -60,7 +60,7 @@ class GGUFModel:
         stops = list(stop or [])
         out = self.llm.create_chat_completion(
             messages=messages, max_tokens=max_new_tokens,
-            temperature=max(self.temperature, 0.0), top_p=0.9, stop=stops)
+            temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=1.2, stop=stops)
         text = out["choices"][0]["message"]["content"].strip()
         finish = out["choices"][0].get("finish_reason")
         if finish == "stop" and "</tool>" in stops and text.startswith("<tool>") and "</tool>" not in text:
@@ -82,7 +82,8 @@ class GGUFModel:
         full = ""
         for chunk in self.llm.create_chat_completion(
                 messages=messages, max_tokens=max_new_tokens,
-                temperature=max(self.temperature, 0.0), top_p=0.9, stop=stops, stream=True):
+                temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=1.2,
+                stop=stops, stream=True):
             delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content")
             if not delta:
                 continue

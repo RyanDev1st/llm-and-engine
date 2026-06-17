@@ -49,7 +49,20 @@ class HFModel:
                 bias=cfg_d.get("bias", "none"))
             self.model = get_peft_model(self.model, lora)
             sd = load_file(str(Path(adapter) / "adapter_model.safetensors"))
-            set_peft_model_state_dict(self.model, sd)
+            result = set_peft_model_state_dict(self.model, sd)
+            # VERIFY the adapter actually took. A fresh get_peft_model has lora_B=0 (zero
+            # effect = pure base model); the trained sd is nonzero. If key names don't line
+            # up, set_peft_model_state_dict silently no-ops and we'd serve raw base Gemma
+            # (coherent chat but invents <action>/<thought> on the tool loop). Fail loud.
+            moved = sum(1 for n, p in self.model.named_parameters()
+                        if "lora_B" in n and float(p.detach().abs().sum()) > 0)
+            n_unexpected = len(getattr(result, "unexpected_keys", []) or [])
+            print(f"[adapter] {len(sd)} tensors from {adapter}; unexpected_keys={n_unexpected}; "
+                  f"nonzero lora_B modules={moved}", flush=True)
+            if moved == 0:
+                raise RuntimeError(
+                    "[adapter] NOT applied — 0 lora_B weights took (key mismatch). The server "
+                    "would be running raw base Gemma. Fix the adapter load before trusting output.")
         self.model.eval()
 
     @torch.inference_mode()
@@ -83,10 +96,14 @@ class HFModel:
         return min(int(getattr(self.model.config, "max_position_embeddings", 8192)), 8192)
 
     def _gen(self, enc: dict, max_new_tokens: int):
+        # repetition_penalty + no_repeat_ngram_size kill the greedy loops (the model
+        # repeating one phrase dozens of times). Safe for tool calls: no_repeat_ngram=4
+        # only blocks a 4-token sequence from recurring, not normal SAN/JSON tokens.
         return self.model.generate(
             **enc, max_new_tokens=max_new_tokens,
             do_sample=self.temperature > 0, temperature=max(self.temperature, 1e-3),
-            top_p=0.9, pad_token_id=self.tok.pad_token_id)
+            top_p=0.9, repetition_penalty=1.2, no_repeat_ngram_size=4,
+            pad_token_id=self.tok.pad_token_id)
 
 
 def _truncate(text: str, stop: list[str]) -> str:
