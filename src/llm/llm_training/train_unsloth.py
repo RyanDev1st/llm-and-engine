@@ -527,7 +527,9 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     _print_gpu_mem("after tower-free")
     flags = _TARGET_FLAGS.get(config.lora_targets, _TARGET_FLAGS["attn-only"])
     model = FastModel.get_peft_model(
-        model, r=config.lora_rank, lora_alpha=config.lora_alpha, lora_dropout=0.0,
+        model, r=config.lora_rank, lora_alpha=config.lora_alpha,
+        lora_dropout=config.lora_dropout,  # was hardcoded 0.0 -> silently ignored config's 0.05;
+                                           # light dropout regularizes the train(0.076)/val(3.1) gap
         bias="none", random_state=config.seed, finetune_vision_layers=False,
         finetune_language_layers=True, use_gradient_checkpointing="unsloth", **flags)
     # No KV cache during training (we never generate here) — frees activation memory
