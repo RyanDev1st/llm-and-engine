@@ -15,9 +15,22 @@ GROUND_WEIGHT = 5.0  # loss multiplier on "fact" tokens (eval numbers + SAN move
 # a ~30-token narration, so plain mean loss barely penalizes it).
 _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
+FORMAT_WEIGHT = 8.0  # loss multiplier on the harness CONTROL tags themselves.
+# Root cause of the attn-only AND all-linear free-gen collapse: these tags trained at
+# weight 1.0 (diluted across ~73k rows of narration), so the SFT never overwrote Gemma's
+# strong pretrained tool-call priors — in free generation the model reverted to <thinking>,
+# <action input=>, function name=, JSON instead of our <skill>/<tool>/<think>. Heavily
+# weighting the control tokens makes the SFT gradient dominate the base prior so the model
+# EMITS our format, not Gemma's. Tag delimiters only (the surface that collides), not content.
+_CONTROL = re.compile(r"</?(?:think|goal|plan|skill|tool)>")
+
 
 def _fact_spans(text: str) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in _FACT.finditer(text)]
+
+
+def _control_spans(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _CONTROL.finditer(text)]
 
 
 def _overlaps(offset: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
@@ -83,12 +96,18 @@ def tokenize_with_assistant_mask(
             enc = tokenizer(delta_text, add_special_tokens=False)
             offsets = None
         delta = enc["input_ids"]
-        spans = _fact_spans(delta_text) if (assistant and offsets) else []
+        fact_spans = _fact_spans(delta_text) if (assistant and offsets) else []
+        ctrl_spans = _control_spans(delta_text) if (assistant and offsets) else []
         for j, tid in enumerate(delta):
             input_ids.append(tid)
             if assistant:
                 labels.append(tid)
-                weights.append(GROUND_WEIGHT if (offsets and _overlaps(offsets[j], spans)) else 1.0)
+                w = 1.0
+                if offsets and _overlaps(offsets[j], fact_spans):
+                    w = GROUND_WEIGHT
+                if offsets and _overlaps(offsets[j], ctrl_spans):
+                    w = max(w, FORMAT_WEIGHT)  # control tags must beat the base prior
+                weights.append(w)
             else:
                 labels.append(IGNORE_INDEX)
                 weights.append(0.0)
