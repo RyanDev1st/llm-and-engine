@@ -15,14 +15,19 @@ GROUND_WEIGHT = 5.0  # loss multiplier on "fact" tokens (eval numbers + SAN move
 # a ~30-token narration, so plain mean loss barely penalizes it).
 _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
-FORMAT_WEIGHT = 8.0  # loss multiplier on the harness CONTROL tags themselves.
-# Root cause of the attn-only AND all-linear free-gen collapse: these tags trained at
-# weight 1.0 (diluted across ~73k rows of narration), so the SFT never overwrote Gemma's
-# strong pretrained tool-call priors — in free generation the model reverted to <thinking>,
-# <action input=>, function name=, JSON instead of our <skill>/<tool>/<think>. Heavily
-# weighting the control tokens makes the SFT gradient dominate the base prior so the model
-# EMITS our format, not Gemma's. Tag delimiters only (the surface that collides), not content.
-_CONTROL = re.compile(r"</?(?:think|goal|plan|skill|tool)>")
+FORMAT_WEIGHT = 8.0  # loss multiplier on the harness CONTROL tags AND the skill/tool NAME.
+# Root cause of the attn-only AND all-linear free-gen collapse: the tags trained at weight
+# 1.0 (diluted across ~73k rows of narration), so the SFT never overwrote Gemma's strong
+# pretrained tool-call priors — free-gen reverted to <thinking>, <action input=>, function
+# name=, JSON instead of our <skill>/<tool>/<think>. Weighting the control tokens fixed that.
+# EXTENDED: the name INSIDE the tag (`<skill>chess-coach`, `<tool>move`) also trained at 1.0,
+# so names came out garbled/hallucinated (`<skill>hood-human-chat`). Up-weight the open tag +
+# its name too so the model COPIES the exact catalog name, not a plausible guess. We weight
+# the NAME only (not tool arg VALUES) so long `<tool>python code="..."` blocks aren't
+# over-memorized; SAN/eval facts in args keep their separate GROUND_WEIGHT.
+# NOTE: the name-capturing alternative MUST come first — re alternation is ordered, so if
+# `</?...>` matched `<skill>` first, finditer would advance past it and miss the name.
+_CONTROL = re.compile(r"<(?:skill|tool)>\s*[\w./-]+|</?(?:think|goal|plan|skill|tool)>")
 
 
 def _fact_spans(text: str) -> list[tuple[int, int]]:
