@@ -96,13 +96,18 @@ class HFModel:
         return min(int(getattr(self.model.config, "max_position_embeddings", 8192)), 8192)
 
     def _gen(self, enc: dict, max_new_tokens: int):
-        # repetition_penalty + no_repeat_ngram_size kill the greedy loops (the model
-        # repeating one phrase dozens of times). Safe for tool calls: no_repeat_ngram=4
-        # only blocks a 4-token sequence from recurring, not normal SAN/JSON tokens.
+        # repetition_penalty + no_repeat_ngram_size were added to kill the greedy loops of
+        # the soup era. BUT they corrupt name COPYING: a correct skill name (chess-coach)
+        # reuses words already in the prompt (the skills index lists it), so repetition_
+        # penalty divides those logits down and pushes the model OFF the right name toward
+        # novel garbage. Env-togglable so we can A/B; default 1.0/0 (clean) now that the
+        # format is trained and the loops are gone — set CHESS_REP_PENALTY=1.2 to restore.
+        rep = float(os.environ.get("CHESS_REP_PENALTY", "1.0"))
+        nrn = int(os.environ.get("CHESS_NO_REPEAT_NGRAM", "0"))
         return self.model.generate(
             **enc, max_new_tokens=max_new_tokens,
             do_sample=self.temperature > 0, temperature=max(self.temperature, 1e-3),
-            top_p=0.9, repetition_penalty=1.2, no_repeat_ngram_size=4,
+            top_p=0.9, repetition_penalty=rep, no_repeat_ngram_size=nrn,
             pad_token_id=self.tok.pad_token_id)
 
 
