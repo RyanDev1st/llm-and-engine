@@ -276,6 +276,89 @@ def _hub_push(local_dir, path_in_repo: str) -> bool:
     return False
 
 
+# --- ASYNC off-kernel mirror ----------------------------------------------------------
+# The synchronous upload_folder blocks the train loop ~80-160s per save (222MB over the
+# network) — at SAVE_EVERY=50 over 1000 steps that's ~30-50 min of pure waiting. So the
+# slow network push runs on a BACKGROUND worker while training continues. The LOCAL save
+# (save_pretrained + trainer_state) stays synchronous (fast, crash/resume-critical); only
+# the Hub mirror is deferred. We SNAPSHOT the saved dir (fast local copy) before queuing so
+# the NEXT save can overwrite the original freely without corrupting an in-flight upload.
+# Single worker = uploads serialize (don't fight for bandwidth). _hub_drain() flushes the
+# queue at exit so the final best/ + checkpoint actually land. Main process only.
+_UPLOAD_Q = None
+_UPLOAD_WORKER = None
+
+
+def _uploader_worker() -> None:
+    import shutil
+    while True:
+        job = _UPLOAD_Q.get()
+        try:
+            if job is None:
+                return                       # sentinel: queue drained, stop
+            snap_dir, tag = job
+            try:
+                _hub_push(snap_dir, tag)     # the real (retrying) upload
+            finally:
+                shutil.rmtree(snap_dir, ignore_errors=True)
+        finally:
+            _UPLOAD_Q.task_done()
+
+
+def _hub_push_async(local_dir, tag: str) -> None:
+    """Snapshot local_dir and upload it on a background thread so training never blocks on
+    the network. Falls back to a synchronous push if the snapshot fails or the queue is
+    backed up (slow net) — a checkpoint is never silently dropped."""
+    import os
+    import queue as _queue
+    import shutil
+    import tempfile
+    import threading
+    from pathlib import Path
+    global _UPLOAD_Q, _UPLOAD_WORKER
+    if not os.environ.get("CHESS_CKPT_REPO"):
+        return
+    # snapshot on the SAME filesystem (fast) so the next save can overwrite local_dir
+    snap = tempfile.mkdtemp(prefix=f"hubpush_{tag}_", dir=str(Path(local_dir).parent))
+    try:
+        shutil.copytree(local_dir, snap, dirs_exist_ok=True)
+    except Exception as exc:
+        print(f"  [hub] snapshot failed ({exc}); pushing {tag} synchronously", flush=True)
+        shutil.rmtree(snap, ignore_errors=True)
+        _hub_push(local_dir, tag)
+        return
+    if _UPLOAD_Q is None:
+        _UPLOAD_Q = _queue.Queue(maxsize=4)
+        _UPLOAD_WORKER = threading.Thread(target=_uploader_worker, daemon=True)
+        _UPLOAD_WORKER.start()
+    try:
+        _UPLOAD_Q.put((snap, tag), timeout=0.5)
+        print(f"  [hub] queued {tag} async — training continues", flush=True)
+    except _queue.Full:
+        print(f"  [hub] upload queue full (slow net?); pushing {tag} synchronously", flush=True)
+        try:
+            _hub_push(snap, tag)
+        finally:
+            shutil.rmtree(snap, ignore_errors=True)
+
+
+def _hub_drain(timeout: float = 1200.0) -> None:
+    """Block until queued uploads finish — call at end of training / before exit so the
+    final best/ + checkpoint actually reach the Hub. No-op if nothing was queued."""
+    global _UPLOAD_Q, _UPLOAD_WORKER
+    if _UPLOAD_Q is None or _UPLOAD_WORKER is None:
+        return
+    print("  [hub] draining async uploads before exit...", flush=True)
+    _UPLOAD_Q.put(None)                       # sentinel after all pending jobs (FIFO)
+    _UPLOAD_WORKER.join(timeout)
+    if _UPLOAD_WORKER.is_alive():
+        print("  [hub] drain TIMED OUT — some uploads may be incomplete (local saves intact)", flush=True)
+    else:
+        print("  [hub] async uploads drained.", flush=True)
+    _UPLOAD_Q = None
+    _UPLOAD_WORKER = None
+
+
 def _hub_selftest() -> None:
     """Prove the mirror works in the FIRST MINUTE by exercising the EXACT real push path
     — not a toy file. A plain-file test passed last time while the real folder push died
@@ -333,7 +416,7 @@ def _save_ckpt(model, optimizer, scheduler, update, epoch, best_val, config, tag
         print(f"  [ckpt] optimizer/scheduler state not saved ({exc}); resume will warm-start", flush=True)
     torch.save(state, out / "trainer_state.pt")
     print(f"  [ckpt] saved {tag} @ update {update}", flush=True)
-    _hub_push(out, tag)                                   # mirror off-kernel (survives 12h SIGKILL)
+    _hub_push_async(out, tag)                             # mirror off-kernel, NON-BLOCKING (drained at exit)
     _flush_mem()
 
 
@@ -453,7 +536,7 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
                             best_val = vloss
                             saver.save_pretrained(str(config.output_dir / "best"))
                             print(f"  saved best (val_loss={vloss:.4f})", flush=True)
-                            _hub_push(config.output_dir / "best", "best")   # mirror off-kernel
+                            _hub_push_async(config.output_dir / "best", "best")   # mirror off-kernel, NON-BLOCKING
                             _flush_mem()           # release memory once a best is banked
                 if main and update % save_every == 0:   # crash/timeout-safe resumable checkpoint
                     _save_ckpt(saver, optimizer, scheduler, update, epoch, best_val, config)
@@ -469,7 +552,10 @@ def _loop(model, train_examples, val_batches, optimizer, scheduler, device, pad_
                 _save_ckpt(saver, optimizer, scheduler, update, epoch, best_val, config)
             except Exception as save_exc:
                 print(f"[checkpoint-on-exit FAILED: {save_exc}]", flush=True)
+            _hub_drain()        # flush the queued upload (incl. this exit save) before re-raising
         raise
+    if main:
+        _hub_drain()            # normal completion: ensure the final best/ + checkpoint land
     return losses, val_history
 
 
