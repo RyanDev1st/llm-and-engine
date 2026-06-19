@@ -782,12 +782,14 @@ true rather than authored. The hand-written parts are the questions, the tone op
 - **J — chit-chat / mixed:** hey there · thanks! · what can you do? · feeling good
 - **K — chess trivia:** how much is a knight worth? · is the queen the strongest piece? · checkmate, that's a deal
 
-**Answer construction:** every chess answer opens with a tone phrase (drawn from three pools —
-warm, blunt, socratic — see note at the end), then a slice-specific body:
+**Answer construction:** there is **no persona/tone preamble** — earlier "warm / blunt / socratic"
+openers were removed (the data trains tool use, not tone), so a chess answer is a plain grounded
+sentence: a slice-specific body, often followed by a guiding question. The body is:
 - **A:** "Played {move}. The board's updated and it's the opponent's turn now."
 - **D / E / F / G:** built from the engine's numbers (evaluation, best move, threat), stated
   qualitatively by default ("a clear edge") and as an exact number only when the user explicitly
-  asks for one.
+  asks for one. The qualitative evaluation wording is drawn from small phrasing pools (reproduced
+  in Appendix I.1).
 - **B / C / H / J:** drawn from hand-written "lesson" pools that all teach the same point in
   several phrasings. Examples:
   - *B (choose by the legal-move list, don't guess), 6 phrasings* — e.g. "I listed the legal moves first, then chose on the plan rather than guessing."
@@ -795,7 +797,7 @@ warm, blunt, socratic — see note at the end), then a slice-specific body:
   - *H (read material off the board), 6 phrasings* — e.g. "I listed your pieces from the board rather than guessing."
   - *J (greeting + capabilities), 16 phrasings* — e.g. "Hi. Ask me to read the board, suggest a move, or explain a chess idea."
 - **No-threat answers (G), 8 phrasings** — e.g. "Nothing forcing from them right now — you're not under immediate pressure."
-- **I / K (knowledge):** the answer comes from a small chess knowledge base (see note).
+- **I / K (knowledge):** the answer comes from a small chess knowledge base (reproduced verbatim in Appendix I.2).
 
 ## Appendix E — the general "operate the toolbox" slices (V1_A–V1_N, V1_Q)
 
@@ -926,11 +928,175 @@ program draws those menus from:
   marketplace = market-openings, market-endgames. (So "market-tactics" is installed-but-disabled —
   which is what the marketplace and plugin-gating lessons exercise.)
 
-## Note on the few banks not reproduced verbatim
+# Appendix I — the remaining banks, verbatim (full transparency)
 
-For full honesty: three small text sources are described above but not quoted word-for-word, because
-they live in separate modules and add little for a report — (1) the chess **tone openers** (three
-small pools: warm, blunt, socratic) that prefix chess answers; (2) the **chess knowledge base**
-entries behind slices I and K; (3) the exact prompt/answer text inside the **V1_R / V1_S / V1_T /
-V1_P** builders. All four follow the same "small hand-written pool, combined by the program"
-pattern as everything above. They can be added verbatim if the final report needs them.
+The earlier draft summarised four small banks rather than quoting them. They are now reproduced in
+full. One of them corrected an earlier claim (see I.1).
+
+## I.1 Chess evaluation phrasing pools
+
+**Correction to Appendix D:** there are **no** persona "openers." They were removed — chess answers
+carry no warm/blunt/socratic preamble. What remains are three small phrasing pools used to put an
+evaluation into words.
+
+**Evaluation phrasings (6)** — used for a non-terminal position:
+1. Roughly equal — neither side has a meaningful edge yet.
+2. Slim edge that needs careful play to convert.
+3. Pressure is real but not winning.
+4. Engine sees a clear advantage building.
+5. Decisive in concrete lines.
+6. Material is balanced; activity decides.
+
+**Mate phrasings (6)** — when there is a forced mate:
+1. Mate is on the board — no quiet moves left.
+2. Forced sequence ends the game.
+3. The king is hunted; only the mating moves matter now.
+4. Material is gone; mate runs the whole evaluation.
+5. All escape squares fall in the forced line.
+6. The check cascade resolves to mate.
+
+**Engine-unreachable apologies (6)** — the error path:
+1. Engine is unreachable right now — try once more.
+2. I lost the engine briefly. Mind retrying that?
+3. The analysis tool didn't answer in time.
+4. Couldn't reach the engine, sorry. One more try?
+5. Stockfish hiccuped. Want me to retry?
+6. Engine timeout — please ask again.
+
+## I.2 The chess knowledge base (slices I and K), verbatim
+
+Slice **I** answers are looked up through the ask_chessbot tool (the answer is grounded in a tool
+result, shown as "→ tool result"). Slice **K** answers are given directly, with no tool. Each topic
+carries several answer paraphrases (same fact, different wording); one is picked per example.
+
+**Slice I — explain a chess idea (4 topics):**
+
+1. **Sicilian** — questions: "what is the sicilian?" / "explain the sicilian" / "tell me about the sicilian defense"
+   - → tool result: *Sicilian: Black meets 1.e4 with 1...c5, fighting for the d4 square asymmetrically.*
+   - answers: (a) "It's Black's sharpest reply to 1.e4 — striking at the centre from the side instead of meeting it head-on." (b) "The Sicilian answers 1.e4 with 1...c5, fighting for the centre asymmetrically rather than mirroring White." (c) "It's the 1...c5 defence: Black contests d4 from the wing, which is why it leads to such sharp, unbalanced games."
+2. **Fork** — questions: "what is a fork?" / "explain a fork" / "what does forking mean"
+   - → tool result: *Fork: one piece attacks two or more enemy targets at once; the knight is the classic forker.*
+   - answers: (a) "A fork is a single piece attacking two targets at once — the knight is the classic forker because it hits squares nothing else covers." (b) "It's one piece hitting two or more enemy pieces simultaneously; knights fork best since their jump can't be blocked." (c) "Forking means attacking two things with one move, so the opponent can only save one — knights are the textbook example."
+3. **Castling** — questions: "why castle?" / "what is castling?" / "should I castle"
+   - → tool result: *Castling: a king-safety move that tucks the king toward a corner and connects the rooks; never through or into check.*
+   - answers: (a) "Castling gets your king to safety and links your rooks in one move — just remember you can't castle through or into check." (b) "It's the one move that both shelters your king in a corner and connects the rooks; it's illegal through or into check." (c) "You castle to tuck the king away and activate a rook at once — but not while in check, through check, or into it."
+4. **Capablanca** — questions: "who is capablanca?" / "tell me about capablanca" / "what is capablanca known for"
+   - → tool result: *Capablanca: Cuban world champion 1921-27, renowned for clean, almost effortless endgame technique.*
+   - answers: (a) "Capablanca was world champion in the 1920s, famous for endgames so clean they looked effortless." (b) "He was the Cuban world champion of the early 1920s, legendary for simple, precise endgame technique." (c) "Capablanca held the title from 1921-27 and is remembered for an almost machine-like clarity in the endgame."
+
+**Slice K — chess trivia (4 topics, no tool):**
+
+1. **Knight value** — questions: "how much is a knight worth?" / "what's a knight worth" / "value of a knight"
+   - answers: (a) "A knight is worth about three pawns, the same as a bishop — though its real value depends on how active it is, not the raw count." (b) "Roughly three points, level with a bishop; but a knight in a strong outpost is worth more than the number suggests." (c) "About three pawns — equal to a bishop on paper, though activity and pawn structure swing its true worth."
+2. **Strongest piece** — questions: "is the queen the strongest piece?" / "what's the strongest piece" / "how strong is the queen"
+   - answers: (a) "Yes — the queen is the most powerful piece, moving like a rook and bishop combined; only the king matters more, since losing it ends the game." (b) "The queen is the strongest, since it moves as a rook and bishop together; the king is more important only because losing it loses the game." (c) "By power, the queen tops every piece — rook plus bishop in one; the king is merely more valuable because it can't be lost."
+3. **Rook value** — questions: "how many points is a rook?" / "what's a rook worth" / "value of a rook"
+   - answers: (a) "A rook is worth about five pawns — stronger than a knight or bishop, which is why trading a rook for a minor piece is usually a bad deal." (b) "Around five points, more than a minor piece; giving up a rook for a knight or bishop (losing the exchange) usually hurts." (c) "Roughly five pawns — clearly above a knight or bishop, so swapping one for a minor is normally a concession."
+4. **Passed pawn** — questions: "what is a passed pawn?" / "explain a passed pawn" / "why are passed pawns good"
+   - answers: (a) "A passed pawn has no enemy pawns blocking or guarding its path to promotion, so it ties down the defender and gets dangerous in the endgame." (b) "It's a pawn with a clear lane to promotion — no enemy pawns ahead on its file or the ones beside it — which makes it a real endgame weapon." (c) "A passed pawn faces no opposing pawns on its way to queening, so it forces the defender to spend pieces stopping it."
+
+## I.3 V1_R — "verify by running code", verbatim
+
+The example mixes two shapes ~70/30. In both, the script is always the one canonical template
+`print(f"{EXPR:.2f}")` with an expression slotted in, and it is run by the **real Python sandbox**
+so the output is true (train output == serve output). The two-decimal print is what lets the
+fact-check confirm the answer's number against the tool output.
+
+**Verify-then-claim families (~70%)** — the user asks a yes/no judgment; the model runs the number
+and states a grounded verdict. The six families (with a sample prompt and the verdict rule):
+
+1. **average check** — "I scored 88, 91, 79 — am I averaging at least 85?" → runs `sum([...]) / n` → "Your average is 86.00, above the 85 mark." (says "exactly the 85 mark" on a tie)
+2. **budget check** — "I spent $48.50, $59.90, $33.33 this week — did I stay under $150?" → sums the bills → "Your total is $141.73, under the $150 budget." (or "over your $150 budget")
+3. **tip check** — "Is a 18% tip on $72.80 more than $12?" → `0.18 * 72.80` → "That tip works out to $13.10, more than $12." (or "not more than $12")
+4. **discount check** — "A $120 item is 25% off — is the final price under $100?" → `120 * 0.75` → "After the discount it's $90.00, under $100." (or "still over $100")
+5. **split check** — "Split $86.40 among 4 of us — is each share under $25?" → `86.40 / 4` → "Each person pays $21.60, under the $25 cap." (or "over the $25 cap")
+6. **save check** — "If I save $48.50 a week for 12 weeks, do I reach $600?" → `48.50 * 12` → "You'd save $582.00, short of the $600 goal." (or "enough to clear $600")
+
+**Compute-on-request families (~30%)** — the user asks for a raw figure; the model computes rather
+than guessing: tip ("What's a 15% tip on a $59.90 bill?"), percent-of ("What's 20% of 80?"),
+weekly savings, miles→km ("How many km is 10 miles?" → `10 * 1.60934`), average, total.
+
+**Operand pools** (so the numbers vary): bills = 38.20, 48.50, 59.90, 72.80, 86.40, 95.40, 33.33,
+47.25 · percents = 10, 12, 15, 18, 20, 25 · bases = 40, 60, 80, 120, 128, 150, 200, 240.
+**Closers** = "Want the breakdown?" / "Anything else to check?" / "Want me to round it?" / "Need
+another one run?" plus three blanks (so ~40% of answers end with no closer).
+
+## I.4 V1_S — "compound plan", verbatim
+
+Picks **2 of the 20 cards** and builds a compound request — e.g. "⟨ask A⟩, and also ⟨ask B⟩" /
+"two things: ⟨A⟩; then ⟨B⟩" / "⟨A⟩ — and ⟨B⟩ while you're at it". The assistant commits **both**
+goals, writes a three-box plan ("handle the ⟨A⟩ part", "handle the ⟨B⟩ part", "synthesize one
+combined answer"), then works box A (load skill → call its tool → read), then box B, then
+synthesises ("On the first: … On the second: …"). Skill bodies here are one line ("Use ⟨tool⟩ for
+this, then report the finding.") for length economy — full bodies are taught in the routing slice.
+
+**~12% are "honest-partial":** skill B is listed but disabled, so the model clears box A and reports
+the blocker instead of faking box B (see the honest-partial template in I.7). Lead pools: load =
+"Loading the skill for this part." / "Next skill for the next box." / "Pulling the skill this box
+needs." · tool = "Now its data." / "Running its tool." / "Getting the specifics."
+
+## I.5 V1_T — "audited plan", verbatim
+
+The assistant commits its goals, writes a plan, then loads a **plan-audit** skill and verifies each
+checkable box by running code. The plan-audit skill:
+- **Description:** "Verify a goal's checkable claims by running a tool and reading its output, not by asserting."
+- **Body (verbatim):** *When to use: a goal with checkable claims you must not just assert. Steps: (1) For each checkable box, run the python tool and read its output; (2) Mark the box from that output — never state a number you didn't run; (3) Leave judgment/semantic boxes soft; say so, don't fake a tool check. Constraint: if a box can't be verified, report it and stop — don't spin.*
+
+Each checkable box reuses a V1_R verify family, so its verdict is grounded in real executor output.
+Two extra behaviours:
+- **Split-determinism (~22%):** one box is a **semantic** judgment that must NOT be tool-audited.
+  Semantic prompts: "is my cover letter persuasive enough" · "does my study plan look sensible" ·
+  "is my apology email warm enough" · "does my bio sound confident". Soft verdicts (no fake audit):
+  "that's a judgment call, not a tool check — to my read it mostly works, but I won't fake a measured
+  verdict on it" / "I can't run that one — it's qualitative, so I'll give my honest read rather than
+  a fake audit number."
+- **Honest-partial (~12%):** the plan-audit skill is disabled, so the model says "I can't load the
+  audit procedure here." and reports what it could and couldn't do, rather than faking the audit.
+
+Lead pools: load = "Loading the audit procedure." / "Pulling up how to audit this." / "First, the
+audit skill." · run = "Running the check." / "Verifying that box now." / "Let me run the numbers,
+not guess them."
+
+## I.6 V1_P — "multi-turn follow-up", verbatim
+
+Turn 1 is **context only** — a question and the coach's answer, with no tool scratchpad and no
+thinking shown (it mirrors exactly what the served model sees going into turn 2, and it is excluded
+from training). Only **turn 2** is trained, and it carries the inline thinking trace. Five
+archetypes, roughly evenly split by seed:
+
+- **reference** — a "why?"-type follow-up answered from the established context, with **no tool** and
+  no invented specifics (teaches: don't re-dump or re-call what you already said).
+- **tool** — a "what should I play?" / "exact eval?" follow-up that **does** re-run the right tool
+  (correct: it's new information) and connects the answer back to turn 1.
+- **clarify** — an ambiguous follow-up; the coach asks **one** clarifying question instead of
+  guessing or calling a tool.
+- **stuck** — the user says "I'm lost / no idea"; the coach gives a grounded next-step nudge (the
+  engine's move via the tool) and explicitly does **not** restart the game.
+- **self-correct** — a tool call errors mid-conversation (e.g. `eval depth=99` → "error:
+  invalid_syntax"); the coach diagnoses and retries correctly (`eval depth=15`) rather than giving up
+  or fabricating.
+
+Question pools: *turn 1* = "who's winning?" / "how am I doing?" / "rate this position" / "how's it
+looking?" · *turn-2 "why"* = "why?" / "why do you say that?" / "explain that" / "what makes you say
+so?" / "how come?" · *turn-2 tool* = "what should I play then?" / "ok what's the best move?" / "so
+what's the exact eval?" / "give me the line then" · *turn-2 clarify* = "can you help me here?" /
+"what about the other side?" / "what now?" / "not sure what to do" / "where do I go from here?" ·
+*turn-2 stuck* = "I'm stuck" / "no idea what to do" / "I don't know" / "I'm totally lost" / "I give
+up". Back-reference lead-ins: "Same read as before —" / "Like I said," / "As I noted," / "Since you
+asked," / "Right —" / "Building on that," / "Okay —". (All chess numbers in turn 2 still come from
+the real engine.)
+
+## I.7 Plan-mode wrappers (the `<goal>` / `<plan>` text)
+
+- **`<goal>`** commits the objective. Its purpose is *anti-early-stop*: holding the goal as state
+  makes a small model keep looping through every needed step instead of half-answering after one. A
+  compound request enumerates **every** ask ("1) … ; 2) …") so all goals are committed before acting.
+  Seeded lead variants: "" (bare), "" (bare), "Goal: ", "I need to ", "The ask: ".
+- **`<plan>`** is a checklist; each line is exactly `- [ ] ⟨action⟩ (⟨binding⟩)`, where the binding
+  names the skill or tool the box maps to. At serve time the goal and plan are routed to a side panel
+  (like a to-do list), not the chat, and each box is ticked when its bound action's result arrives.
+- **Honest-partial report (verbatim template):** "I cleared ⟨done⟩ of ⟨total⟩: ⟨what cleared⟩. I
+  couldn't finish "⟨blocked step⟩" — ⟨blocker⟩. Tell me how you'd like to proceed and I'll continue."
+
+With this appendix, every hand-written text bank in the corpus is reproduced or shown by full
+example; nothing material is left summarised.
