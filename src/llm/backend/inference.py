@@ -408,14 +408,33 @@ def _to_skill_verb(call: str) -> str:
 # treat it as the final reply. A box is satisfied when its bound skill/tool runs.
 _PLAN_TAG = _re.compile(r"<plan>(.*?)</plan>", _re.DOTALL)
 _GOAL_TAG = _re.compile(r"<goal>(.*?)</goal>", _re.DOTALL)
+_THINK_TAG = _re.compile(r"<think>(.*?)</think>", _re.DOTALL)
 _PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
 _SKILL_ARG = _re.compile(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)")
 
 
+def _split_reasoning(reply: str) -> tuple[str, list[str], str | None]:
+    """Separate the user-visible answer from its reasoning trace. Returns
+    (visible, think_blocks, goal). `<think>` (the decision trace) and `<goal>` (the
+    objective) belong in the thinking / goal panels — NEVER the chat bubble. The trained
+    VISIBLE reply is rendered exactly this way (multiturn turn-1 carries no <think>), so
+    stripping them here keeps serve == the trained visible shape. Conservative: removes
+    only the tag blocks, leaves all other prose intact."""
+    text = reply or ""
+    thinks = [m.group(1).strip() for m in _THINK_TAG.finditer(text) if m.group(1).strip()]
+    gm = _GOAL_TAG.search(text)
+    goal = gm.group(1).strip() if gm and gm.group(1).strip() else None
+    visible = _GOAL_TAG.sub("", _THINK_TAG.sub("", text))
+    visible = _re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return visible, thinks, goal
+
+
 def is_plan_panel(raw: str) -> bool:
-    """True when `raw` is a plan-mode panel turn: it has a <goal>/<plan> and no
-    executable action (so it must NOT be accepted as the final reply)."""
-    return bool(_GOAL_TAG.search(raw) or _PLAN_TAG.search(raw)) and extract_call(raw) is None
+    """True when `raw` is a plan-mode panel turn: it carries a `<plan>` checklist and no
+    executable action (so it must NOT be accepted as the final reply). A bare leading
+    `<goal>` with a prose answer (a think/auto DIRECT answer) is NOT a panel — its `<goal>`
+    is lifted to the goal panel and the prose is the reply (else the answer is discarded)."""
+    return bool(_PLAN_TAG.search(raw)) and extract_call(raw) is None
 
 
 def plan_bindings(raw: str) -> list[str]:
@@ -544,10 +563,20 @@ class CoachLoop:
         return extract_call(out)
 
     def _finalize(self, reply: str, required: dict, tool_calls: list[str],
-                  tool_results: list[str], new_turns: list[dict], ctx_stats) -> dict:
+                  tool_results: list[str], new_turns: list[dict], ctx_stats, on_event=None) -> dict:
         """Apply the output guards (strip skill/tool announce, fix a fabricated eval number
         then a fabricated move list, append any required fact still missing) and build the
-        return payload. Shared by every final-reply path so the guards never diverge."""
+        return payload. Shared by every final-reply path so the guards never diverge.
+
+        First lifts the reasoning trace out of the visible reply: `<think>` -> the thinking
+        panel, `<goal>` -> the goal panel (via on_event), then strips both from the bubble
+        text — reasoning is never shown in the user-facing answer (the trained visible shape)."""
+        reply, thinks, goal = _split_reasoning(reply)
+        if on_event:
+            if goal:
+                on_event({"type": "goal", "content": goal})
+            for t in thinks:
+                on_event({"type": "think", "content": t})
         reply = _strip_announce_leadin(reply)
         reply = _correct_eval_number(reply, tool_results)
         reply = _correct_move_names(reply, tool_results)
@@ -566,7 +595,7 @@ class CoachLoop:
         }
 
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
-                on_event=None) -> dict:
+                on_event=None, reasoning_mode: str = "") -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
         display fields (tool_call, tool_result), and the context-window stats.
 
@@ -585,7 +614,8 @@ class CoachLoop:
         # narrating "I'll play b3" without calling move, or stopping before eval).
         game_over = self.executor.game.over_status()
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
-                                     self.executor.game) + routing_hints(user_message, game_over)
+                                     self.executor.game, reasoning_mode=reasoning_mode) \
+            + routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index(self.plugin_context))
         # Coverage set: tool -> canonical call for each detected intent. Empty on a
@@ -606,6 +636,7 @@ class CoachLoop:
         plan_boxes: list[str] = []     # outstanding <plan> box bindings (Stage 1 plan mode)
         plan_fired: set[str] = set()   # bindings satisfied by an executed skill/tool
         plan_nudges = 0                # plan-box steers used this turn (cap = number of boxes)
+        goal_shown = [False]           # emit the <goal> to its panel once, when first seen
 
         # True token streaming: when the caller wants events AND the backend supports it,
         # stream each generation's tokens out as `token` events so the UI fills live. The
@@ -628,6 +659,11 @@ class CoachLoop:
         verified = False   # the self-verify step (Design B) runs at most once per turn
         for _ in range(MAX_TOOL_CALLS):
             raw = gen(REPLY_TOKENS, ACTION_STOP)
+            if on_event and not goal_shown[0]:  # surface the objective to the goal panel early
+                gm = _GOAL_TAG.search(raw)
+                if gm and gm.group(1).strip():
+                    on_event({"type": "goal", "content": gm.group(1).strip()})
+                    goal_shown[0] = True
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None and is_plan_panel(raw):
                 # PLAN-mode panel turn (<goal>/<plan>): surface it, register the boxes, and
@@ -675,10 +711,10 @@ class CoachLoop:
                                 decision = nxt           # not fulfilled -> continue with this tool
                             else:
                                 return self._finalize(reply, required, tool_calls,
-                                                      tool_results, new_turns, ctx_stats)
+                                                      tool_results, new_turns, ctx_stats, on_event)
                         else:
                             return self._finalize(reply, required, tool_calls,
-                                                  tool_results, new_turns, ctx_stats)
+                                                  tool_results, new_turns, ctx_stats, on_event)
                         # reached only when verify returned a tool (decision=nxt) -> fall through
                 else:
                     # A required intent is still ungathered: force-route it directly
@@ -720,4 +756,4 @@ class CoachLoop:
             # leaked a tool tag, produced nothing, or stopped on a bare tool-intent lead-in
             # after tools ran — narrate the last fact so the user gets a real answer.
             reply = _fallback_reply(tool_calls, tool_results)
-        return self._finalize(reply, required, tool_calls, tool_results, new_turns, ctx_stats)
+        return self._finalize(reply, required, tool_calls, tool_results, new_turns, ctx_stats, on_event)

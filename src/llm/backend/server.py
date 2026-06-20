@@ -117,11 +117,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("empty message")
                 coverage = bool(body.get("coverage", True))
                 variant = str(body.get("variant", "sft"))
+                mode = str(body.get("mode", ""))   # reasoning mode: fast | think | auto | plan
                 if variant == "base":  # the untrained side of the dual — independent request
-                    return self._json({"ok": True, **APP.chat_base(msg)})
+                    return self._json({"ok": True, **APP.chat_base(msg, mode)})
                 if body.get("stream"):  # SSE: emit each tool step live, then the final reply
-                    return self._chat_stream(msg, coverage)
-                return self._json({"ok": True, **APP.chat(msg, variant, coverage)})
+                    return self._chat_stream(msg, coverage, mode)
+                return self._json({"ok": True, **APP.chat(msg, variant, coverage, mode=mode)})
             if path == "/api/skill":
                 skill_admin.add_skill(str(body.get("name", "")), str(body.get("description", "")),
                                       str(body.get("body", "")))
@@ -136,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._json({"ok": False, "error": str(exc)}, 500)
 
-    def _chat_stream(self, msg: str, coverage: bool) -> None:
+    def _chat_stream(self, msg: str, coverage: bool, mode: str = "") -> None:
         """Server-Sent Events. Two live streams during generation: `tool` events (THINKING
         — tool steps as they run) and `token` events (CHAT — reply tokens as the model
         produces them, true streaming). A final `done` carries the authoritative reply +
@@ -175,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass  # client disconnected; let the turn finish server-side
 
         try:
-            result = APP.chat(msg, "sft", coverage, on_event=emit)
+            result = APP.chat(msg, "sft", coverage, on_event=emit, mode=mode)
             if not saw_token[0]:
                 # Backend didn't stream tokens (non-streaming model) — fall back to a
                 # paced sentence/clause reveal of the finished, grounded reply.

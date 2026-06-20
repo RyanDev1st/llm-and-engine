@@ -132,13 +132,13 @@ class App:
         print("base HF model unloaded", flush=True)
         return {"ok": True, "loaded": False}
 
-    def chat_base(self, message: str) -> dict:
+    def chat_base(self, message: str, mode: str = "") -> dict:
         """Run the UNTRAINED base on the mirrored board (independent of the trained side)."""
         if self.loop_base is None:
             return {"reply": "(base model not loaded)", "tool_calls": [], "tool_results": [],
                     "elapsed_s": 0, "state": self.state()}
         self._mirror_base()
-        out = self._run(self.loop_base, self.history_base, message)
+        out = self._run(self.loop_base, self.history_base, message, mode=mode)
         return {**out, "state": self.state()}
 
     def state(self) -> dict:
@@ -162,10 +162,10 @@ class App:
         bg.san_stack = list(self.game.san_stack)
 
     def _run(self, loop: CoachLoop, history: list[dict], message: str, coverage: bool = True,
-             on_event=None) -> dict:
+             on_event=None, mode: str = "") -> dict:
         import time
         t0 = time.time()
-        result = loop.respond(history, message, coverage, on_event)
+        result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode)
         elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
@@ -177,24 +177,25 @@ class App:
                 "tool_results": result.get("tool_results", []),
                 "context": result.get("context"), "elapsed_s": elapsed}
 
-    def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None) -> dict:
+    def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None,
+             mode: str = "") -> dict:
         if self.loop is None:
             return {"reply": f"(model not loaded: {self.model_error or 'no adapter'})",
                     "tool_calls": [], "tool_results": [], "state": self.state()}
         if variant == "both" and self.loop_base is not None:
-            sft = self._run(self.loop, self.history, message, coverage)
+            sft = self._run(self.loop, self.history, message, coverage, mode=mode)
             board = self.state()  # the visible board follows OUR model, snapshot before base runs
             self._mirror_base()   # base runs on a private copy — never touches the real board
-            base = self._run(self.loop_base, self.history_base, message, coverage)
+            base = self._run(self.loop_base, self.history_base, message, coverage, mode=mode)
             return {"sft": sft, "base": base, "state": board}
         if variant == "coverage" and self.loop_mirror is not None:
             # Ablation: same prompt with the coverage layer ON vs OFF, side by side.
-            on = self._run(self.loop, self.history, message, coverage=True)
+            on = self._run(self.loop, self.history, message, coverage=True, mode=mode)
             board = self.state()           # the ON run drives the visible board
             self._mirror_base()            # the OFF run uses a private copy
-            off = self._run(self.loop_mirror, self.history_off, message, coverage=False)
+            off = self._run(self.loop_mirror, self.history_off, message, coverage=False, mode=mode)
             return {"on": on, "off": off, "state": board}
-        out = self._run(self.loop, self.history, message, coverage, on_event)
+        out = self._run(self.loop, self.history, message, coverage, on_event, mode=mode)
         return {**out, "tool_call": out["tool_calls"][-1] if out["tool_calls"] else None,
                 "tool_result": out["tool_results"][-1] if out["tool_results"] else None,
                 "state": self.state()}

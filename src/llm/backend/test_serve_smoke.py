@@ -7,7 +7,7 @@ import re
 import shutil
 
 from backend.game import Game
-from backend.inference import CoachLoop, build_system_prompt
+from backend.inference import CoachLoop, build_system_prompt, is_plan_panel
 from backend.skills import SKILLS_DIR, load_skills
 from backend.tools import ToolExecutor
 
@@ -157,6 +157,40 @@ def test_load_uci_moves_is_atomic_on_a_bad_list():
     # a list with an illegal move must NOT half-replay onto the live board
     assert game.load_uci_moves(["e2e4", "e7e5", "zzzz"]) is False
     assert game.board.fen() == good_fen and game.san_stack == ["e4", "e5"]
+
+
+def test_reasoning_is_stripped_from_reply_and_sent_to_panels():
+    # G1: <think>/<goal> must NOT appear in the visible reply; they go to the panels as events.
+    events = []
+    steps = ['<goal>tell them where the game stands</goal>\n'
+             '<think>no skill needed - answer plainly</think> You are fine; it is your move.']
+    out = CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None)).respond(
+        [], 'give me general advice', coverage=False, on_event=events.append)
+    assert '<think>' not in out['reply'] and '<goal>' not in out['reply']
+    assert out['reply'].startswith('You are fine')
+    goals = [e for e in events if e['type'] == 'goal']
+    thinks = [e for e in events if e['type'] == 'think']
+    assert goals and goals[0]['content'] == 'tell them where the game stands'
+    assert thinks and 'no skill needed' in thinks[0]['content']
+
+
+def test_is_plan_panel_requires_a_plan_checklist():
+    # G2: a bare <goal> + prose answer is NOT a plan panel (else the answer is discarded).
+    assert is_plan_panel('<goal>g</goal>\n<think>t</think> You are slightly better.') is False
+    # a real plan-mode panel carries a <plan> checklist.
+    assert is_plan_panel('<goal>g</goal>\n<plan>\n- [ ] read the board (board_state)\n</plan>') is True
+
+
+def test_reasoning_mode_threads_into_the_system_prompt():
+    # G3: the reasoning mode reaches build_system, so fast and think render different prompts.
+    class Rec:
+        def __init__(self): self.sys = None
+        def generate(self, messages, mx, stop):
+            self.sys = messages[0]['content']; return 'All set. Anything else?'
+    rf, rt = Rec(), Rec()
+    CoachLoop(rf, ToolExecutor(Game(), None)).respond([], 'hello there', coverage=False, reasoning_mode='fast')
+    CoachLoop(rt, ToolExecutor(Game(), None)).respond([], 'hello there', coverage=False, reasoning_mode='think')
+    assert rf.sys and rt.sys and rf.sys != rt.sys
 
 
 def test_dropped_in_skill_is_discoverable_and_loadable():
