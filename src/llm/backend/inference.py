@@ -161,6 +161,34 @@ def _is_leadin_only(reply: str) -> bool:
     return bool(r) and len(r) <= 70 and bool(_LEADIN_ONLY.match(r))
 
 
+# A DEFLECTION: after loading a skill the model answers with a generic capability blurb /
+# ask-back ("I'm here to help with tactics, positions… what's on your mind?") instead of
+# DOING what the user asked — it treats loading the skill as the task. This evades the whiff
+# guard (it's fluent, not empty/lead-in) and the self-verify (the model judges its own blurb
+# as DONE, and a teaching/identity ask has no tool to name). Detected DETERMINISTICALLY (no
+# extra round-trip) by the generic redirect phrases — distinct from a trained guiding question,
+# which addresses the SPECIFIC position ("want the attacking plan, or shore up the defense?")
+# and carries none of these. Used only to gate the answer-now retry on a skill-load-only turn.
+_DEFLECTION = _re.compile(
+    r"what(?:'?s| is) on your mind"
+    r"|what would you like"
+    r"|what do you want to (?:do|work on|look at|focus)"
+    r"|how can i (?:help|assist)"
+    r"|what can i (?:help|do)\b"
+    r"|i'?m here to (?:help|assist)"
+    r"|here to help you"
+    r"|let me know (?:what|how|if)"
+    r"|feel free to (?:ask|let me)"
+    r"|happy to help\b", _re.I)
+
+
+def _is_deflection(reply: str) -> bool:
+    """True when the reply is a generic capability blurb / ask-back rather than an answer
+    (the post-skill-load deflection). Keyed on generic redirect phrases, NOT on ending with a
+    question, so a position-specific guiding question is never mis-flagged."""
+    return bool(_DEFLECTION.search(reply or ""))
+
+
 # A leading sentence that ANNOUNCES a skill/tool action ("Loading the chess-coach
 # skill. <real answer>"). Training never puts skill/tool narration in the final reply
 # (finals.py: "skill loads / tool calls never appear here"), so strip a single such
@@ -519,7 +547,10 @@ class CoachLoop:
             forced = gen(REPLY_TOKENS, ACTION_STOP)
         finally:
             convo.pop()  # the nudge is scaffolding; never persist it
-        if not forced or contains_tool_call(forced) or _is_leadin_only(forced):
+        # Reject a re-whiff: empty, a leaked tool tag, a bare lead-in, OR another deflection
+        # (the model blurbing capabilities again instead of answering) — '' lets the caller
+        # fall back rather than surface a second non-answer as the reply.
+        if not forced or contains_tool_call(forced) or _is_leadin_only(forced) or _is_deflection(forced):
             return ""
         return forced
 
@@ -708,7 +739,18 @@ class CoachLoop:
                             verified = True
                             nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
                             if nxt is not None:
-                                decision = nxt           # not fulfilled -> continue with this tool
+                                decision = nxt           # deflection that NEEDS a tool -> continue
+                            elif _is_deflection(reply):
+                                # Verify accepted the model's own "DONE", but the reply is a generic
+                                # capability blurb / ask-back answerable from the loaded skill (or the
+                                # injected board), not a tool — the self-verify can't fix a no-tool
+                                # deflection. Force a direct answer (the strong fixer). Deterministic
+                                # detection (no gen); the +1 force gen lands ONLY on this specific
+                                # failure, so good answers and tool-routed deflections are unaffected.
+                                forced = self._force_answer(convo, gen_quiet, tool_calls)
+                                return self._finalize(_strip_announce_leadin(forced) if forced else reply,
+                                                      required, tool_calls, tool_results, new_turns,
+                                                      ctx_stats, on_event)
                             else:
                                 return self._finalize(reply, required, tool_calls,
                                                       tool_results, new_turns, ctx_stats, on_event)

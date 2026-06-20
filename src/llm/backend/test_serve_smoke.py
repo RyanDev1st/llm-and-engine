@@ -211,6 +211,50 @@ def test_reasoning_mode_threads_into_the_system_prompt():
     assert rf.sys and rt.sys and rf.sys != rt.sys
 
 
+def test_skill_load_deflection_is_forced_to_a_real_answer():
+    # Regression: model loads a skill then DEFLECTS with a capability blurb ("I'm here to
+    # help... what's on your mind?") instead of answering. The whiff guard misses it (fluent)
+    # and self-verify accepts the model's own "DONE". The deterministic deflection guard must
+    # catch it and force a direct answer from the loaded skill — round-trip-neutral (the force
+    # gen replaces the verify gen). This is the e2b->e4b regression the user flagged.
+    DEFLECT = "I'm here to help with your game, whether tactics, positions, or planning. What's on your mind?"
+    REAL = "You are playing White. Develop your knights and a central pawn to start."
+
+    class Defl:
+        def __init__(self): self.i = 0
+        def generate(self, messages, mx, stop):
+            last = messages[-1]["content"] if messages else ""
+            if "answer my question directly" in last.lower():
+                return REAL                                  # the force nudge -> real answer
+            if "Self-check" in last:
+                return "DONE"                                # would wrongly accept the blurb
+            self.i += 1
+            return "<skill>chess-coach</skill>" if self.i == 1 else DEFLECT
+
+    out = CoachLoop(Defl(), ToolExecutor(Game(), None)).respond([], "what am I playing as? how do I play chess?")
+    assert out["reply"] == REAL                              # blurb replaced, not accepted
+    assert "what's on your mind" not in out["reply"].lower()
+
+
+def test_good_skill_load_answer_is_not_force_rerolled():
+    # The deflection guard must NOT fire on a real, position-specific answer that ends with a
+    # guiding question (a trained-good final). force_answer would never be called here.
+    GOOD = "You hold a slight edge — the bishop pair helps. Want the attacking plan, or to shore up the defense first?"
+
+    class Good:
+        def __init__(self): self.i = 0
+        def generate(self, messages, mx, stop):
+            last = messages[-1]["content"] if messages else ""
+            assert "answer my question directly" not in last.lower(), "force_answer wrongly fired on a good reply"
+            if "Self-check" in last:
+                return "DONE"
+            self.i += 1
+            return "<skill>chess-coach</skill>" if self.i == 1 else GOOD
+
+    out = CoachLoop(Good(), ToolExecutor(Game(), None)).respond([], "how am I doing strategically?", coverage=False)
+    assert out["reply"] == GOOD
+
+
 def test_dropped_in_skill_is_discoverable_and_loadable():
     demo = SKILLS_DIR / "_smoke_demo"
     demo.mkdir(parents=True, exist_ok=True)
