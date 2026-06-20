@@ -108,14 +108,19 @@ def _delta(a: dict, b: dict) -> str:
             f"macro-prec {a['macro']-b['macro']:+.1%}, exact-name {a['name']-b['name']:+.1%}")
 
 
-def _write_report(conds: list, date_str: str) -> Path:
-    """conds = [(label, bench_result), ...] in order: adapter+harness, base+harness, base no-harness."""
+def _write_report(conds: list, date_str: str, suite: str = "val") -> Path:
+    """conds = [(label, bench_result), ...] in order: adapter+harness, base+harness, base no-harness.
+    `suite` ('val' in-distribution held-out, or 'stress' held-out wild/out-of-domain) names the
+    row source — it tags the report title + output filename so the two tiers don't overwrite."""
     summ = [(lab, _summary(b)) for lab, b in conds]
     s = {lab: sm for lab, sm in summ}
     a, bh, nh = "adapter+harness", "base+harness", "base no-harness"
+    src = ("held-out STRESS rows (messy/slang/typo phrasing + UNSEEN out-of-domain catalogs + "
+           "decline cases — hand-written, in NO training row)" if suite == "stress"
+           else "stratified val rows (held out from training; in-distribution phrasing)")
     L = ["Parent: docs/reference/sft-corpus-generation.md", "",
-         "# Routing benchmark — Gemma 4 E4B chess-coach (v4 adapter)", "",
-         f"n = {conds[0][1]['n']} stratified val rows · fast mode (routing is mode-independent) · "
+         f"# Routing benchmark ({suite}) — Gemma 4 E4B chess-coach (v4 adapter)", "",
+         f"n = {conds[0][1]['n']} {src} · fast mode (routing is mode-independent) · "
          "B/C reuse the same model with the LoRA disabled (B keeps the harness contract; C drops "
          "it entirely — raw base Gemma). This isolates the two layers separately.", "",
          "## Headline — three conditions", _headline(summ), "",
@@ -131,7 +136,8 @@ def _write_report(conds: list, date_str: str) -> Path:
     L += ["## Per-slice routing accuracy (adapter+harness)"]
     for sl in sorted(pa["st"]):
         L.append(f"- {sl}: {pa['sc'][sl]}/{pa['st'][sl]} = {pa['sc'][sl] / pa['st'][sl]:.0%}")
-    out = REPO / "docs" / "findings" / f"{date_str}-routing-benchmark.md"
+    stem = f"{date_str}-routing-benchmark" + ("" if suite == "val" else f"-{suite}")
+    out = REPO / "docs" / "findings" / f"{stem}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
     for lab, b in conds:
@@ -145,26 +151,33 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel)")
     ap.add_argument("--server", default="http://127.0.0.1:7861", help="model service URL")
-    ap.add_argument("--per-slice", type=int, default=25, help="rows/slice (0 = full val)")
+    ap.add_argument("--per-slice", type=int, default=25, help="rows/slice (0 = full val); val suite only")
     ap.add_argument("--max-new-tokens", type=int, default=24)
     ap.add_argument("--time-budget", type=float, default=0, help="seconds PER condition (0 = none)")
+    ap.add_argument("--suite", choices=["val", "stress"], default="val",
+                    help="val = in-distribution held-out; stress = held-out wild/out-of-domain")
     args = ap.parse_args()
 
     from datetime import date
     from llm_dataset.v1.jsonl_io import read_rows
     from backend.inference import AdapterView
-    rows = _sample(list(read_rows(VAL)), args.per_slice or None)
+    if args.suite == "stress":
+        from llm_training.bench_suites import stress_rows
+        rows = stress_rows()                              # full held-out stress set (small)
+    else:
+        rows = _sample(list(read_rows(VAL)), args.per_slice or None)
     model = _load_model(args)
     base = AdapterView(model, False)        # same weights, LoRA OFF
     tb, mnt = args.time_budget or None, args.max_new_tokens
-    print(f"benchmark: {len(rows)} rows x 3 conditions (adapter+harness, base+harness, base no-harness)", flush=True)
+    print(f"benchmark [{args.suite}]: {len(rows)} rows x 3 conditions "
+          "(adapter+harness, base+harness, base no-harness)", flush=True)
     conds = [
         ("adapter+harness", _bench(model, rows, max_new_tokens=mnt, time_budget_s=tb, label="adapter+harness")),
         ("base+harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb, label="base+harness")),
         ("base no-harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb,
                                    label="base no-harness", with_harness=False)),
     ]
-    _write_report(conds, f"{date.today():%Y-%m-%d}")
+    _write_report(conds, f"{date.today():%Y-%m-%d}", args.suite)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,10 @@ Project memory for Claude Code and other agents. Loaded every session. Keep **un
 ! Archive bin is `./legacy [ignore]/` — gitignored. Never edit, import, or reference it from live code; only move dead files INTO it.
 <!-- Maintainer: add path-scoped rules under .claude/rules/ when this file grows. -->
 
+## Persona
+
+Think like John Carmack and work like Andrej Karpathy
+
 ## Mission
 
 Ship **working software** for reliable **LLM tool use**: tool selection, JSON schemas, multi-turn loops, argument validation, and failure handling.
@@ -25,7 +29,7 @@ The product is a **general agentic HARNESS operator** = an LLM that **chooses am
 | `CLAUDE.md` | Team agent instructions (this file) |
 | `src/llm/llm_dataset/v1/` | **ACTIVE** SFT generator. Spec = `contracts.py`; `profiles.py` writes the v1_2 corpus. Source of truth for harness behavior |
 | `data/sft/v1_2_train.jsonl`, `data/sft/v1_2_val.jsonl`, `data/sft/v1_2/` | **ACTIVE** SFT corpus (split + accepted/rejected). The ONLY corpus trainers read |
-| `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py`. Eval/benchmark: `eval_confusion.py` (routing confusion matrix), `eval_benchmark.py` (adapter-vs-base benchmark report); serve notebook `colab_serve_e4b.ipynb`, benchmark notebook `kaggle_benchmark.ipynb` |
+| `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py`. Eval/benchmark: `eval_confusion.py` (routing confusion matrix), `eval_benchmark.py` (3-condition ablation: adapter+harness vs base+harness vs base-no-harness), `bench_suites.py` (held-out wild/out-of-domain STRESS rows); serve notebook `colab_serve_e4b.ipynb`, benchmark notebook `kaggle_benchmark.ipynb` |
 | `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server + `sandbox.py` (the domain-neutral `python` verification tool — isolated subprocess, used to ground/verify a claim by running a script; Stage-0 keystone). Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Plugin bundles = `backend/plugins/` (each contributes tools+skills+hooks; registry aggregates enabled ones into the served manifest — tests cross-bundle routing). Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`). Memory system = `backend/memory/` (persistent per-user profile auto-captured each turn behind a write-discipline gate; injected into the system prompt every turn — runtime profiles in `data/memory/`, gitignored) |
 | `src/llm/skills_demo/` | 40 chess SKILL.md fixtures for routing tests + presentation demo. `_specs.py` (data) + `_generate.py` (renderer); NOT auto-loaded by the backend (pass as `load_skills` root) |
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
