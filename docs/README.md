@@ -27,6 +27,7 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 
 | Doc | What it is |
 | --- | --- |
+| [findings/2026-06-20-harness-serve-gap-audit.md](findings/2026-06-20-harness-serve-gap-audit.md) | Serve-loop gap audit grounded vs Anthropic/OpenAI loops; 2 PROVEN gaps (`<think>`/`<goal>` reply leak; direct-answer-as-plan-panel) + G3 mode-wiring; report-only, fixes pending |
 | [findings/2026-06-14-v1.2-corpus-audit.md](findings/2026-06-14-v1.2-corpus-audit.md) | Training-readiness audit (GATE PASS; loss mask, fast/think/auto, V1_R Stage-0); pre-Kaggle GO |
 | [findings/2026-06-13-v1.2-random-sample-inspection.md](findings/2026-06-13-v1.2-random-sample-inspection.md) | Truly-random v1.2 train sample (10 rows/slice) for human inspection; regen with `scripts/make_sample_doc.py` |
 | [findings/2026-06-12-model-audit.md](findings/2026-06-12-model-audit.md) | Current model behavior audit |
