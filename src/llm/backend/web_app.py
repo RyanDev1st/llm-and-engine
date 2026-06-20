@@ -10,7 +10,7 @@ import os
 from .game import Game
 from .engine import Engine
 from .inference import AdapterView, CoachLoop, PLUGIN_CONTEXT
-from . import skill_admin, state_api
+from . import memory, skill_admin, state_api
 from .tools import ToolExecutor
 
 
@@ -39,6 +39,8 @@ class App:
         self.model_error: str | None = None
         self._adapter = adapter
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
+        # Persistent-memory identity (single-user demo -> "default"; keyed so multi-user is free).
+        self.user_id = os.environ.get("CHESS_USER_ID", "default")
 
     def load_model(self) -> None:
         # Dev mode: a persistent model service holds the weights, so this server is
@@ -165,7 +167,11 @@ class App:
              on_event=None, mode: str = "") -> dict:
         import time
         t0 = time.time()
-        result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode)
+        # Inject the persistent user profile (read BEFORE the turn), run, then capture any new
+        # durable facts from this message (idempotent — safe across the dual/coverage re-runs).
+        result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode,
+                              memory_block=memory.memory_block(self.user_id))
+        memory.capture(message, self.user_id)
         elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and

@@ -626,7 +626,7 @@ class CoachLoop:
         }
 
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
-                on_event=None, reasoning_mode: str = "") -> dict:
+                on_event=None, reasoning_mode: str = "", memory_block: str = "") -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
         display fields (tool_call, tool_result), and the context-window stats.
 
@@ -649,6 +649,11 @@ class CoachLoop:
             + routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index(self.plugin_context))
+        # Persistent memory: the per-user profile block (rating / weaknesses / prefs) rides the
+        # system prompt every turn (CLAUDE.md pattern), so the frozen model tailors to the user
+        # it never trained on. Included in `system` BEFORE fit() so the budget accounts for it.
+        if memory_block:
+            system += "\n\n" + memory_block
         # Coverage set: tool -> canonical call for each detected intent. Empty on a
         # finished game or when coverage is off.
         required = {} if (game_over or not coverage) else matched_calls(user_message)

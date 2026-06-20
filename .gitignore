@@ -30,3 +30,6 @@ __pycache__/
 
 # throwaway inspection scratch (never commit)
 scratch_*
+
+# persistent user-memory profiles — runtime state, per-user, never committed
+data/memory/
