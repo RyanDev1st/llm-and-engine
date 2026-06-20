@@ -82,9 +82,9 @@ class HFModel:
         can_toggle = hasattr(self.model, "disable_adapter")
         if not use_adapter and can_toggle:
             with self.model.disable_adapter():
-                out = self._gen(enc, max_new_tokens)
+                out = self._gen(enc, max_new_tokens, stop)
         else:
-            out = self._gen(enc, max_new_tokens)
+            out = self._gen(enc, max_new_tokens, stop)
         text = self.tok.decode(out[0][prompt_len:], skip_special_tokens=True)
         return _truncate(text, stop)
 
@@ -95,7 +95,7 @@ class HFModel:
         # Cap at 8k: Gemma can report far more, but the KV cache must fit the 4060.
         return min(int(getattr(self.model.config, "max_position_embeddings", 8192)), 8192)
 
-    def _gen(self, enc: dict, max_new_tokens: int):
+    def _gen(self, enc: dict, max_new_tokens: int, stop: list[str]):
         # repetition_penalty + no_repeat_ngram_size were added to kill the greedy loops of
         # the soup era. BUT they corrupt name COPYING: a correct skill name (chess-coach)
         # reuses words already in the prompt (the skills index lists it), so repetition_
@@ -104,19 +104,31 @@ class HFModel:
         # format is trained and the loops are gone — set CHESS_REP_PENALTY=1.2 to restore.
         rep = float(os.environ.get("CHESS_REP_PENALTY", "1.0"))
         nrn = int(os.environ.get("CHESS_NO_REPEAT_NGRAM", "0"))
-        return self.model.generate(
+        kw = dict(
             **enc, max_new_tokens=max_new_tokens,
             do_sample=self.temperature > 0, temperature=max(self.temperature, 1e-3),
             top_p=0.9, repetition_penalty=rep, no_repeat_ngram_size=nrn,
             pad_token_id=self.tok.pad_token_id)
+        # Early-stop at the first action close tag (one action per step), so a ~15-token
+        # decision doesn't run the full max_new_tokens (~20x less generation per tool/skill
+        # step). _truncate is still applied as the clean-up. Falls back to a full generation
+        # on a transformers too old for stop_strings.
+        stops = [s for s in (list(stop) + ["</skill>", "</tool>", "</tool_code>"]) if s]
+        try:
+            return self.model.generate(**kw, stop_strings=stops, tokenizer=self.tok)
+        except (TypeError, ValueError):
+            return self.model.generate(**kw)
 
 
 def _truncate(text: str, stop: list[str]) -> str:
     text = text.strip()
-    for close in ("</tool>", "</tool_code>"):  # always close after the first tool call
-        if close in text:
-            return text[: text.index(close) + len(close)]
-    for s in stop:
+    # One action per generation: cut at the FIRST action close tag of ANY kind, INCLUSIVE
+    # (keep the close tag). </skill> is an action close exactly like </tool> — leaving it out
+    # of this list dropped the tag (the "missing </skill>" artifact) and let skill gens run on.
+    ends = [text.index(c) + len(c) for c in ("</tool>", "</tool_code>", "</skill>") if c in text]
+    if ends:
+        return text[: min(ends)].strip()
+    for s in stop:                       # otherwise honor any other caller stop (exclusive)
         if s and s in text:
             text = text[: text.index(s)]
     return text.strip()

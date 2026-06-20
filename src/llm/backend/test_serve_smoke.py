@@ -181,6 +181,24 @@ def test_is_plan_panel_requires_a_plan_checklist():
     assert is_plan_panel('<goal>g</goal>\n<plan>\n- [ ] read the board (board_state)\n</plan>') is True
 
 
+def test_hf_truncate_cuts_at_first_action_close_inclusive():
+    # The HF backend post-truncates a full generation. It must cut at the first action
+    # close of ANY kind, INCLUSIVE — </skill> exactly like </tool>. Omitting </skill> dropped
+    # the close tag (the "missing </skill>") and let skill gens run on (the row-4 over-gen).
+    import pytest
+    pytest.importorskip("torch")          # model_hf imports torch at module load
+    from backend.model_hf import _truncate
+    A = ["</tool>", "</tool_code>", "</skill>"]
+    assert _truncate('<think>t</think> <skill>chess-coach</skill> <think>more</think>', A) \
+        == '<think>t</think> <skill>chess-coach</skill>'                  # keep </skill>, drop tail
+    assert _truncate('Let me check.\n<tool>eval depth=15</tool> junk', A) \
+        == 'Let me check.\n<tool>eval depth=15</tool>'                    # keep </tool>, drop junk
+    assert _truncate('<think>done</think> You are slightly better.', A) \
+        == '<think>done</think> You are slightly better.'                 # no action close -> intact
+    assert _truncate('<skill>chess-coach</skill> then <tool>eval</tool>', A) \
+        == '<skill>chess-coach</skill>'                                   # earliest close wins
+
+
 def test_reasoning_mode_threads_into_the_system_prompt():
     # G3: the reasoning mode reaches build_system, so fast and think render different prompts.
     class Rec:
