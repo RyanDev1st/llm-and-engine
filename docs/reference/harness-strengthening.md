@@ -77,6 +77,15 @@ two outputs match (else disables reuse for the session). Reuse is restricted to 
 *mechanics* are validated at serve time by the self-guarding A/B check — so enabling it on the T4
 is safe (it self-disables if the installed transformers' cache API doesn't line up).
 
+**Sliding-window refinement (live finding):** Gemma uses sliding-window attention, and its cache
+**cannot be `crop`ped** past the window (early states are evicted — the live error
+`Cannot crop a DynamicSlidingWindowLayer …`). So reuse is **pure-extension only**: the cache is
+reused only when the cached sequence is exactly the START of the new one (each loop step appends,
+so this is the common in-turn case), and the cache is EXTENDED, never cropped. A divergent prefix
+(a different system/board, or a tokenizer boundary mismatch) returns 0 → a clean full prefill,
+and reuse stays on for the next step. The self-guard had correctly disabled reuse on the crop
+error before this fix — proof the safety net holds (correct output, just no speedup).
+
 ### 2c — Cross-turn tool-result reuse
 Delivered in Pillar 1a (the session fact cache) — a follow-up reuses the prior eval/best instead
 of re-calling the engine, with the FEN freshness guard.

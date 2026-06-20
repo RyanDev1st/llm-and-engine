@@ -48,18 +48,17 @@ class PrefixCache:
         self.verified = False      # set True once the A/B self-check confirms reuse matches
 
     def reusable(self, new_ids) -> int:
-        """Shared exact-prefix length with the cached ids, or 0 when there's nothing worth
-        reusing. The caller crops the cached KV to this length and prefills new_ids[L:]."""
+        """The number of cached positions to reuse, or 0. We reuse ONLY a PURE PREFIX EXTENSION
+        — the cached sequence is exactly the start of `new_ids`, so we extend (never crop) the
+        cache and prefill new_ids[L:]. No-crop is REQUIRED: Gemma's sliding-window cache cannot
+        be cropped past its window (states are already evicted) — cropping was the live failure.
+        Divergence (a different system/board) returns 0 -> a clean full prefill, reuse stays on."""
         if not self.active or self.ids is None or self.kv is None:
             return 0
-        n_new = len(new_ids)
-        cap = min(len(self.ids), n_new)
-        if cap < MIN_REUSE:
+        n_new, n_cached = len(new_ids), len(self.ids)
+        if n_cached < MIN_REUSE or n_cached >= n_new:        # too short, or not an extension
             return 0
-        ln = common_prefix_len(self.ids, new_ids)
-        if ln >= n_new:                 # full match -> nothing new to prefill; don't reuse
-            return 0
-        return ln if ln >= MIN_REUSE else 0
+        return n_cached if common_prefix_len(self.ids, new_ids) == n_cached else 0
 
     def store(self, ids, kv) -> None:
         self.ids, self.kv = ids, kv

@@ -123,7 +123,9 @@ class HFModel:
         gkw: dict = {"return_dict_in_generate": True, "use_cache": True}
         prefix = None
         if past is not None and start > 0:
-            past.crop(start)                                  # keep the exact shared prefix
+            # `past` already holds EXACTLY `start` positions (a pure prefix extension — see
+            # kv_cache.reusable), so we extend it with the new tail; NO crop (Gemma's sliding-
+            # window cache can't be cropped past its window — that was the live failure).
             prefix = input_ids[:, :start]
             gkw["input_ids"] = input_ids[:, start:]           # prefill only the new tail
             gkw["past_key_values"] = past

@@ -34,21 +34,28 @@ def test_reusable_requires_a_stored_prefix():
     assert c.reusable(list(range(200))) == 0                 # nothing stored yet
 
 
-def test_reusable_returns_shared_prefix_when_long_enough():
+def test_reusable_only_on_pure_prefix_extension():
+    # Reuse ONLY when the cached sequence is EXACTLY the start of the new one (extend, no crop —
+    # Gemma's sliding-window cache can't be cropped). The cached LENGTH is the reuse point.
     c = K.PrefixCache()
     c.active = True
     base = list(range(100))                                  # > MIN_REUSE (64)
-    c.store(base + [500, 501], kv=object())                 # prior full sequence
-    nxt = base + [777, 888, 999]                             # shares the first 100 tokens
-    assert c.reusable(nxt) == 100                            # crop point = shared prefix
+    c.store(base, kv=object())                              # prior full sequence
+    assert c.reusable(base + [777, 888, 999]) == 100        # pure extension -> reuse all 100
+    # divergence (cached has tokens beyond the shared prefix) must NOT reuse -> a clean full prefill
+    c.store(base + [500, 501], kv=object())
+    assert c.reusable(base + [777, 888, 999]) == 0          # shares 100 but cached is 102 -> 0
 
 
-def test_reusable_zero_when_prefix_too_short_or_full_match():
+def test_reusable_zero_when_too_short_or_full_match():
     c = K.PrefixCache()
     c.active = True
     c.store(list(range(100)), kv=object())
-    assert c.reusable([1, 2, 3] + list(range(50))) == 0      # shares < MIN_REUSE -> skip
+    assert c.reusable([1, 2, 3] + list(range(50))) == 0      # not an extension -> skip
     assert c.reusable(list(range(100))) == 0                 # full match -> nothing new -> skip
+    short = K.PrefixCache(); short.active = True
+    short.store(list(range(20)), kv=object())               # cached < MIN_REUSE
+    assert short.reusable(list(range(40))) == 0
 
 
 def test_disable_is_sticky_and_clears():
