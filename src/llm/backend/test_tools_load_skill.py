@@ -13,7 +13,9 @@ def _executor():
 def test_load_skill_returns_the_skill_body():
     out = _executor().execute("<tool>load_skill name=chess-coach</tool>")
     assert not out.startswith("error"), out
-    assert "chess-coach" in out
+    # the body is CONDENSED (yaml frontmatter stripped — it's already in the catalog), so we
+    # assert the instructional content is present, not the frontmatter 'name:' line.
+    assert "board_state" in out and "best_move" in out
     assert len(out) > 50  # a real SKILL.md body, not a stub
 
 

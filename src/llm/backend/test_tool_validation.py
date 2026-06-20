@@ -4,7 +4,27 @@ EXECUTOR-ACCURATE, not catalog-display-driven — it must catch genuinely-broken
 over-rejecting calls the executor already tolerates (depth defaults, board_state field
 supersets, best_move clamping). Start-position tools avoid the engine, so this is fast."""
 from backend.game import Game
-from backend.tools import ToolExecutor, validate_call
+from backend.skills import load_skills
+from backend.tools import ToolExecutor, validate_call, _condense_skill_body
+
+
+def test_load_skill_returns_condensed_body():
+    # The served skill body must be condensed: NO yaml frontmatter (it's already in the
+    # system-prompt catalog) and meaningfully shorter than the raw SKILL.md — this is both the
+    # train==serve shape (training fed a terse body) and the skill-load latency fix.
+    full = next(s.content for s in load_skills() if s.name == "chess-coach")
+    body = ToolExecutor(Game(), None).execute("<tool>load_skill name=chess-coach</tool>")
+    assert not body.lstrip().startswith("---")          # frontmatter stripped
+    assert "name: chess-coach" not in body              # the yaml keys are gone
+    assert len(body) < len(full)                        # smaller than the raw file
+    # the rules the model actually needs survive the condense
+    assert "board_state" in body and "best_move" in body and "MUST continue" in body
+
+
+def test_condense_caps_a_pathological_body():
+    huge = "---\nname: x\ndescription: y\n---\n" + ("step line\n" * 600)   # ~6k chars
+    out = _condense_skill_body(huge)
+    assert not out.startswith("---") and len(out) <= 2900 and out.endswith("…")
 
 
 def _ex():

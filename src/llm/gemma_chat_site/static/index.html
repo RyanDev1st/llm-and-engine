@@ -1331,16 +1331,30 @@ const ChatUI = (() => {
     el.querySelector('summary').textContent = '🧠 thinking · ' + calls.length +
       ' step' + (calls.length > 1 ? 's' : '');
     el.querySelectorAll('.think-step').forEach(n => n.remove());
-    calls.forEach((c, i) => {
-      const step = document.createElement('div');
-      const s = typeof c === 'string' ? c : JSON.stringify(c);
-      step.className = 'think-step' + (s.startsWith('💭') ? ' note' : '');   // reasoning note vs tool step
-      const r = (results && results[i]) || '';
-      step.textContent = s.replace(/\s+/g, ' ').trim() + (r ? '  →  ' + r : '');
-      el.appendChild(step);
-    });
+    fillSteps(el, calls, results);
     container.scrollTop = container.scrollHeight;
     return el;
+  }
+
+  // One thinking-step's display text + css class. A SKILL load shows ONLY the name
+  // ("📚 Loaded chess-coach") — the user doesn't need the skill's body dumped into the panel.
+  // A 💭 reasoning note shows as-is; a tool step shows "call → result".
+  function stepRender(c, r) {
+    const s = (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\s+/g, ' ').trim();
+    const sk = s.match(/<skill>\s*([\w./-]+)\s*<\/skill>/);
+    if (sk) return { text: '📚 Loaded ' + sk[1], cls: ' note' };   // name only, body hidden
+    if (s.startsWith('💭')) return { text: s, cls: ' note' };
+    return { text: s + (r ? '  →  ' + r : ''), cls: '' };
+  }
+
+  function fillSteps(parent, calls, results) {
+    calls.forEach((c, i) => {
+      const { text, cls } = stepRender(c, (results && results[i]) || '');
+      const step = document.createElement('div');
+      step.className = 'think-step' + cls;
+      step.textContent = text;
+      parent.appendChild(step);
+    });
   }
 
   // The objective (<goal>) the model committed, pinned at the top of the chat thread.
@@ -1407,14 +1421,7 @@ const ChatUI = (() => {
     det.className = 'thinking'; det.open = true;   // the think block stays expanded
     det.innerHTML = '<summary>🧠 thinking · ' + calls.length +
       ' step' + (calls.length > 1 ? 's' : '') + '</summary>';
-    calls.forEach((c, i) => {
-      const step = document.createElement('div');
-      const callStr = typeof c === 'string' ? c : JSON.stringify(c);
-      step.className = 'think-step' + (callStr.startsWith('💭') ? ' note' : '');
-      const r = (results && results[i]) || '';
-      step.textContent = callStr.replace(/\s+/g, ' ').trim() + (r ? '  →  ' + r : '');
-      det.appendChild(step);
-    });
+    fillSteps(det, calls, results);          // skill loads show "📚 Loaded <name>", body hidden
     container.appendChild(det);
     container.scrollTop = container.scrollHeight;
   }

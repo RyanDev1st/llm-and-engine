@@ -45,7 +45,7 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     assert names == ["load_skill", "board_state", "eval"]
     # the stored assistant turn keeps the lead-in narration before the call
     assert out["tool_calls"][0].startswith("Let me load")
-    assert "chess-coach" in out["tool_results"][0]          # real skill body
+    assert "best_move" in out["tool_results"][0]            # real (condensed) skill body
     assert out["tool_results"][1].startswith("board_state:") and "turn=white" in out["tool_results"][1]
     assert out["tool_results"][2].startswith("score:")      # start-pos eval (no engine)
     assert out["reply"].rstrip().endswith("?")
@@ -91,7 +91,7 @@ def test_skill_load_generation_stops_at_one_action():
     assert "</skill>" in model.stops_seen[0]                 # action gen was given </skill> to stop on
     assert [_act_name(c) for c in out["tool_calls"]] == ["load_skill"]
     assert out["tool_calls"][0].count("<skill>") == 1        # displayed once, not doubled
-    assert "chess-coach" in out["tool_results"][0]           # real skill body loaded
+    assert "best_move" in out["tool_results"][0]             # real (condensed) skill body loaded
     assert "<skill>" not in out["reply"] and out["reply"].rstrip().endswith("?")
 
 

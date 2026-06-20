@@ -5,6 +5,8 @@ plus load_skill (progressive disclosure — returns a skill's SKILL.md body).
 review_move and threats are computed here because they compose board + engine."""
 from __future__ import annotations
 
+import re
+
 import chess
 import chess.engine
 
@@ -64,6 +66,33 @@ def validate_call(name: str, args: dict[str, str]) -> str | None:
             return (f"error: arg '{arg}' for '{name}' must be one of "
                     f"{'/'.join(allowed)} (got '{args[arg]}')")
     return None
+
+
+_SKILL_BODY_CAP = 2800   # chars (~700 tok) — a SAFETY bound for a pathological dropped-in
+                         # SKILL.md only; a well-formed skill (incl. chess-coach) is never cut,
+                         # so this never severs a rule mid-body. Terseness is the SKILL.md's job.
+
+
+def _condense_skill_body(body: str) -> str:
+    """Return the instructional body the model should follow, shaped like what it TRAINED
+    on (a terse `# name / steps`), not a verbose markdown dump:
+    - strip the YAML frontmatter (name+description are ALREADY in the system-prompt catalog —
+      re-sending them in the body is pure redundancy the model never saw at train time);
+    - collapse blank-line runs;
+    - cap length (protects against a pathological dropped-in skill re-encoding every loop step).
+    Why: training set the load_skill result to a 17-93 token lesson; serving the full 616-token
+    SKILL.md was both off-distribution (a cause of post-load deflection/reloading) and the
+    skill-load LATENCY (the body re-prefills on every subsequent step)."""
+    text = (body or "").strip()
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:                       # drop the frontmatter block + its closing fence
+            text = text[end + 4:].lstrip("-\n ").strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if len(text) > _SKILL_BODY_CAP:
+        cut = text.rfind("\n", 0, _SKILL_BODY_CAP)   # cut on a line boundary, not mid-sentence
+        text = text[: cut if cut > _SKILL_BODY_CAP // 2 else _SKILL_BODY_CAP].rstrip() + "\n…"
+    return text
 
 
 class ToolExecutor:
@@ -152,15 +181,15 @@ class ToolExecutor:
         return f"error: unknown_tool '{name}'"
 
     def _load_skill(self, name: str) -> str:
-        """Progressive disclosure: return the named skill's full SKILL.md body so
-        the model can follow it. Checks the skills dir first, then enabled plugins'
-        bundled skills (openings/analysis/...)."""
+        """Progressive disclosure: return the named skill's body so the model can follow
+        it — CONDENSED (see _condense_skill_body) so it matches the terse body shape the
+        model trained on and doesn't re-encode a 600+ token markdown dump every loop step."""
         bodies = {skill.name: skill.content for skill in load_skills()}
         if name in bodies:
-            return bodies[name]
+            return _condense_skill_body(bodies[name])
         from . import plugins
         body = plugins.skill_body(name, self.plugin_context)
-        return body if body is not None else "error: unknown_skill"
+        return _condense_skill_body(body) if body is not None else "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board
