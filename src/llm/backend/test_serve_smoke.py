@@ -57,6 +57,44 @@ def test_coach_loop_executes_leadin_then_tool_sequence():
     assert ctx["turns_kept"] + ctx["turns_evicted"] == ctx["turns_total"]
 
 
+class StopHonoringModel:
+    """Like a real backend: returns scripted text but TRUNCATES at the first stop
+    substring (inclusive of the stop), and records the stop lists it was handed.
+    Lets us prove the loop's action stop tokens actually bound the generation."""
+    def __init__(self, steps):
+        self.steps = list(steps)
+        self.i = 0
+        self.stops_seen = []
+
+    def generate(self, messages, max_new_tokens, stop):
+        self.stops_seen.append(list(stop))
+        out = self.steps[self.i]
+        self.i += 1
+        cut = len(out)
+        for s in stop:
+            j = out.find(s)
+            if j != -1:
+                cut = min(cut, j + len(s))   # keep the stop token, drop the tail
+        return out[:cut]
+
+
+def test_skill_load_generation_stops_at_one_action():
+    # Regression: </skill> must be in the action stop list. The model over-generates a
+    # skill load followed by a SECOND <skill> tag and a partial tail; the loop must stop
+    # the generation at the first </skill> so exactly ONE action is recorded and displayed
+    # ONCE — no auto double-emit, no partial <skill>, no missing close tag.
+    over = ("<skill>chess-coach</skill> <skill>chess-coach</skill> then I'll also load analysi")
+    model = StopHonoringModel([over,
+                               "You're set up fine at the start. Want the plan?",
+                               "DONE"])  # self-verify verdict after a context-only turn
+    out = CoachLoop(model, ToolExecutor(Game(), None)).respond([], "coach me")
+    assert "</skill>" in model.stops_seen[0]                 # action gen was given </skill> to stop on
+    assert [_act_name(c) for c in out["tool_calls"]] == ["load_skill"]
+    assert out["tool_calls"][0].count("<skill>") == 1        # displayed once, not doubled
+    assert "chess-coach" in out["tool_results"][0]           # real skill body loaded
+    assert "<skill>" not in out["reply"] and out["reply"].rstrip().endswith("?")
+
+
 def _act_name(c):
     sk = re.search(r"<skill>\s*([A-Za-z0-9_-]+)\s*</skill>", c)
     return "load_skill" if sk else re.search(r"<tool>\s*([a-z_]+)", c).group(1)

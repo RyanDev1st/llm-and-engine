@@ -23,6 +23,14 @@ MAX_TOOL_CALLS = 8  # headroom for the coverage "Wait" nudges (each can cost a s
 # (~240 words) lets a coaching reply finish while still capping runaway generation.
 REPLY_TOKENS = 320
 DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limit
+# One action per generation step (the contract). A tool call closes at </tool>
+# (Gemma-native </tool_code>) and a skill load at </skill>; stopping at the FIRST
+# close tag is what holds a step to exactly one action. </skill> was missing from
+# the action stop list, so a skill-load generation ran on past the close tag and
+# emitted a second <skill>/garbage tail — the auto-mode "same skill twice" + partial
+# <skill> + missing </skill> artifacts. Every action-deciding gen uses this; only the
+# terminal budget-forced reply (which must run to a full answer) keeps an empty stop.
+ACTION_STOP = ["</tool>", "</tool_code>", "</skill>"]
 # Serve == train: the catalog of installed skills + the official tool manifest are
 # rendered by the SAME build_system() the loader uses. Skills appear by name +
 # description only (progressive disclosure); load_skill pulls the body on demand.
@@ -487,7 +495,7 @@ class CoachLoop:
                       "Now answer my question directly in plain text using what you loaded. "
                       "Do not call a tool, do not greet — just give the answer."})
         try:
-            forced = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
+            forced = gen(REPLY_TOKENS, ACTION_STOP)
         finally:
             convo.pop()  # the nudge is scaffolding; never persist it
         if not forced or contains_tool_call(forced) or _is_leadin_only(forced):
@@ -511,7 +519,7 @@ class CoachLoop:
             "word DONE. If not, output the ONE next tool call that fulfils the request now "
             "(e.g. <tool>best_move depth=18</tool>)."})
         try:
-            verdict = gen_quiet(96, ["</tool>", "</tool_code>"])
+            verdict = gen_quiet(96, ACTION_STOP)
         finally:
             convo.pop()  # scaffolding; never persisted
         return extract_call(verdict)  # next tool to continue with, or None (DONE/fulfilled)
@@ -528,7 +536,7 @@ class CoachLoop:
             "next action (a <skill> or <tool> call) that does it now. If it genuinely cannot "
             "be done, say what is blocked instead — do not fake it."})
         try:
-            out = gen_quiet(96, ["</tool>", "</tool_code>", "</skill>"])
+            out = gen_quiet(96, ACTION_STOP)
         finally:
             convo.pop()  # scaffolding; never persisted
         return extract_call(out)
@@ -617,7 +625,7 @@ class CoachLoop:
 
         verified = False   # the self-verify step (Design B) runs at most once per turn
         for _ in range(MAX_TOOL_CALLS):
-            raw = gen(REPLY_TOKENS, ["</tool>", "</tool_code>"])
+            raw = gen(REPLY_TOKENS, ACTION_STOP)
             decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
             if decision is None and is_plan_panel(raw):
                 # PLAN-mode panel turn (<goal>/<plan>): surface it, register the boxes, and
