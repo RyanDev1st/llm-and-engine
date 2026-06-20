@@ -35,6 +35,37 @@ def format_score(kind: str, val) -> str:
     return f"{int(val) / 100:+.2f}"
 
 
+# Executor-accurate call validation. DELIBERATELY NARROWER than catalog.OFFICIAL_TOOLS'
+# "args" display schema: that schema is a TRAINING-DISPLAY hint, and the executor
+# tolerates loose args (depth defaults via clamp_depth, board_state.fields accepts a
+# superset turn/last_move/..., best_move.top/series clamp to 1-5). Validating against the
+# display schema would REJECT calls the executor handles fine. So this lists ONLY what the
+# executor truly constrains: a required arg whose absence yields a cryptic downstream error,
+# and enum args the executor SILENTLY DEFAULTS on a bad value (so a typo would otherwise
+# return wrong-but-plausible data instead of an error the model can self-correct from).
+_REQUIRED_ARGS = {"move": "san"}                       # move("") -> cryptic; name the gap
+_ENUM_ARGS = {                                         # silent-default enums (wrong -> wrong data)
+    "list_pieces": ("color", ("white", "black", "mine")),
+    "random_position": ("kind", ("puzzle", "scramble", "open")),
+}
+
+
+def validate_call(name: str, args: dict[str, str]) -> str | None:
+    """Corrective error (for the model to self-correct from) when a known call is missing a
+    truly-required arg or passes an out-of-range value to a silent-default enum; else None.
+    Unknown tools and harmless extra/defaulted args are left to dispatch — never over-reject."""
+    req = _REQUIRED_ARGS.get(name)
+    if req and not args.get(req):
+        return f"error: tool '{name}' needs '{req}=...' — e.g. <tool>{name} {req}=...</tool>"
+    enum = _ENUM_ARGS.get(name)
+    if enum:
+        arg, allowed = enum
+        if args.get(arg) is not None and args[arg] not in allowed:
+            return (f"error: arg '{arg}' for '{name}' must be one of "
+                    f"{'/'.join(allowed)} (got '{args[arg]}')")
+    return None
+
+
 class ToolExecutor:
     def __init__(self, game: Game, engine: Engine, plugin_context: dict | None = None) -> None:
         self.game = game
@@ -47,6 +78,9 @@ class ToolExecutor:
         name, args = parse_call(tool_call)
         if not name:
             return "error: invalid_syntax"
+        bad = validate_call(name, args)            # missing required / bad enum -> corrective error
+        if bad:
+            return bad
         try:
             return self._dispatch(name, args)
         except chess.engine.EngineError:
@@ -112,7 +146,10 @@ class ToolExecutor:
         plugin_skill_names = {s["name"] for s in plugins.plugin_skills(self.plugin_context)}
         if name in {s.name for s in load_skills()} | plugin_skill_names:
             return f"error: '{name}' is a skill, not a tool — load it with <skill>{name}</skill>"
-        return "error: invalid_syntax"
+        # Parsed a name that is neither a known tool, a plugin tool, nor a skill: a
+        # hallucinated tool. Say so by NAME (not generic invalid_syntax, which also means
+        # "unparseable") so the model can re-route to a real tool from its manifest.
+        return f"error: unknown_tool '{name}'"
 
     def _load_skill(self, name: str) -> str:
         """Progressive disclosure: return the named skill's full SKILL.md body so

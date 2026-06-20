@@ -100,6 +100,8 @@ def narrate_tool_result(tool_result: str) -> str:
         return "There's no move to review yet — make a move first."
     if text.startswith("error: unknown_skill"):
         return "I couldn't find that skill. Let me work with what I have."
+    if text.startswith("error: unknown_tool"):
+        return "That tool isn't available here. Let me use one I have."
     if text.startswith("error:"):  # never leak a raw internal error to the user
         return "That didn't work — let me try a different approach."
     if text.startswith("board_state:"):
