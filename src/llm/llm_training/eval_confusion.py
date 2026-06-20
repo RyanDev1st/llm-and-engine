@@ -1,21 +1,13 @@
 """Routing CONFUSION MATRIX + precision/recall on the validation set.
 
-Routing is framed as a 3-class decision on the model's FIRST action:
-  skill  -> it loaded a <skill>NAME</skill>
-  tool   -> it called a <tool>NAME ...</tool>
-  none   -> it answered directly (no action)
-
-We compare the model's first-action verb to the gold first-action verb and build a
-3x3 confusion matrix (rows = gold/actual, cols = predicted), then derive precision,
-recall and F1 per class. This makes the skill-vs-tool VERB bias visible (the
-gold=tool / pred=skill cell). Also reports exact-NAME accuracy and per-slice routing
-accuracy.
-
-Run on the serve box (reuses a running model service if one is up; else loads the
-adapter directly):
-  python -m llm_training.eval_confusion --adapter runs/gemma4_chess_e4b_kaggle/best
-  python -m llm_training.eval_confusion --server http://127.0.0.1:7861   # running service
-Optional: --per-slice N  (stratified sample of N rows/slice; default = all).
+Routing = a 3-class decision on the model's FIRST action: skill (<skill>NAME</skill>),
+tool (<tool>NAME ...</tool>), or none (answered directly). We compare the model's first-action
+verb to the gold verb -> a 3x3 matrix (rows = gold, cols = pred) + per-class precision/recall/F1,
+which surfaces the skill-vs-tool VERB bias (the gold=tool / pred=skill cell), plus exact-NAME and
+per-slice accuracy. Light + interrupt-safe: --per-slice (default 8) and --time-budget keep it
+short enough to finish before a Colab disconnect; a stop writes the matrix from completed rows.
+  python -m llm_training.eval_confusion --adapter <best> [--per-slice 8 --time-budget 900]
+  python -m llm_training.eval_confusion --server http://127.0.0.1:7861
 """
 from __future__ import annotations
 
@@ -79,16 +71,22 @@ def _sample(rows: list[dict], per_slice: int | None) -> list[dict]:
     return out
 
 
-def evaluate(model, rows: list[dict]):
-    # cm[gold][pred] counts; name_hit = exact-name matches among same-verb-correct rows
+def evaluate(model, rows: list[dict], max_new_tokens: int = 80, time_budget_s: float | None = None,
+             progress_every: int = 20):
+    """Build the confusion matrix over `rows`. INTERRUPT-SAFE: stops early when `time_budget_s`
+    is exceeded and returns the matrix from the rows DONE so far (a Colab disconnect / usage cap
+    still yields a usable partial result). Stop tokens end most rows in a few tokens."""
+    import time
     cm = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     name_hit = name_tot = 0
     slice_c: dict[str, int] = defaultdict(int)
     slice_t: dict[str, int] = defaultdict(int)
+    t0 = time.time()
+    done = 0
     for i, r in enumerate(rows, 1):
         user = next(m for m in r["messages"] if m.get("role") == "user")
         out = model.generate([{"role": "system", "content": _system(r)}, user],
-                             max_new_tokens=96, stop=["</skill>", "</tool>"])
+                             max_new_tokens=max_new_tokens, stop=["</skill>", "</tool>"])
         p_verb, p_name = first_action(out)
         g_verb, g_name = gold_action(r["messages"])
         cm[g_verb][p_verb] += 1
@@ -98,8 +96,14 @@ def evaluate(model, rows: list[dict]):
         if g_verb != "none":
             name_tot += 1
             name_hit += int(p_verb == g_verb and p_name == g_name)
-        if i % 50 == 0:
-            print(f"  {i}/{len(rows)}", flush=True)
+        done = i
+        if i % progress_every == 0:
+            el = time.time() - t0
+            print(f"  {i}/{len(rows)}  ({el:.0f}s, {el / i:.1f}s/row)", flush=True)
+        if time_budget_s and (time.time() - t0) > time_budget_s:
+            print(f"  time budget {time_budget_s:.0f}s reached — stopping at {done}/{len(rows)} "
+                  f"(matrix from completed rows)", flush=True)
+            break
     return cm, (name_hit, name_tot), (slice_c, slice_t)
 
 
@@ -145,13 +149,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel)")
     ap.add_argument("--server", default="http://127.0.0.1:7861", help="model service URL")
-    ap.add_argument("--per-slice", type=int, default=0, help="rows/slice (0 = all)")
+    ap.add_argument("--per-slice", type=int, default=8, help="rows/slice (0 = all; default 8 = light)")
+    ap.add_argument("--max-new-tokens", type=int, default=80, help="gen cap per row")
+    ap.add_argument("--time-budget", type=float, default=0, help="seconds; 0 = no budget. Stops "
+                    "early + writes the matrix from completed rows (survives a Colab disconnect)")
     args = ap.parse_args()
 
     from llm_dataset.v1.jsonl_io import read_rows
     rows = _sample(list(read_rows(VAL)), args.per_slice or None)
     model = _load_model(args)
-    cm, (nh, nt), (sc, st) = evaluate(model, rows)
+    cm, (nh, nt), (sc, st) = evaluate(model, rows, max_new_tokens=args.max_new_tokens,
+                                      time_budget_s=args.time_budget or None)
     met = _metrics(cm)
 
     total = sum(cm[g][p] for g in CLASSES for p in CLASSES)
