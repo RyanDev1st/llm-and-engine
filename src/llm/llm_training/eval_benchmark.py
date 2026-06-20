@@ -1,13 +1,15 @@
-"""Serious routing BENCHMARK for the report: the trained adapter (our SFT) vs the untrained
-base Gemma on the SAME harness, over the validation set. For each condition we report a
-confusion matrix + precision/recall/F1 + exact-name accuracy + format-validity + per-slice
-routing + throughput, plus the adapter-over-base LIFT. The base comparison is the HONEST
-"against others" — it isolates what the SFT bought (no fabricated external-model numbers); the
-base run reuses the SAME loaded model with the LoRA disabled (no 2nd load, no OOM).
+"""Serious routing BENCHMARK for the report — a clean ablation over the validation set:
+  A) adapter + harness  — the product (trained v4 LoRA on the full harness contract)
+  B) base + harness      — SAME harness, LoRA DISABLED (isolates what the SFT WEIGHTS bought)
+  C) base, NO harness    — raw base Gemma, no contract at all (isolates what the HARNESS bought)
+For each we report a confusion matrix + precision/recall/F1 + exact-name + format validity +
+throughput; then the layer deltas (A-B = SFT weights, B-C = harness contract, A-C = full system).
+B and C reuse the SAME loaded model with the LoRA off (AdapterView) — no 2nd load, no OOM, no
+fabricated external baselines. Honest, reproducible from our own artifacts.
 
-Built for Kaggle (2x T4, up to 12h) so a large stratified sample fits:
-  python -m llm_training.eval_benchmark --adapter <best> --per-slice 30 --time-budget 18000
---per-slice 0 = the FULL val set. Saves docs/findings/<date>-routing-benchmark.md + matrix PNGs.
+Built for Kaggle (T4, up to 12h):
+  python -m llm_training.eval_benchmark --adapter <best> --per-slice 25 --time-budget 9000
+--per-slice 0 = the FULL val set. Saves docs/findings/<date>-routing-benchmark.md + a PNG/condition.
 """
 from __future__ import annotations
 
@@ -27,17 +29,18 @@ _TAG = re.compile(r"</?([a-zA-Z_][\w]*)")
 _CONTRACT = {"think", "/think", "goal", "/goal", "plan", "/plan", "skill", "/skill", "tool", "/tool"}
 
 
-def _bench(model, rows, *, max_new_tokens, time_budget_s, label):
-    """One condition: generate the first action per row (fast mode), tally the matrix, exact-name,
-    'soup' (any non-contract tag), per-slice, and wall-time. Interrupt-safe via time_budget_s."""
+def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=True):
+    """One condition. with_harness=True feeds the SAME system contract (fast mode); False feeds
+    ONLY the user turn (raw base, no contract). Tallies the matrix, exact-name, 'soup' (any
+    non-contract tag), per-slice, wall-time. Interrupt-safe via time_budget_s."""
     cm = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     nh = nt = soup = done = 0
     sc, st = defaultdict(int), defaultdict(int)
     t0 = time.time()
     for i, r in enumerate(rows, 1):
         user = next(m for m in r["messages"] if m.get("role") == "user")
-        out = model.generate([{"role": "system", "content": _system(r, True)}, user],
-                             max_new_tokens=max_new_tokens, stop=["</skill>", "</tool>"])
+        msgs = ([{"role": "system", "content": _system(r, True)}, user] if with_harness else [user])
+        out = model.generate(msgs, max_new_tokens=max_new_tokens, stop=["</skill>", "</tool>"])
         if [t for t in _TAG.findall(out) if t not in _CONTRACT]:
             soup += 1
         pv, pn = first_action(out)
@@ -56,8 +59,8 @@ def _bench(model, rows, *, max_new_tokens, time_budget_s, label):
         if time_budget_s and time.time() - t0 > time_budget_s:
             print(f"  [{label}] budget reached at {done}/{len(rows)}", flush=True)
             break
-    return {"cm": cm, "nh": nh, "nt": nt, "soup": soup, "n": done,
-            "sec": time.time() - t0, "sc": sc, "st": st}
+    return {"cm": cm, "nh": nh, "nt": nt, "soup": soup, "n": done, "sec": time.time() - t0,
+            "sc": sc, "st": st}
 
 
 def _summary(b: dict) -> dict:
@@ -65,13 +68,11 @@ def _summary(b: dict) -> dict:
     tot = sum(cm[g][p] for g in CLASSES for p in CLASSES) or 1
     met = _metrics(cm)
     wsup = sum(met[c]["support"] for c in CLASSES) or 1
-    return {"met": met,
-            "acc": sum(cm[c][c] for c in CLASSES) / tot,
+    return {"met": met, "acc": sum(cm[c][c] for c in CLASSES) / tot,
             "macro": sum(met[c]["precision"] for c in CLASSES) / len(CLASSES),
             "wp": sum(met[c]["precision"] * met[c]["support"] for c in CLASSES) / wsup,
             "name": b["nh"] / b["nt"] if b["nt"] else 0.0,
-            "fmt": 1 - b["soup"] / max(b["n"], 1),
-            "spr": b["sec"] / max(b["n"], 1)}
+            "fmt": 1 - b["soup"] / max(b["n"], 1), "spr": b["sec"] / max(b["n"], 1)}
 
 
 def _matrix_md(cm: dict) -> str:
@@ -89,43 +90,52 @@ def _prf_md(met: dict) -> str:
     return "\n".join(rows)
 
 
-def _hl(metric: str, a, b, pct=True) -> str:
-    fmt = (lambda x: f"{x:.1%}") if pct else (lambda x: f"{x:.2f}")
-    if b is None:
-        return f"| {metric} | {fmt(a)} | — | — |"
-    lift = f"{a - b:+.1%}" if pct else f"{a - b:+.2f}"
-    return f"| {metric} | {fmt(a)} | {fmt(b)} | {lift} |"
+def _headline(summ: list) -> str:
+    labels = [lab for lab, _ in summ]
+    L = ["| metric | " + " | ".join(labels) + " |", "|---|" + "---|" * len(labels)]
+
+    def row(name, key, pct=True):
+        f = (lambda x: f"{x:.1%}") if pct else (lambda x: f"{x:.2f}")
+        return f"| {name} | " + " | ".join(f(s[key]) for _, s in summ) + " |"
+    L += [row("verb accuracy", "acc"), row("macro precision", "macro"),
+          row("weighted precision", "wp"), row("exact-name accuracy", "name"),
+          row("format validity (no foreign tags)", "fmt"), row("throughput (s/row)", "spr", False)]
+    return "\n".join(L)
 
 
-def _write_report(a: dict, b: dict | None, date_str: str) -> Path:
-    sa = _summary(a)
-    sb = _summary(b) if b else None
+def _delta(a: dict, b: dict) -> str:
+    return (f"verb acc {a['acc']-b['acc']:+.1%}, format {a['fmt']-b['fmt']:+.1%}, "
+            f"macro-prec {a['macro']-b['macro']:+.1%}, exact-name {a['name']-b['name']:+.1%}")
+
+
+def _write_report(conds: list, date_str: str) -> Path:
+    """conds = [(label, bench_result), ...] in order: adapter+harness, base+harness, base no-harness."""
+    summ = [(lab, _summary(b)) for lab, b in conds]
+    s = {lab: sm for lab, sm in summ}
+    a, bh, nh = "adapter+harness", "base+harness", "base no-harness"
     L = ["Parent: docs/reference/sft-corpus-generation.md", "",
          "# Routing benchmark — Gemma 4 E4B chess-coach (v4 adapter)", "",
-         f"n = {a['n']} stratified val rows · scored in FAST mode (routing is mode-independent) · "
-         "base = the same model with the LoRA disabled (isolates the SFT lift).", "",
-         "## Headline (trained adapter vs untrained base)",
-         "| metric | adapter (SFT) | base Gemma | lift |", "|---|---|---|---|",
-         _hl("verb accuracy", sa["acc"], sb["acc"] if sb else None),
-         _hl("macro precision", sa["macro"], sb["macro"] if sb else None),
-         _hl("weighted precision", sa["wp"], sb["wp"] if sb else None),
-         _hl("exact-name accuracy", sa["name"], sb["name"] if sb else None),
-         _hl("format validity (no foreign tags)", sa["fmt"], sb["fmt"] if sb else None),
-         _hl("throughput (s/row)", sa["spr"], sb["spr"] if sb else None, pct=False),
-         "", "## Confusion matrix — adapter (rows = gold, cols = pred)", _matrix_md(a["cm"]),
-         "", "### Per-class precision / recall / F1 — adapter", _prf_md(sa["met"])]
-    if b:
-        L += ["", "## Confusion matrix — base (adapter disabled)", _matrix_md(b["cm"]),
-              "", "### Per-class precision / recall / F1 — base", _prf_md(sb["met"])]
-    L += ["", "## Per-slice routing accuracy (adapter)"]
-    for sl in sorted(a["st"]):
-        L.append(f"- {sl}: {a['sc'][sl]}/{a['st'][sl]} = {a['sc'][sl] / a['st'][sl]:.0%}")
+         f"n = {conds[0][1]['n']} stratified val rows · fast mode (routing is mode-independent) · "
+         "B/C reuse the same model with the LoRA disabled (B keeps the harness contract; C drops "
+         "it entirely — raw base Gemma). This isolates the two layers separately.", "",
+         "## Headline — three conditions", _headline(summ), "",
+         "## What each layer contributes",
+         f"- **SFT weights** (adapter+harness vs base+harness): {_delta(s[a], s[bh])}",
+         f"- **Harness contract** (base+harness vs base no-harness): {_delta(s[bh], s[nh])}",
+         f"- **Full system** (adapter+harness vs base no-harness): {_delta(s[a], s[nh])}", ""]
+    for lab, b in conds:
+        sm = s[lab]
+        L += [f"## Confusion matrix — {lab} (rows = gold, cols = pred)", _matrix_md(b["cm"]), "",
+              f"### Per-class precision / recall / F1 — {lab}", _prf_md(sm["met"]), ""]
+    pa = conds[0][1]
+    L += ["## Per-slice routing accuracy (adapter+harness)"]
+    for sl in sorted(pa["st"]):
+        L.append(f"- {sl}: {pa['sc'][sl]}/{pa['st'][sl]} = {pa['sc'][sl] / pa['st'][sl]:.0%}")
     out = REPO / "docs" / "findings" / f"{date_str}-routing-benchmark.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
-    _png(a["cm"], out.with_name(out.stem + "-adapter.png"))
-    if b:
-        _png(b["cm"], out.with_name(out.stem + "-base.png"))
+    for lab, b in conds:
+        _png(b["cm"], out.with_name(out.stem + "-" + lab.replace(" ", "_").replace("+", "-") + ".png"))
     print("\n".join(L[2:]), flush=True)
     print(f"\nwrote {out}", flush=True)
     return out
@@ -135,25 +145,26 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel)")
     ap.add_argument("--server", default="http://127.0.0.1:7861", help="model service URL")
-    ap.add_argument("--per-slice", type=int, default=30, help="rows/slice (0 = full val)")
+    ap.add_argument("--per-slice", type=int, default=25, help="rows/slice (0 = full val)")
     ap.add_argument("--max-new-tokens", type=int, default=24)
     ap.add_argument("--time-budget", type=float, default=0, help="seconds PER condition (0 = none)")
-    ap.add_argument("--no-base", action="store_true", help="skip the base comparison (adapter only)")
     args = ap.parse_args()
 
     from datetime import date
     from llm_dataset.v1.jsonl_io import read_rows
+    from backend.inference import AdapterView
     rows = _sample(list(read_rows(VAL)), args.per_slice or None)
     model = _load_model(args)
-    tb = args.time_budget or None
-    print(f"benchmark: {len(rows)} rows | adapter vs {'(skipped)' if args.no_base else 'base'} ...", flush=True)
-    a = _bench(model, rows, max_new_tokens=args.max_new_tokens, time_budget_s=tb, label="adapter")
-    b = None
-    if not args.no_base:
-        from backend.inference import AdapterView
-        b = _bench(AdapterView(model, False), rows,
-                   max_new_tokens=args.max_new_tokens, time_budget_s=tb, label="base")
-    _write_report(a, b, f"{date.today():%Y-%m-%d}")
+    base = AdapterView(model, False)        # same weights, LoRA OFF
+    tb, mnt = args.time_budget or None, args.max_new_tokens
+    print(f"benchmark: {len(rows)} rows x 3 conditions (adapter+harness, base+harness, base no-harness)", flush=True)
+    conds = [
+        ("adapter+harness", _bench(model, rows, max_new_tokens=mnt, time_budget_s=tb, label="adapter+harness")),
+        ("base+harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb, label="base+harness")),
+        ("base no-harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb,
+                                   label="base no-harness", with_harness=False)),
+    ]
+    _write_report(conds, f"{date.today():%Y-%m-%d}")
 
 
 if __name__ == "__main__":
