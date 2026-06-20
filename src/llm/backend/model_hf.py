@@ -64,6 +64,8 @@ class HFModel:
                     "[adapter] NOT applied — 0 lora_B weights took (key mismatch). The server "
                     "would be running raw base Gemma. Fix the adapter load before trusting output.")
         self.model.eval()
+        from . import kv_cache
+        self._kv = kv_cache.PrefixCache()   # prefix KV reuse across loop steps (self-guarding)
 
     @torch.inference_mode()
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
@@ -80,12 +82,16 @@ class HFModel:
         enc = {k: v.to(self.model.device) for k, v in enc.items()}
         prompt_len = enc["input_ids"].shape[1]
         can_toggle = hasattr(self.model, "disable_adapter")
+        # Prefix KV reuse only on the trusted greedy adapter-on path (the base/sampling paths
+        # bypass it — different weights / non-deterministic, so the A/B self-check can't hold).
+        reuse_ok = use_adapter and self.temperature <= 0
         if not use_adapter and can_toggle:
             with self.model.disable_adapter():
-                out = self._gen(enc, max_new_tokens, stop)
+                out_ids = self._run_plain(enc, max_new_tokens, stop)
         else:
-            out = self._gen(enc, max_new_tokens, stop)
-        text = self.tok.decode(out[0][prompt_len:], skip_special_tokens=True)
+            out_ids = self._gen_cached(enc, max_new_tokens, stop) if reuse_ok \
+                else self._run_plain(enc, max_new_tokens, stop)
+        text = self.tok.decode(out_ids[prompt_len:], skip_special_tokens=True)
         return _truncate(text, stop)
 
     def count_tokens(self, text: str) -> int:
@@ -95,29 +101,85 @@ class HFModel:
         # Cap at 8k: Gemma can report far more, but the KV cache must fit the 4060.
         return min(int(getattr(self.model.config, "max_position_embeddings", 8192)), 8192)
 
-    def _gen(self, enc: dict, max_new_tokens: int, stop: list[str]):
-        # repetition_penalty + no_repeat_ngram_size were added to kill the greedy loops of
-        # the soup era. BUT they corrupt name COPYING: a correct skill name (chess-coach)
-        # reuses words already in the prompt (the skills index lists it), so repetition_
-        # penalty divides those logits down and pushes the model OFF the right name toward
-        # novel garbage. Env-togglable so we can A/B; default 1.0/0 (clean) now that the
-        # format is trained and the loops are gone — set CHESS_REP_PENALTY=1.2 to restore.
-        rep = float(os.environ.get("CHESS_REP_PENALTY", "1.0"))
-        nrn = int(os.environ.get("CHESS_NO_REPEAT_NGRAM", "0"))
-        kw = dict(
-            **enc, max_new_tokens=max_new_tokens,
+    def _gen_kwargs(self, max_new_tokens: int):
+        # repetition_penalty/no_repeat_ngram were the soup-era loop fix; they corrupt name
+        # COPYING (a correct skill name reuses prompt words), so default 1.0/0 (clean) now that
+        # the format is trained — set CHESS_REP_PENALTY=1.2 / CHESS_NO_REPEAT_NGRAM to restore.
+        return dict(
+            max_new_tokens=max_new_tokens,
             do_sample=self.temperature > 0, temperature=max(self.temperature, 1e-3),
-            top_p=0.9, repetition_penalty=rep, no_repeat_ngram_size=nrn,
+            top_p=0.9, repetition_penalty=float(os.environ.get("CHESS_REP_PENALTY", "1.0")),
+            no_repeat_ngram_size=int(os.environ.get("CHESS_NO_REPEAT_NGRAM", "0")),
             pad_token_id=self.tok.pad_token_id)
-        # Early-stop at the first action close tag (one action per step), so a ~15-token
-        # decision doesn't run the full max_new_tokens (~20x less generation per tool/skill
-        # step). _truncate is still applied as the clean-up. Falls back to a full generation
-        # on a transformers too old for stop_strings.
+
+    def _run_generate(self, enc: dict, max_new_tokens: int, stop: list[str],
+                      past=None, start: int = 0):
+        """One model.generate. Returns (full 1-D token sequence, kv-cache-or-None). With
+        `past` (a KV cache covering `start` exact prefix tokens) it prefills only the new tail
+        — the reuse fast path. Early-stops at the first action close tag (one action/step)."""
         stops = [s for s in (list(stop) + ["</skill>", "</tool>", "</tool_code>"]) if s]
+        kw = self._gen_kwargs(max_new_tokens)
+        input_ids, attn = enc["input_ids"], enc.get("attention_mask")
+        gkw: dict = {"return_dict_in_generate": True, "use_cache": True}
+        prefix = None
+        if past is not None and start > 0:
+            past.crop(start)                                  # keep the exact shared prefix
+            prefix = input_ids[:, :start]
+            gkw["input_ids"] = input_ids[:, start:]           # prefill only the new tail
+            gkw["past_key_values"] = past
+            gkw["cache_position"] = torch.arange(start, input_ids.shape[1], device=input_ids.device)
+            if attn is not None:
+                gkw["attention_mask"] = attn                  # full-length mask (past + new)
+        else:
+            gkw["input_ids"] = input_ids
+            if attn is not None:
+                gkw["attention_mask"] = attn
         try:
-            return self.model.generate(**kw, stop_strings=stops, tokenizer=self.tok)
+            go = self.model.generate(**gkw, **kw, stop_strings=stops, tokenizer=self.tok)
         except (TypeError, ValueError):
-            return self.model.generate(**kw)
+            go = self.model.generate(**gkw, **kw)
+        seq = go.sequences[0]
+        if prefix is not None:                                # rebuild the full sequence
+            seq = torch.cat([prefix[0], seq], dim=0)
+        return seq, getattr(go, "past_key_values", None)
+
+    def _run_plain(self, enc: dict, max_new_tokens: int, stop: list[str]):
+        return self._run_generate(enc, max_new_tokens, stop)[0]
+
+    def _gen_cached(self, enc: dict, max_new_tokens: int, stop: list[str]):
+        """Greedy adapter-on path with prefix KV reuse + the A/B self-check. Until reuse is
+        verified, the first reuse OPPORTUNITY runs BOTH paths and returns the TRUSTED full-
+        prefill output, enabling reuse only if they match (else reuse is disabled for good).
+        Any error falls back to a full prefill. So output is never wrong — worst case = slow."""
+        cache = self._kv
+        ids = enc["input_ids"][0]
+        try:
+            ln = cache.reusable(ids)
+            if not cache.verified:
+                full_seq, full_kv = self._run_generate(enc, max_new_tokens, stop)   # the truth
+                if ln > 0:                                    # first reuse opportunity -> A/B check
+                    reuse_seq, _ = self._run_generate(enc, max_new_tokens, stop, past=cache.kv, start=ln)
+                    p = enc["input_ids"].shape[1]
+                    if _gen_equal(full_seq, reuse_seq, p):
+                        cache.verified = True
+                    else:
+                        cache.disable("A/B self-check mismatch")
+                cache.store(full_seq, full_kv)
+                return full_seq
+            seq, kv = self._run_generate(enc, max_new_tokens, stop,
+                                         past=cache.kv if ln > 0 else None, start=ln)
+            cache.store(seq, kv)
+            return seq
+        except Exception as exc:                              # any cache mechanic failure -> safe path
+            cache.disable(f"reuse error: {type(exc).__name__}: {exc}")
+            return self._run_plain(enc, max_new_tokens, stop)
+
+
+def _gen_equal(a, b, prompt_len: int) -> bool:
+    """The generated portions (past prompt_len) of two sequences are identical."""
+    ga, gb = a[prompt_len:], b[prompt_len:]
+    n = min(len(ga), len(gb))
+    return n > 0 and bool((ga[:n] == gb[:n]).all())
 
 
 def _truncate(text: str, stop: list[str]) -> str:
