@@ -14,10 +14,13 @@ official is always on; the rest toggle via plugin_context["enabled"].
 """
 from __future__ import annotations
 
-from . import chess_official, openings, analysis, puzzles
+from . import chess_official, openings, analysis, puzzles, life_skills
 
-# All installed plugins. chess-official first (its core tools lead the manifest).
-REGISTRY = [chess_official, openings, analysis, puzzles]
+# All installed plugins. chess-official first (its core tools lead the manifest). life-skills is
+# a real out-of-domain bundle (cooking/music/wellness/tax) — INSTALLED so its tools dispatch +
+# skills load when enabled, but NOT in the default chess serve's enabled set; the benchmark /
+# transcript turn it on per-request to prove the harness generalizes to unseen domains.
+REGISTRY = [chess_official, openings, analysis, puzzles, life_skills]
 ALWAYS_ON = {"chess-official"}
 
 
