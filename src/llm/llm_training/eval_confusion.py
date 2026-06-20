@@ -1,13 +1,12 @@
 """Routing CONFUSION MATRIX + precision/recall on the validation set.
 
-Routing = a 3-class decision on the model's FIRST action: skill (<skill>NAME</skill>),
-tool (<tool>NAME ...</tool>), or none (answered directly). We compare the model's first-action
-verb to the gold verb -> a 3x3 matrix (rows = gold, cols = pred) + per-class precision/recall/F1,
-which surfaces the skill-vs-tool VERB bias (the gold=tool / pred=skill cell), plus exact-NAME and
-per-slice accuracy. Light + interrupt-safe: --per-slice (default 8) and --time-budget keep it
-short enough to finish before a Colab disconnect; a stop writes the matrix from completed rows.
+Routing = a 3-class decision on the FIRST action: skill (<skill>NAME</skill>), tool
+(<tool>NAME ...</tool>), or none. We compare the model's first-action verb to the gold verb ->
+a 3x3 matrix (rows=gold, cols=pred) + per-class precision/recall/F1 (surfacing the skill-vs-tool
+VERB bias), plus exact-NAME + per-slice accuracy. Light + interrupt-safe: small --per-slice, a
+--time-budget, and FAST-mode scoring keep it short enough to beat a Colab disconnect; a stop
+writes the matrix from completed rows.
   python -m llm_training.eval_confusion --adapter <best> [--per-slice 8 --time-budget 900]
-  python -m llm_training.eval_confusion --server http://127.0.0.1:7861
 """
 from __future__ import annotations
 
@@ -42,9 +41,12 @@ def gold_action(messages: list[dict]) -> tuple[str, str | None]:
     return "none", None
 
 
-def _system(row: dict) -> str:
+def _system(row: dict, force_fast: bool = True) -> str:
+    # Force FAST mode: routing (skill/tool/none) is mode-independent, but fast skips the
+    # goal/think preamble so the action lands fast and early-stops (~5x faster on a T4).
+    mode = "fast" if force_fast else row.get("reasoning_mode", "")
     return build_system(row.get("skills_index", []), row.get("tool_manifest", []),
-                        row.get("plugin_context", {}), reasoning_mode=row.get("reasoning_mode", ""))
+                        row.get("plugin_context", {}), reasoning_mode=mode)
 
 
 def _load_model(args):
@@ -71,8 +73,8 @@ def _sample(rows: list[dict], per_slice: int | None) -> list[dict]:
     return out
 
 
-def evaluate(model, rows: list[dict], max_new_tokens: int = 80, time_budget_s: float | None = None,
-             progress_every: int = 20):
+def evaluate(model, rows: list[dict], max_new_tokens: int = 24, time_budget_s: float | None = None,
+             progress_every: int = 20, force_fast: bool = True):
     """Build the confusion matrix over `rows`. INTERRUPT-SAFE: stops early when `time_budget_s`
     is exceeded and returns the matrix from the rows DONE so far (a Colab disconnect / usage cap
     still yields a usable partial result). Stop tokens end most rows in a few tokens."""
@@ -85,7 +87,7 @@ def evaluate(model, rows: list[dict], max_new_tokens: int = 80, time_budget_s: f
     done = 0
     for i, r in enumerate(rows, 1):
         user = next(m for m in r["messages"] if m.get("role") == "user")
-        out = model.generate([{"role": "system", "content": _system(r)}, user],
+        out = model.generate([{"role": "system", "content": _system(r, force_fast)}, user],
                              max_new_tokens=max_new_tokens, stop=["</skill>", "</tool>"])
         p_verb, p_name = first_action(out)
         g_verb, g_name = gold_action(r["messages"])
@@ -99,10 +101,9 @@ def evaluate(model, rows: list[dict], max_new_tokens: int = 80, time_budget_s: f
         done = i
         if i % progress_every == 0:
             el = time.time() - t0
-            print(f"  {i}/{len(rows)}  ({el:.0f}s, {el / i:.1f}s/row)", flush=True)
+            print(f"  {i}/{len(rows)} ({el:.0f}s, {el/i:.1f}s/row)", flush=True)
         if time_budget_s and (time.time() - t0) > time_budget_s:
-            print(f"  time budget {time_budget_s:.0f}s reached — stopping at {done}/{len(rows)} "
-                  f"(matrix from completed rows)", flush=True)
+            print(f"  budget {time_budget_s:.0f}s reached — stop at {done}/{len(rows)} (partial matrix)", flush=True)
             break
     return cm, (name_hit, name_tot), (slice_c, slice_t)
 
@@ -150,7 +151,7 @@ def main() -> None:
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel)")
     ap.add_argument("--server", default="http://127.0.0.1:7861", help="model service URL")
     ap.add_argument("--per-slice", type=int, default=8, help="rows/slice (0 = all; default 8 = light)")
-    ap.add_argument("--max-new-tokens", type=int, default=80, help="gen cap per row")
+    ap.add_argument("--max-new-tokens", type=int, default=24, help="gen cap per row (fast mode acts early)")
     ap.add_argument("--time-budget", type=float, default=0, help="seconds; 0 = no budget. Stops "
                     "early + writes the matrix from completed rows (survives a Colab disconnect)")
     args = ap.parse_args()
@@ -167,7 +168,6 @@ def main() -> None:
     macro_p = sum(met[c]["precision"] for c in CLASSES) / len(CLASSES)
     wsupport = sum(met[c]["support"] for c in CLASSES) or 1
     weighted_p = sum(met[c]["precision"] * met[c]["support"] for c in CLASSES) / wsupport
-
     from datetime import date
     L = ["Parent: docs/reference/sft-corpus-generation.md", "",
          "# Routing confusion matrix + precision (val)", "", "## Status",
