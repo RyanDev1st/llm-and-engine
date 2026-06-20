@@ -11,6 +11,7 @@ from .game import Game
 from .engine import Engine
 from .inference import AdapterView, CoachLoop, PLUGIN_CONTEXT
 from . import memory, skill_admin, state_api
+from .memory import session as session_mem
 from .tools import ToolExecutor
 
 
@@ -41,6 +42,8 @@ class App:
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
         # Persistent-memory identity (single-user demo -> "default"; keyed so multi-user is free).
         self.user_id = os.environ.get("CHESS_USER_ID", "default")
+        # Session fact cache: analysis facts computed this session, FEN-keyed (see memory.session).
+        self.session: dict = {}
 
     def load_model(self) -> None:
         # Dev mode: a persistent model service holds the weights, so this server is
@@ -153,7 +156,15 @@ class App:
         self.history = []
         self.history_base = []
         self.history_off = []
+        session_mem.clear(self.session)         # a new game -> drop the stale fact cache
         return self.state()
+
+    def _context_block(self) -> str:
+        """The injected memory context: the persistent user profile + any session facts still
+        fresh for the live board. Read from the REAL game (base/mirror runs mirror it)."""
+        parts = [memory.memory_block(self.user_id),
+                 session_mem.render(self.session, self.game.board.fen())]
+        return "\n\n".join(p for p in parts if p)
 
     def _mirror_base(self) -> None:
         """Copy the real board onto the base loop's private board so the base
@@ -167,11 +178,18 @@ class App:
              on_event=None, mode: str = "") -> dict:
         import time
         t0 = time.time()
-        # Inject the persistent user profile (read BEFORE the turn), run, then capture any new
-        # durable facts from this message (idempotent — safe across the dual/coverage re-runs).
+        entry_fen = self.game.board.fen()      # position the turn's analysis pertains to
+        # Inject memory (user profile + fresh session facts) read BEFORE the turn; run; then
+        # capture durable user facts (idempotent). Only the PRIMARY trained loop updates the
+        # session cache — base/mirror runs are demo comparisons on a copied board.
         result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode,
-                              memory_block=memory.memory_block(self.user_id))
+                              memory_block=self._context_block())
         memory.capture(message, self.user_id)
+        # Cache analysis facts ONLY when the board didn't move this turn (else the facts are
+        # ambiguous as to which position they describe). The render freshness-guard drops them
+        # the moment the live FEN diverges anyway.
+        if loop is self.loop and self.game.board.fen() == entry_fen:
+            session_mem.update(self.session, entry_fen, result.get("tool_results", []))
         elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
