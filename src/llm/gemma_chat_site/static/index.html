@@ -1245,7 +1245,7 @@ const ChatUI = (() => {
   function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
     let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
-    let liveTok = 0, liveEl = null;
+    let liveTok = 0, liveEl = null, thinkLive = null;
     // Keep reasoning out of the chat bubble while streaming: drop any closed <think>/<goal>
     // block, then cut at an unclosed '<' (a tag still being generated). The backend also
     // strips them from the authoritative done.reply, so the bubble is clean either way.
@@ -1254,6 +1254,27 @@ const ChatUI = (() => {
       const cut = t.search(/<\|?/); return (cut >= 0 ? t.slice(0, cut) : t).replace(/^\s+/, '');
     };
     const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
+    // The model's reasoning (<think>…</think>) streams to a LIVE thinking preview, never the
+    // chat bubble. Pulls every closed think block plus an unclosed trailing one (mid-generation).
+    const extractThink = (txt) => {
+      let out = '', re = /<think>([\s\S]*?)<\/think>/g, m;
+      while ((m = re.exec(txt))) out += (out ? ' ' : '') + m[1];
+      const open = txt.lastIndexOf('<think>'), close = txt.lastIndexOf('</think>');
+      if (open > close) out += (out ? ' ' : '') + txt.slice(open + 7);   // think still being written
+      return out.replace(/\s+/g, ' ').trim();
+    };
+    const showLiveThink = (txt) => {
+      if (!txt) return;
+      if (!thinkLive) {
+        thinkLive = document.createElement('details');
+        thinkLive.className = 'thinking'; thinkLive.open = true;
+        thinkLive.innerHTML = '<summary>🧠 thinking…</summary><div class="think-step note"></div>';
+        container.appendChild(thinkLive);
+      }
+      thinkLive.querySelector('.think-step').textContent = '💭 ' + txt;
+      container.scrollTop = container.scrollHeight;
+    };
+    const dropLiveThink = () => { if (thinkLive && thinkLive.parentNode) thinkLive.remove(); thinkLive = null; };
     // Live token meter: count generated tokens AS THEY STREAM (every token/tool-decision
     // token), shown ticking up; replaced by the authoritative context meter on done.
     const liveMeter = () => {
@@ -1266,15 +1287,16 @@ const ChatUI = (() => {
       if (ev.type === 'token') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
         liveTok++; liveMeter();
-        streamed += ev.text; bubble(); tw.set(clean(streamed));
+        streamed += ev.text; showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
       } else if (ev.type === 'reply_chunk') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
-        streamed += (streamed ? ' ' : '') + ev.text; bubble(); tw.set(clean(streamed));
+        streamed += (streamed ? ' ' : '') + ev.text;
+        showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
       } else if (ev.type === 'tool') {
         // the tokens just streamed were this tool's DECISION -> belong in the thinking
-        // panel, not chat. Drop the provisional bubble + typewriter.
+        // panel, not chat. Drop the provisional bubble + typewriter + live-think preview.
         if (replyEl && replyEl.parentNode) replyEl.remove();
-        replyEl = null; tw = null; streamed = '';
+        replyEl = null; tw = null; streamed = ''; dropLiveThink();
         calls.push(ev.call); results.push(ev.result);
         if (waitFT && waitFT.parentNode) waitFT.remove();
         thinkEl = renderLiveThinking(container, calls, results, thinkEl);
@@ -1282,12 +1304,14 @@ const ChatUI = (() => {
         pinGoal(container, ev.content);
       } else if (ev.type === 'plan') {           // the checklist -> plan/todo panel
         renderPlan(container, ev.content);
-      } else if (ev.type === 'think') {          // a reasoning note -> thinking panel (not chat)
+      } else if (ev.type === 'think') {          // final reasoning note -> recorded in the panel
         if (waitFT && waitFT.parentNode) waitFT.remove();
+        dropLiveThink();                          // the transient preview is now recorded below
         calls.push('💭 ' + ev.content); results.push('');
         thinkEl = renderLiveThinking(container, calls, results, thinkEl);
       } else if (ev.type === 'done') {
         done = ev;
+        dropLiveThink();
         if (liveEl && liveEl.parentNode) liveEl.remove();   // authoritative context meter replaces it
       } else if (ev.type === 'error') {
         throw new Error(ev.error || 'stream error');

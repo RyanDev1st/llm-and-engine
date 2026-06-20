@@ -199,6 +199,20 @@ def test_hf_truncate_cuts_at_first_action_close_inclusive():
         == '<skill>chess-coach</skill>'                                   # earliest close wins
 
 
+def test_intermediate_think_is_kept_in_history_but_stripped_from_final():
+    # Interleaved thinking (3c/Anthropic pattern): a <think> before a tool step must survive in
+    # the turn's history so the next step can reason about the result — only the FINAL reply has
+    # its <think> stripped (G1). Proves the harness doesn't suppress mid-loop reasoning.
+    steps = ["<think>let me read the eval first</think>\n<tool>eval depth=12",
+             "<think>got it — that's enough</think> You're level at the start. Anything else?"]
+    out = CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None)).respond(
+        [], "how am I doing?", coverage=False)
+    asst = [t["content"] for t in out["turns"] if t["role"] == "assistant"]
+    assert any("<think>let me read the eval" in c for c in asst)   # intermediate think preserved
+    assert "<think>" not in out["reply"]                            # final reply stripped (G1)
+    assert out["reply"].startswith("You're level")
+
+
 def test_reasoning_mode_threads_into_the_system_prompt():
     # G3: the reasoning mode reaches build_system, so fast and think render different prompts.
     class Rec:

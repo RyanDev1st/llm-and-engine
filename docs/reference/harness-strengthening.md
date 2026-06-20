@@ -90,6 +90,33 @@ of re-calling the engine, with the FEN freshness guard.
 
 ---
 
-## Pillar 3 — Thinking (PENDING)
+## Pillar 3 — Thinking (DONE)
 
-_documented as implemented._
+### 3a — Live-stream `<think>` to the panel
+**What:** the model's reasoning now streams to a LIVE "🧠 thinking…" preview during generation
+instead of being hidden by `clean()` and only shown post-hoc — finishing the open G1 follow-up
+and the "redesign the think panel" ask. Reasoning still never touches the chat bubble.
+**Files:** `gemma_chat_site/static/index.html` — `extractThink` (pulls closed + an unclosed
+trailing `<think>` mid-stream), `showLiveThink`/`dropLiveThink` (the transient preview), wired
+into the `streamChat` token/reply_chunk handlers; dropped on a `tool`/`think`/`done` event (the
+reasoning is then recorded in the panel via the existing per-step / `{type:think}` records).
+
+### 3c — Interleaved thinking is preserved (verified)
+A `<think>` before a tool step survives in the turn's history (it rides `extract_call` →
+`_to_skill_verb` into `new_turns`), so the next step can reason about the result — only the
+FINAL reply has its `<think>` stripped (G1). This already held; locked with a regression test
+(`test_intermediate_think_is_kept_in_history_but_stripped_from_final`).
+
+### 3b — grounded reflection: deterministic guards, NOT a model round-trip
+A model self-reflection pass was evaluated and **rejected**: it adds a full generate round-trip
+(against the Pillar-2 goal) and a small model self-judging is weak. The existing DETERMINISTIC
+guards in `_finalize` are stronger and free — `_correct_eval_number` (no fabricated eval),
+`_correct_move_names` (no fabricated move list), `_ensure_required_narrated` (required facts
+present). Adding a fuzzy eval-direction guard was also rejected (over-reach risk vs trained
+phrasing — consistent with the deterministic-routing-restraint principle). So grounding stays
+deterministic + zero-latency; no new code.
+
+### How to test Pillar 3
+- `python -m pytest src/llm/backend/test_serve_smoke.py -q` (incl. the interleaved-think test).
+- On the T4 (serving): ask in `think`/`auto` mode → a live "🧠 thinking…" preview fills with the
+  reasoning during generation, then the answer types into the chat bubble (no `<think>` leak).

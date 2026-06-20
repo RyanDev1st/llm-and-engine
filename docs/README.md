@@ -18,6 +18,7 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 | [reference/sft-corpus-generation.md](reference/sft-corpus-generation.md) | Plain-English account of how the v1.2 training data is built — factory model, the 20 cards + 25 slices, combinatorial assembly, grounding, generalization, quality gate, split. Source doc for the report/talk |
 | [reference/glossary.md](reference/glossary.md) | Canonical terminology — skill, tool, plugin, skill index, tool manifest, hook gate, etc. |
 | [reference/harness-architecture.md](reference/harness-architecture.md) | The agent harness: deterministic routing layer, tools, skills, plugins, end-to-end turn trace |
+| [reference/harness-strengthening.md](reference/harness-strengthening.md) | The 3-pillar strengthening (memory / routing / thinking): memory tiers + write gate, prefix KV reuse, live-think streaming — what changed per pillar + how to test |
 | [reference/2026-05-23-chess-coach-sft-design.md](reference/2026-05-23-chess-coach-sft-design.md) | Foundational SFT/agent design (the contract) |
 | [reference/2026-06-12-coverage-reliability-design.md](reference/2026-06-12-coverage-reliability-design.md) | Coverage + grounding reliability layer (shipped) |
 | [reference/2026-06-09-context-window-system.md](reference/2026-06-09-context-window-system.md) | Session-memory window: token budget + eviction |
