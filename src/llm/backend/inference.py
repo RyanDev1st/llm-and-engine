@@ -4,6 +4,7 @@ The model uses the role of the latest message to pick Mode 1 vs Mode 2; we keep
 the same system prompt across phases. A `ModelBackend` just needs generate()."""
 from __future__ import annotations
 
+import functools as _functools
 import re as _re
 from typing import Protocol
 
@@ -11,6 +12,7 @@ from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
+from .manifest_view import live_tool_names
 from .skills import load_skills
 from .tool_hints import routing_hints, skill_hints, matched_calls
 from .toolfmt import parse_call
@@ -352,28 +354,51 @@ _TOOL_NAMES = sorted(
     {t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()} | {"load_skill"},
     key=len, reverse=True)
 _NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
-# </tool> always closes a call; the bare > / end-of-string forms (for a stop-
-# trimmed call like "<move san=b3") only count when NOT followed by a word char,
-# so prose like "<eval>ated badly" can't be mistaken for an eval call.
-_MALFORMED = _re.compile(r"<(" + _NAME_ALT + r")\b([^<>]*?)(?:</tool>|(?:>|$)(?!\w))")
-# Echo of a hint example with the OPENING <tool> dropped, e.g. the model copies
-# "move san=Nf3</tool>" from the routing hint. Anchor the name at a token boundary
-# so "remove</tool>" / "improve" can't false-match.
-_ECHO = _re.compile(r"(?:^|[\s:>\"'`])(" + _NAME_ALT + r")\b([^<>]*)</tool>")
-# Bare call with NO tags at all — the whole reply is a tool name + at least one
-# k=v arg, e.g. "review_move depth=1". Requiring args keeps prose ("undo that move")
-# and one-word replies from false-matching; a tool name followed only by k=v pairs
-# is unambiguously a leaked call, so recover + execute it instead of showing it.
-_BARE = _re.compile(r"^(" + _NAME_ALT + r")((?:\s+\w+=\S+)+)$")
 
 
-def extract_call(decision: str) -> str | None:
+def _recovery_patterns(name_alt: str):
+    """The three tagless/malformed-call recovery regexes for a given name alternation.
+    Built per-name-set so recovery can be PLUGIN-AWARE (the chess set, or chess + the live
+    plugin tools) without hardcoding the chess names.
+    - _MALFORMED: </tool> always closes a call; the bare > / end-of-string forms (a stop-
+      trimmed call like "<move san=b3") only count when NOT followed by a word char, so prose
+      like "<eval>ated badly" can't be mistaken for an eval call.
+    - _ECHO: a hint example with the OPENING <tool> dropped (model copies "move san=Nf3</tool>").
+      Anchor the name at a token boundary so "remove</tool>" / "improve" can't false-match.
+    - _BARE: NO tags at all — the whole reply is a tool name + ≥1 k=v arg ("review_move depth=1").
+      Requiring args keeps prose ("undo that move") and one-word replies from false-matching."""
+    malformed = _re.compile(r"<(" + name_alt + r")\b([^<>]*?)(?:</tool>|(?:>|$)(?!\w))")
+    echo = _re.compile(r"(?:^|[\s:>\"'`])(" + name_alt + r")\b([^<>]*)</tool>")
+    bare = _re.compile(r"^(" + name_alt + r")((?:\s+\w+=\S+)+)$")
+    return malformed, echo, bare
+
+
+_MALFORMED, _ECHO, _BARE = _recovery_patterns(_NAME_ALT)
+
+
+@_functools.lru_cache(maxsize=8)
+def _recovery_for(names: frozenset) -> tuple:
+    """Cached recovery patterns for an extended name set (chess + live plugin names)."""
+    ordered = sorted(names, key=len, reverse=True)
+    return _recovery_patterns("|".join(_re.escape(n) for n in ordered))
+
+
+def extract_call(decision: str, allowed: "set[str] | None" = None) -> str | None:
     """Return a canonical '<tool>NAME args</tool>' (lead-in preserved) if `decision`
     is — even malformedly — a tool call, else None for a plain final reply.
 
     A small model sometimes drops the <tool> wrapper and uses the tool name as the
     tag, e.g. 'I will play b3. <move san=b3</tool>'. Recover that to the canonical
-    form so the move actually executes instead of leaking into the chat."""
+    form so the move actually executes instead of leaking into the chat.
+
+    `allowed` (the harness passes live_tool_names(plugin_context)) makes tagless/malformed
+    recovery PLUGIN-AWARE: when an enabled plugin contributes new tool names, recover their
+    leaked calls too. Default None keeps the chess-only behaviour exactly (no regression)."""
+    malformed, echo, bare = _MALFORMED, _ECHO, _BARE
+    if allowed:
+        names = frozenset(_TOOL_NAMES) | frozenset(allowed)
+        if names != frozenset(_TOOL_NAMES):     # plugin tools present -> widen the name set
+            malformed, echo, bare = _recovery_for(names)
     # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
     # <tool>. Map it so those calls execute instead of leaking into the reply.
     s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
@@ -407,17 +432,17 @@ def extract_call(decision: str) -> str | None:
     s = _re.sub(r"\bload skill\b", "load_skill", s, flags=_re.I)
     if "<tool>" in s:
         return normalize_tool_call(s)
-    m = _MALFORMED.search(s)
+    m = malformed.search(s)
     if m:
         name, rest = m.group(1), m.group(2).strip()
         canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
         return (s[:m.start()] + canon + s[m.end():]).strip()
-    e = _ECHO.search(s)  # closing-tag-only echo of a hint example, opening <tool> dropped
+    e = echo.search(s)  # closing-tag-only echo of a hint example, opening <tool> dropped
     if e:
         name, rest = e.group(1), e.group(2).strip()
         canon = f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"
         return (s[:e.start(1)] + canon).strip()
-    b = _BARE.match(s)  # whole reply IS a tagless tool call, e.g. "review_move depth=1"
+    b = bare.match(s)  # whole reply IS a tagless tool call, e.g. "review_move depth=1"
     if b:
         return f"<tool>{b.group(1)}{b.group(2).rstrip()}</tool>"
     return None
@@ -646,6 +671,9 @@ class CoachLoop:
         # remind the model of it explicitly (fixes small-model routing slips like
         # narrating "I'll play b3" without calling move, or stopping before eval).
         game_over = self.executor.game.over_status()
+        # Live callable tool names for THIS turn's plugin context — makes tagless/malformed
+        # call recovery plugin-aware (a leaked plugin call recovers like a chess one).
+        live_names = live_tool_names(self.plugin_context)
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode) \
             + routing_hints(user_message, game_over)
@@ -702,7 +730,7 @@ class CoachLoop:
                 if gm and gm.group(1).strip():
                     on_event({"type": "goal", "content": gm.group(1).strip()})
                     goal_shown[0] = True
-            decision = extract_call(raw)  # canonical call (recovers a dropped <tool> wrapper) or None
+            decision = extract_call(raw, allowed=live_names)  # canonical call (plugin-aware recovery) or None
             if decision is None and is_plan_panel(raw):
                 # PLAN-mode panel turn (<goal>/<plan>): surface it, register the boxes, and
                 # KEEP GOING — it is NOT the final answer. Without this the loop would show the

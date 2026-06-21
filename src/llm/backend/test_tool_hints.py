@@ -120,6 +120,23 @@ def test_extract_call_recovers_tagless_bare_call():
     assert extract_call("The best move here is e4.") is None
 
 
+def test_extract_call_recovers_plugin_tool_when_allowed():
+    # PLUGIN-AWARE recovery: a tagless plugin call is recovered ONLY when the live tool
+    # names are threaded in via `allowed` (the harness passes live_tool_names(plugin_context)).
+    # Without `allowed`, a plugin name is unknown to recovery and must stay a plain reply —
+    # so chess-only serves keep their exact current behaviour (no regression).
+    assert extract_call("scale_recipe from_servings=12 to_servings=30") is None
+    assert extract_call("scale_recipe from_servings=12 to_servings=30",
+                        allowed={"scale_recipe"}) == \
+        "<tool>scale_recipe from_servings=12 to_servings=30</tool>"
+    # malformed-wrapper recovery is plugin-aware too
+    assert extract_call("Let me set it. <breathing_timer seconds=60</tool>",
+                        allowed={"breathing_timer"}) == \
+        "Let me set it. <tool>breathing_timer seconds=60</tool>"
+    # chess recovery is unchanged whether or not `allowed` is passed
+    assert extract_call("eval depth=18", allowed={"scale_recipe"}) == "<tool>eval depth=18</tool>"
+
+
 def test_extract_call_recovers_channel_token_form():
     # live leak: model emitted "<|tool_call>call:board_state fields=all" as the reply
     assert extract_call("<|tool_call>call:board_state fields=all") == "<tool>board_state fields=all</tool>"
