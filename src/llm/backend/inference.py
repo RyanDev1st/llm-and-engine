@@ -12,7 +12,7 @@ from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
-from .manifest_view import live_tool_names
+from .manifest_view import generic_result_signal, live_tool_names
 from .skills import load_skills
 from .tool_hints import routing_hints, skill_hints, matched_calls
 from .toolfmt import parse_call
@@ -229,7 +229,9 @@ def _result_signal(result: str) -> str | None:
     if t.startswith("review:"):
         m = _r.search(r"label=(\w+)", t)
         return m.group(1) if m else None
-    return None
+    # Not a chess result with a precise SAN/eval/label token — fall back to the domain-neutral
+    # signal so a plugin tool's result (convert/scale/metronome/...) is grounding-checkable too.
+    return generic_result_signal(t)
 
 
 def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
@@ -239,18 +241,31 @@ def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
     whose fact the reply doesn't mention, append a grounded one-liner from the real
     tool output (never fabricated). Fixes the model gathering eval then dropping it
     from the answer on a compound request."""
-    if not required:
-        return reply
     low = reply.lower()
     additions: list[str] = []
+    grounded_names: set[str] = set()
+
+    def _ground(name: str, res: str) -> None:
+        if not res or res.startswith("error"):
+            return
+        sig = _result_signal(res)
+        if sig and sig.lower() not in low:          # the result's fact is missing from the reply
+            additions.append(narrate_tool_result(res))
+            grounded_names.add(name)
+
+    # (1) chess REQUIRED intents — precise SAN/eval/label grounding, unchanged.
     for name in required:
         res = next((r for c, r in zip(reversed(tool_calls), reversed(tool_results))
                     if (parse_call(c)[0] or "") == name), None)
-        if not res or res.startswith("error"):
-            continue
-        sig = _result_signal(res)
-        if sig and sig.lower() not in low:          # required fact missing from the reply
-            additions.append(narrate_tool_result(res))
+        if res is not None:
+            _ground(name, res)
+    # (2) PLUGIN tools the chess `required` path is blind to: any executed non-chess tool whose
+    # result carries a distinctive token absent from the reply (the breathing/convert transcript
+    # bug). Chess-native tools are handled in (1)/by the eval+move guards, so skip them here.
+    for call, res in zip(tool_calls, tool_results):
+        name = parse_call(call)[0] or ""
+        if name and name not in _TOOL_NAMES and name not in required and name not in grounded_names:
+            _ground(name, res)
     if not additions:
         return reply
     facts = " ".join(additions)

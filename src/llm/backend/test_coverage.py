@@ -218,6 +218,44 @@ def test_answer_coverage_no_double_when_already_mentioned():
     assert out["reply"].count("0.00") == 1           # not duplicated
 
 
+# --- consumer C: grounding is plugin-aware (not chess-required-only) ---
+
+_LIFE_PC = {"installed": ["life-skills"], "enabled": ["life-skills"], "marketplace": []}
+
+
+def _life_loop(steps):
+    return CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None, _LIFE_PC),
+                     plugin_context=_LIFE_PC)
+
+
+def test_dropped_plugin_result_is_grounded():
+    # The breathing/convert transcript bug: a plugin tool returns a real result, the final
+    # answer DROPS its number. matched_calls is chess-only so `required` is empty here — the
+    # grounding must still fire for the executed plugin tool (domain-neutral).
+    out = _life_loop([
+        "<tool>convert_units value=5 from_unit=miles to_unit=km",
+        "I converted that for you.",                  # drops the 8.047 result
+    ]).respond([], "how many km is 5 miles?")
+    assert _names(out) == ["convert_units"]
+    assert "8.047" in out["reply"]                    # grounded fact appended
+
+
+def test_plugin_result_not_doubled_when_narrated():
+    # If the model already cites the plugin result, don't append it again.
+    out = _life_loop([
+        "<tool>convert_units value=5 from_unit=miles to_unit=km",
+        "5 miles is about 8.047 kilometers.",         # already grounded
+    ]).respond([], "how many km is 5 miles?")
+    assert out["reply"].count("8.047") == 1
+
+
+def test_result_signal_delegates_to_generic_for_plugin_results():
+    from backend.inference import _result_signal
+    assert _result_signal("score: +0.44 pawns from white POV, depth=18") == "+0.44"  # chess unchanged
+    assert _result_signal("convert: 5 miles = 8.047 kilometers (length)") == "8.047"  # delegated
+    assert _result_signal("metronome_bpm: 120 bpm = 500.0 ms per beat") == "500.0"
+
+
 def test_dedup_is_by_full_call_not_name():
     # best_move with different args must BOTH run (name-dedup would have blocked the 2nd).
     out = _loop([
