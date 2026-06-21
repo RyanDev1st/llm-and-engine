@@ -21,6 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from llm_training import bench_misses  # noqa: E402
 from llm_training.eval_confusion import (  # noqa: E402  — reuse the routing primitives
     CLASSES, VAL, _load_model, _metrics, _png, _sample, _system, first_action, gold_action)
 
@@ -36,6 +37,7 @@ def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=Tr
     cm = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     nh = nt = soup = done = 0
     sc, st = defaultdict(int), defaultdict(int)
+    misses: list = []
     t0 = time.time()
     for i, r in enumerate(rows, 1):
         user = next(m for m in r["messages"] if m.get("role") == "user")
@@ -47,11 +49,15 @@ def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=Tr
         gv, gn = gold_action(r["messages"])
         cm[gv][pv] += 1
         st[r["slice"]] += 1
-        if pv == gv and pn == gn:
+        ok = pv == gv and pn == gn
+        if ok:
             sc[r["slice"]] += 1
+        else:                                 # keep WHAT it emitted so the failure mode is knowable
+            bench_misses.record(misses, slice_=r["slice"], user=user.get("content", ""),
+                                gold=(gv, gn), pred=(pv, pn), out=out)
         if gv != "none":
             nt += 1
-            nh += int(pv == gv and pn == gn)
+            nh += int(ok)
         done = i
         if i % 50 == 0:
             el = time.time() - t0
@@ -60,7 +66,7 @@ def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=Tr
             print(f"  [{label}] budget reached at {done}/{len(rows)}", flush=True)
             break
     return {"cm": cm, "nh": nh, "nt": nt, "soup": soup, "n": done, "sec": time.time() - t0,
-            "sc": sc, "st": st}
+            "sc": sc, "st": st, "misses": misses}
 
 
 def _summary(b: dict) -> dict:
@@ -136,10 +142,15 @@ def _write_report(conds: list, date_str: str, suite: str = "val") -> Path:
     L += ["## Per-slice routing accuracy (adapter+harness)"]
     for sl in sorted(pa["st"]):
         L.append(f"- {sl}: {pa['sc'][sl]}/{pa['st'][sl]} = {pa['sc'][sl] / pa['st'][sl]:.0%}")
+    L += ["", "## Per-slice MISS analysis (adapter+harness) — what the misses actually emitted",
+          "wrong-name = right verb, wrong target (over-specialization); wrong-verb = wrong KIND "
+          "of action. This is the ground truth a bare accuracy number hides.",
+          bench_misses.breakdown_md(pa["misses"])]
     stem = f"{date_str}-routing-benchmark" + ("" if suite == "val" else f"-{suite}")
     out = REPO / "docs" / "findings" / f"{stem}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
+    bench_misses.write_jsonl(pa["misses"], out.with_name(out.stem + "-misses.jsonl"))
     for lab, b in conds:
         _png(b["cm"], out.with_name(out.stem + "-" + lab.replace(" ", "_").replace("+", "-") + ".png"))
     print("\n".join(L[2:]), flush=True)

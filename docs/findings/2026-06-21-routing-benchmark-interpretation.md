@@ -44,45 +44,66 @@ A = 90 %, B = 95 % (a 1-row swing — not significant at n=20), C = 25 %.
   the `<skill>`/`<tool>` verbs at all. This is the cleanest evidence that the protocol is taught,
   not latent.
 
-## Per-slice caveat: slice G = 0 %, H = 14 % is over-specialization, NOT a label bug
+## Per-slice caveat: slice G = 0 %, H = 14 % — failure mode UNCONFIRMED (eval discarded predictions)
 
 The two naming schemes in the val report are both real corpus structure: the **letter slices
 (A–K)** are chess-domain rows (gold = `chess-coach`), the **V1_ slices** are the general-harness
-rows. Denominators are sound.
+rows. Denominators are sound — that part is verified.
 
-Slices G and H are the *distractor-rich* chess rows: "I'm worried here — watch out for what?" with
-`blunder-coach`, `tactic-trainer`, `endgame-drills`, `socratic-tutor` sitting in the catalog
-alongside `chess-coach`. The confusion matrix shows skill-verb **recall 0.97** on these rows — the
-model picks the right **verb** (a skill) but a **sibling skill name** instead of `chess-coach`, so
-verb+name slice accuracy reads 0 %. Gold is defensible (`chess-coach` owns the opponent-threats
-route; `blunder-coach` reviews *your own* blunders), so this is a genuine **over-specialization**
-slip on hard, distractor-dense routing — not a mislabel. It is exactly why exact-name (73.9 %) sits
-below verb accuracy (96.4 %).
+What is **NOT** verified is *why* G/H score so low, because `eval_benchmark._bench` (and
+`eval_confusion.evaluate`) computed the prediction `(verb, name)` and then **threw it away** —
+only pass/fail counts were kept. So the raw artifacts cannot say what the model emitted. Two
+failure modes fit the data and they are very different:
 
-**For the report:** lead with verb accuracy + macro-precision; cite exact-name with this caveat;
-do not "fix" the denominators — they are clean.
+- **Over-specialization (wrong-name):** right verb (skill) but a sibling skill — `blunder-coach`
+  / `tactic-trainer` (both confirmed present in the G/H catalogs) instead of `chess-coach`. Would
+  be a harsh-but-fair miss, not a bug.
+- **Wrong-verb:** the model emits the wrong KIND of action. **Slice H's prompt is literally
+  "I'm worried here — undo that"**, and `undo` is a *tool* — so a verb-miss to `<tool>undo</tool>`
+  is at least as plausible as over-specialization here.
 
-## Transcript failure modes (real end-to-end runs on unseen domains)
+The confusion matrix's skill-recall 0.97 is an **aggregate over all ~646 skill-gold rows**, NOT
+slice G/H specifically, so it does not adjudicate this. An earlier draft of this finding asserted
+"over-specialization" as fact; that was an inference beyond the data and has been corrected here.
 
-From the captured `life-skills` transcript (cooking/music/wellness/tax — absent from training):
+**Resolution (built, not run):** `bench_misses.py` now records every missed row and the benchmark
+report renders a per-slice **MISS analysis** table (wrong-name vs wrong-verb→X, plus the top wrong
+target) and writes `*-routing-benchmark-misses.jsonl`. The next Kaggle run of the existing notebook
+produces ground truth for G/H — and, on the STRESS suite, shows whether `<skill>metronome_bpm</skill>`
+(the asymmetry fix below) actually fires. **Is G/H a problem to fix?** Unknown until that run: if it
+is over-specialization, it is a documented eval caveat, not a fix; if it is a wrong-verb slip on
+surface cues like "undo", that is a real routing weakness worth addressing.
+
+**For the report (current state):** lead with verb accuracy + macro-precision; cite exact-name and
+state plainly that the per-slice failure mode is pending the miss-analysis re-run. Do not "fix" the
+denominators — they are clean.
+
+## Transcript failure modes (from the captured `life-skills` transcript)
+
+Source caveat: the transcript was generated on Kaggle; only the PNGs were synced locally, so the
+items below are from the transcript as read during the Kaggle run, **not re-verifiable from local
+artifacts right now**. The STRESS miss-log (above) is what will confirm items 2–4 on the next run.
 
 1. **Showcase win:** "convert 5 miles" → `<tool>convert_units …</tool>` → "8.05 km", clean end to
    end. Route-by-description generalises to an unseen tool.
-2. **Tool-name emitted as a skill:** "set a metronome to 120 bpm" → `<skill>metronome_bpm</skill>`
-   → `unknown_skill` → the model then flailed back to chess. **This is the one bug the benchmark
-   actually exposed.** → fixed (below).
-3. **Training-domain gravity:** on an out-of-domain failure the model defaults to `chess-coach` +
-   chess moves. Mitigated indirectly by the fix above (the dead-end that triggered it is gone);
-   the residual is a frozen-weights property, recorded as a known limit.
-4. **Arg-extraction deflection:** "scale recipe 12 → 30" asked back instead of filling args. Frozen
-   behaviour; out of scope for a harness-only fix.
+2. **Tool-name emitted as a skill (the (a) trigger):** "set a metronome to 120 bpm" reportedly
+   produced `<skill>metronome_bpm</skill>` → `unknown_skill` → fallback. If real, this is the one
+   bug the harness can fix deterministically (below). The STRESS miss-log will show whether it
+   actually fires (target `skill:metronome_bpm` under a `wrong-verb→skill` kind).
+3. **Training-domain gravity:** on an out-of-domain failure the model is reported to default to
+   `chess-coach` + chess moves — a frozen-weights property if confirmed, recorded as a known limit.
+4. **Arg-extraction deflection:** "scale recipe 12 → 30" reportedly asked back instead of filling
+   args. Frozen behaviour; out of scope for a harness-only fix.
 
-## The fix this drove — symmetric verb-coercion error (deterministic, safe)
+## The fix — symmetric corrective error (justified by code asymmetry, not just the transcript)
 
-The executor already returns a corrective error when a **skill** name is called as a `<tool>`
-("`is a skill, not a tool — load it with <skill>…`"). The reverse — a **tool** name loaded as a
-`<skill>` — dead-ended at `unknown_skill`, which is what sent the model back to chess (failure mode
-2). Added the symmetric corrective error so the loop self-corrects to `<tool>` instead:
+The primary justification is a **verifiable** asymmetry in the executor (read directly in
+`tools.py`), independent of the transcript: a **skill** name called as a `<tool>` returned a helpful
+corrective error ("`is a skill, not a tool — load it with <skill>…`"), but the reverse — a **tool**
+name loaded as a `<skill>` — dead-ended at `unknown_skill` with no hint of the right verb. That
+asymmetry is a latent correctness gap regardless of how often the model triggers it. The transcript
+(failure mode 2) is the *reported* trigger; the STRESS miss-log will confirm its real frequency.
+Added the symmetric corrective error so the loop self-corrects to `<tool>`:
 
 - `backend/tools.py` — `_load_skill` now checks `_known_tool_names()` (official + compute + enabled
   plugins) before giving up; a tool-as-skill returns
@@ -97,8 +118,9 @@ corrective_error` (a genuinely unknown name still reports `unknown_skill` — no
 
 ## What we did NOT change (and why)
 
-- **Slice G/H over-specialization** — a routing judgment on frozen weights; a name-coercion that
-  forced `chess-coach` would be too aggressive and would hurt the cases where a specialized skill is
-  genuinely the better pick. Left as a documented eval caveat.
+- **Slice G/H** — not touched because the failure mode is not yet known (see the caveat above);
+  fixing before the miss-analysis re-run would be guessing. If it turns out to be over-specialization,
+  a name-coercion forcing `chess-coach` would be too aggressive anyway; if it is a wrong-verb slip,
+  that is the thing to address — decide with data, not now.
 - **Arg-extraction deflection / training-domain gravity** — frozen-weights properties, not harness
   bugs. Recorded as known limits for the report's limitations section.
