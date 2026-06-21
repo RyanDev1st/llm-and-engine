@@ -24,15 +24,19 @@ attn-only r=8 LoRA on the **E2B** base, trained in the E2B production era. The a
 so it is NOT in the Kaggle clone. Get it onto Kaggle one of two ways, then set the matching var
 in `kaggle_benchmark.ipynb` Cell 1:
 
-- **(a) Kaggle Dataset** — zip/upload `runs/gemma4_e2b_unified/best/` via *Add Input*, set
-  `E2B_ADAPTER_DIR='/kaggle/input/<name>/best'`.
-- **(b) HF push** (one-off, ~5 MB), then set `E2B_ADAPTER_REPO='RyanDev1st/gemma4-chesscoach-e2b'`:
+- **(a) HF (default)** — already pushed to the **private** repo
+  `RyanDev1st/gemma4-chesscoach-e2b` (subfolder `best`, the two adapter files; the adapter's local
+  README was skipped — its YAML `base_model` is a local path HF rejects). Cell 1 points
+  `E2B_ADAPTER_REPO` here; Cell 3 downloads it with the Kaggle `HF_TOKEN` secret (same account → the
+  private repo is visible). Re-push with:
 
   ```bash
-  python -c "from huggingface_hub import HfApi, login; login('<HF_TOKEN>'); \
-    HfApi().upload_folder(folder_path='runs/gemma4_e2b_unified/best', \
-    repo_id='RyanDev1st/gemma4-chesscoach-e2b', path_in_repo='best', repo_type='model')"
+  python -c "from huggingface_hub import HfApi; HfApi(token='<HF_TOKEN>').upload_folder(\
+    folder_path='runs/gemma4_e2b_unified/best', repo_id='RyanDev1st/gemma4-chesscoach-e2b', \
+    path_in_repo='best', repo_type='model', ignore_patterns=['README.md'])"
   ```
+- **(b) Kaggle Dataset** — alternatively upload `runs/gemma4_e2b_unified/best/` via *Add Input* and
+  set `E2B_ADAPTER_DIR='/kaggle/input/<name>/best'` (overrides the HF download).
 
 Leave both blank to run the 2-condition E4B benchmark only. The E2B base
 (`unsloth/gemma-4-E2B-it`) is downloaded by the notebook automatically when the condition is on.
