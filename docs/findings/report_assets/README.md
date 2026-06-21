@@ -38,5 +38,11 @@ in `kaggle_benchmark.ipynb` Cell 1:
 - **(b) Kaggle Dataset** — alternatively upload `runs/gemma4_e2b_unified/best/` via *Add Input* and
   set `E2B_ADAPTER_DIR='/kaggle/input/<name>/best'` (overrides the HF download).
 
-Leave both blank to run the 2-condition E4B benchmark only. The E2B base
-(`unsloth/gemma-4-E2B-it`) is downloaded by the notebook automatically when the condition is on.
+Leave both blank to run the 2-condition E4B benchmark only.
+
+**Disk note (Kaggle ~20GB):** the E4B base (~9GB) and E2B base (~10GB) can't both sit on disk, so
+the E2B condition runs in the **last cell** via `eval_benchmark --e2b-only --free-base <e4b base>
+--e2b-base-repo unsloth/gemma-4-E2B-it`: it deletes the E4B base, then downloads the E2B base, then
+evaluates the e2b adapter on the same val rows → a standalone `…-routing-benchmark-e2b.md` (same
+metrics as the E4B report, directly comparable). This is why it must run AFTER the E4B benchmark +
+transcript + version-trend cells, which still need the E4B base.

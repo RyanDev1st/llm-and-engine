@@ -79,42 +79,54 @@ def main() -> None:
     ap.add_argument("--time-budget", type=float, default=0, help="seconds PER condition (0 = none)")
     ap.add_argument("--suite", choices=["val", "stress"], default="val",
                     help="val = in-distribution held-out; stress = held-out wild/out-of-domain")
-    ap.add_argument("--e2b-adapter", default=None, help="local dir of the PRIOR E2B production LoRA "
-                    "adapter; adds a 3rd condition (e2b adapter+harness). Needs --e2b-base.")
-    ap.add_argument("--e2b-base", default=None, help="local dir of the E2B base the e2b adapter was "
-                    "trained on (e.g. a downloaded unsloth/gemma-4-E2B-it)")
+    ap.add_argument("--e2b-only", action="store_true", help="evaluate ONLY the prior E2B production "
+                    "model (its own base). Disk-safe on Kaggle: frees --free-base + downloads the E2B "
+                    "base first, so both bases never sit on the ~20GB disk at once. Run this LAST.")
+    ap.add_argument("--e2b-adapter", default=None, help="local dir of the prior E2B production LoRA")
+    ap.add_argument("--e2b-base", default=None, help="local dir for the E2B base (download target)")
+    ap.add_argument("--e2b-base-repo", default=None, help="HF repo to fetch the E2B base from if "
+                    "--e2b-base is missing (e.g. unsloth/gemma-4-E2B-it)")
+    ap.add_argument("--free-base", default=None, help="a base dir to delete from disk before the E2B "
+                    "base download (frees the E4B base — only safe AFTER all E4B work is done)")
     args = ap.parse_args()
 
     from datetime import date
     from llm_dataset.v1.jsonl_io import read_rows
     from backend.inference import AdapterView
-    if args.suite == "stress":
-        from llm_training.bench_suites import stress_rows
-        rows = stress_rows()                              # full held-out stress set (small)
-    else:
-        rows = _sample(list(read_rows(VAL)), args.per_slice or None)
+    rows = (_sample(list(read_rows(VAL)), args.per_slice or None) if args.suite == "val"
+            else __import__("llm_training.bench_suites", fromlist=["stress_rows"]).stress_rows())
+    tb, mnt = args.time_budget or None, args.max_new_tokens
+    if args.e2b_only:                       # prior E2B production model — its OWN base, run LAST
+        _e2b_only(args, rows, mnt, tb, date)
+        return
     model = _load_model(args)
     base = AdapterView(model, False)        # same E4B weights, LoRA OFF (isolates SFT weights)
-    tb, mnt = args.time_budget or None, args.max_new_tokens
-    n3 = " + e2b adapter+harness" if args.e2b_adapter else ""
-    print(f"benchmark [{args.suite}]: {len(rows)} rows · e4b-v4 adapter+harness, e4b base+harness{n3}",
+    print(f"benchmark [{args.suite}]: {len(rows)} rows · e4b-v4 adapter+harness, e4b base+harness",
           flush=True)
     conds = [
         ("e4b-v4 adapter+harness", _bench(model, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b-v4 adapter+harness")),
         ("e4b base+harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b base+harness")),
     ]
-    if args.e2b_adapter:                    # prior production model: own E2B base -> SEPARATE load
-        del base, model                     # free the E4B model first (sequential -> no T4 OOM)
-        import gc; gc.collect()
-        try:
-            import torch; torch.cuda.empty_cache()
-        except Exception:
-            pass
-        from backend.model_hf import HFModel
-        e2b = HFModel(base=args.e2b_base, adapter=args.e2b_adapter, temperature=0.0)
-        conds.append(("e2b adapter+harness",
-                      _bench(e2b, rows, max_new_tokens=mnt, time_budget_s=tb, label="e2b adapter+harness")))
     bench_report.write_report(conds, f"{date.today():%Y-%m-%d}", args.suite)
+
+
+def _e2b_only(args, rows, mnt, tb, date) -> None:
+    """Disk-safe standalone eval of the prior E2B production model: delete the E4B base from disk
+    (--free-base) and download the E2B base (--e2b-base-repo) BEFORE loading, so Kaggle's ~20GB disk
+    never holds both bases. Writes a 1-condition routing report tagged 'e2b'."""
+    import os
+    import shutil
+    if args.free_base and os.path.isdir(args.free_base):
+        shutil.rmtree(args.free_base, ignore_errors=True)
+        print(f"freed E4B base disk: {args.free_base}", flush=True)
+    if args.e2b_base_repo and not os.path.isdir(args.e2b_base):
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id=args.e2b_base_repo, local_dir=args.e2b_base,
+                          allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt", "tokenizer*"])
+    from backend.model_hf import HFModel
+    e2b = HFModel(base=args.e2b_base, adapter=args.e2b_adapter, temperature=0.0)
+    res = _bench(e2b, rows, max_new_tokens=mnt, time_budget_s=tb, label="e2b adapter+harness")
+    bench_report.write_report([("e2b adapter+harness", res)], f"{date.today():%Y-%m-%d}", "e2b")
 
 
 if __name__ == "__main__":
