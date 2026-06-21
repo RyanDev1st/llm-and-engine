@@ -15,3 +15,24 @@ Generated PNGs for the report. Every number traces to a real artifact (see
 `kaggle_benchmark.ipynb`). If the v2/v3 adapter repo ids differ from
 `chart_data.VERSIONS`, edit that file's `repo`/`sub` and re-run — a missing repo is skipped,
 not fatal.
+
+## The prior E2B production model (3rd benchmark condition)
+
+The benchmark's optional `e2b adapter+harness` condition is the **prior production model**: an
+attn-only r=8 LoRA on the **E2B** base, trained in the E2B production era. The adapter lives
+**locally** at `runs/gemma4_e2b_unified/best/` (5.4 MB) and is **gitignored** (`*.safetensors`),
+so it is NOT in the Kaggle clone. Get it onto Kaggle one of two ways, then set the matching var
+in `kaggle_benchmark.ipynb` Cell 1:
+
+- **(a) Kaggle Dataset** — zip/upload `runs/gemma4_e2b_unified/best/` via *Add Input*, set
+  `E2B_ADAPTER_DIR='/kaggle/input/<name>/best'`.
+- **(b) HF push** (one-off, ~5 MB), then set `E2B_ADAPTER_REPO='RyanDev1st/gemma4-chesscoach-e2b'`:
+
+  ```bash
+  python -c "from huggingface_hub import HfApi, login; login('<HF_TOKEN>'); \
+    HfApi().upload_folder(folder_path='runs/gemma4_e2b_unified/best', \
+    repo_id='RyanDev1st/gemma4-chesscoach-e2b', path_in_repo='best', repo_type='model')"
+  ```
+
+Leave both blank to run the 2-condition E4B benchmark only. The E2B base
+(`unsloth/gemma-4-E2B-it`) is downloaded by the notebook automatically when the condition is on.

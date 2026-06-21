@@ -18,14 +18,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 
-# --- 3-condition ablation (val + stress), from the committed benchmark report ---
+# --- routing ablation (val), from the committed benchmark report. The e2b condition (prior
+# production model) is filled by the next measured benchmark run; until then the chart shows the two
+# E4B conditions (SFT-weights contribution). base-no-harness was dropped from the design. ---
 COND_VAL = {
-    "adapter+harness": {"verb": 0.964, "macro": 0.783, "exact": 0.739},
-    "base+harness": {"verb": 0.829, "macro": 0.462, "exact": 0.176},
-    "base no-harness": {"verb": 0.030, "macro": 0.010, "exact": 0.000},
-}
-COND_STRESS = {  # verb accuracy only (n=20; base+harness 0.95 is a 1-row artifact, noted in report)
-    "adapter+harness": 0.90, "base+harness": 0.95, "base no-harness": 0.25,
+    "e4b-v4 adapter+harness": {"verb": 0.964, "macro": 0.783, "exact": 0.739},
+    "e4b base+harness": {"verb": 0.829, "macro": 0.462, "exact": 0.176},
+    # "e2b adapter+harness": filled after the measured rerun (eval_benchmark --e2b-adapter ...)
 }
 
 # --- E4B training history: each retrain fixed a specific diagnosed failure (git log) ---

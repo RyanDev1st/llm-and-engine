@@ -21,7 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from llm_dataset.v1.jsonl_io import read_rows  # noqa: E402
 from llm_training import bench_misses  # noqa: E402
-from llm_training.eval_benchmark import _bench, _summary  # noqa: E402
+from llm_training.bench_report import summary as _summary  # noqa: E402
+from llm_training.eval_benchmark import _bench  # noqa: E402
 from llm_training.eval_confusion import VAL, _sample  # noqa: E402
 from llm_training.report import chart_data as D  # noqa: E402
 from llm_training.report import charts  # noqa: E402
