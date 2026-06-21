@@ -19,9 +19,12 @@ notes that make the win *larger*, not smaller, than the headline table:
    `best_move`, A→`move_san`, H→`list_pieces` — all tools); at serve the harness redirects these to
    `<tool>` and recovers (proven in the transcript). The served agent beats its own benchmark score.
 2. **Fast-mode forcing handicaps the adapter on its own trained slices** (slice G read 0 % only
-   because forcing fast collapsed the trained goal→skill sequence). Scored in their TRAINED mode
-   (Cell 6.5), those slices recover — a fairer, higher number for the adapter, while the base
-   (which never learned the sequence) does not benefit. This widens the adapter-vs-base gap.
+   because forcing fast collapsed the trained goal→skill sequence — the miss-log shows it emitted
+   the goal keyword `<skill>threats</skill>`). Scored in their TRAINED mode (Cell 6.5), those slices
+   are **expected to recover** for the adapter while the base (which never learned the sequence) does
+   not benefit — widening the gap. *Mechanism proven offline* (a native `goal→think→skill` output
+   parses to the right skill); *the magnitude is pending the Cell 6.5 rerun* — report the measured
+   native numbers, don't pre-state them.
 
 ## The conditions (what each isolates)
 
