@@ -3,8 +3,13 @@ Parent: docs/reference/harness-system-overview.md
 # Peer-review gap verification + remediation plan (2026-06-22)
 
 **Status:** verification complete — all 6 reviewer gaps reproduced against current source (file:line
-evidence below). Remediation plan proposed; **not yet executed** (awaiting go-ahead on the
-behaviour-risk items #1 and #4).
+evidence below). **P0 EXECUTED + LANDED 2026-06-22** (TDD, all CPU, full backend suite 187 passed):
+the plugin-aware deterministic layer (`backend/manifest_view.py` foundation + 4 consumers) and the
+engine-error mislabel fix — commits `cf702f69` (#6), `6240caa7` (foundation), `0f6a9d61` (A recovery),
+`6261c1ed` (B corrective schema), `3c748ccd` (C grounding), `b0d6b9c7` (D coverage gate). This closes
+gaps #1, #6, and second-review A/B/C. **P1/P2 staged** (completion eval, native-mode run, stress
+breadth, GGUF parity, frontend, applies_when) — GPU/browser items per the user's staging decision.
+See `~/.claude/plans/quiet-singing-storm.md` STATUS table.
 **Scope:** an external peer review of `docs/reference/harness-system-overview.md` returned 6 gaps. We
 verified each in the live code (codegraph + targeted reads), confirmed the reviewer's "not a gap"
 list is also accurate, and turned the result into a prioritized fix plan.
