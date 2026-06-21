@@ -180,6 +180,13 @@ class ToolExecutor:
         # "unparseable") so the model can re-route to a real tool from its manifest.
         return f"error: unknown_tool '{name}'"
 
+    def _known_tool_names(self) -> set[str]:
+        """Every callable tool name in the current surface (official + compute + enabled plugins)."""
+        from llm_dataset.v1.catalog import compute_tools, official_tools
+        from . import plugins
+        return ({t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()}
+                | {t["name"] for t in plugins.plugin_tools(self.plugin_context)})
+
     def _load_skill(self, name: str) -> str:
         """Progressive disclosure: return the named skill's body so the model can follow
         it — CONDENSED (see _condense_skill_body) so it matches the terse body shape the
@@ -189,7 +196,15 @@ class ToolExecutor:
             return _condense_skill_body(bodies[name])
         from . import plugins
         body = plugins.skill_body(name, self.plugin_context)
-        return _condense_skill_body(body) if body is not None else "error: unknown_skill"
+        if body is not None:
+            return _condense_skill_body(body)
+        # A TOOL loaded as a skill (<skill>metronome_bpm</skill> — seen on out-of-domain
+        # routing). Symmetric to the skill-as-tool error in _dispatch: name the right verb so
+        # the loop self-corrects to <tool>, instead of a dead 'unknown_skill' (which made the
+        # model flail back to its training-dominant skill).
+        if name in self._known_tool_names():
+            return f"error: '{name}' is a tool, not a skill — call it with <tool>{name} ...</tool>"
+        return "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board

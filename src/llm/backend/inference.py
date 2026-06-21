@@ -94,6 +94,8 @@ def narrate_tool_result(tool_result: str) -> str:
         return "I already asked for that exact tool result, so I'll answer from what I have instead."
     if "is a skill, not a tool" in text:
         return "Let me load the right skill and try again."
+    if "is a tool, not a skill" in text:
+        return "Let me call the right tool and try again."
     if text.startswith("error: invalid_fen"):
         return "That FEN doesn't look valid — check the layout and side-to-move and try again."
     if text.startswith("error: no moves to review"):

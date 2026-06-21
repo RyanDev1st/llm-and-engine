@@ -41,3 +41,14 @@ def test_skills_have_real_bodies_and_load():
     for name in ("recipe-scaler", "guitar-tutor", "breathing-coach", "tax-filing-helper"):
         body = ex.execute(f"<tool>load_skill name={name}</tool>")
         assert not body.startswith("error") and name in body and len(body) > 80
+
+
+def test_tool_loaded_as_skill_gets_corrective_error():
+    # Symmetric to skill-as-tool: <skill>metronome_bpm</skill> (a TOOL emitted as a skill, seen
+    # on OOD routing) must NOT dead-end at unknown_skill -> name the right verb so the loop self-
+    # corrects to <tool>, instead of flailing back to the training-dominant skill.
+    ex = ToolExecutor(Game(), None, PC)
+    out = ex.execute("<tool>load_skill name=metronome_bpm</tool>")
+    assert "is a tool, not a skill" in out and "<tool>metronome_bpm" in out
+    # a genuinely unknown name still reports unknown_skill (no false coercion)
+    assert ex.execute("<tool>load_skill name=not_a_real_thing</tool>") == "error: unknown_skill"
