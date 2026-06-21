@@ -78,32 +78,39 @@ surface cues like "undo", that is a real routing weakness worth addressing.
 state plainly that the per-slice failure mode is pending the miss-analysis re-run. Do not "fix" the
 denominators — they are clean.
 
-## Transcript failure modes (from the captured `life-skills` transcript)
+## Transcript failure modes (CONFIRMED — quoted verbatim from the captured `life-skills` transcript)
 
-Source caveat: the transcript was generated on Kaggle; only the PNGs were synced locally, so the
-items below are from the transcript as read during the Kaggle run, **not re-verifiable from local
-artifacts right now**. The STRESS miss-log (above) is what will confirm items 2–4 on the next run.
+The transcript is the life-skills STRESS prompts only (cooking/music/wellness/tax). The quotes
+below are verbatim from the captured run (recovered from the session log). Note: the transcript
+contains **no chess slice G/H rows**, so it says nothing about the (b) per-slice question — only
+the val miss-log re-run can.
 
-1. **Showcase win:** "convert 5 miles" → `<tool>convert_units …</tool>` → "8.05 km", clean end to
-   end. Route-by-description generalises to an unseen tool.
-2. **Tool-name emitted as a skill (the (a) trigger):** "set a metronome to 120 bpm" reportedly
-   produced `<skill>metronome_bpm</skill>` → `unknown_skill` → fallback. If real, this is the one
-   bug the harness can fix deterministically (below). The STRESS miss-log will show whether it
-   actually fires (target `skill:metronome_bpm` under a `wrong-verb→skill` kind).
-3. **Training-domain gravity:** on an out-of-domain failure the model is reported to default to
-   `chess-coach` + chess moves — a frozen-weights property if confirmed, recorded as a known limit.
-4. **Arg-extraction deflection:** "scale recipe 12 → 30" reportedly asked back instead of filling
-   args. Frozen behaviour; out of scope for a harness-only fix.
+1. **Showcase win:** `convert: 5 miles = 8.047 kilometers` → **Coach:** "5 miles is about 8.05
+   kilometers." Route-by-description generalises to an unseen tool, grounded end to end.
+2. **Tool-name emitted as a skill (the (a) trigger) — CONFIRMED:**
+   `set a metronome to 120 bpm` → `<skill>metronome_bpm</skill>` → `error: unknown_skill` →
+   `<skill>chess-coach</skill>` (flailed back to chess). And `stressed … breathe` →
+   `<skill>breathing_timer</skill>` → `error: unknown_skill` → **retried the same `<skill>
+   breathing_timer</skill>`** → `error: duplicate_tool_call`. Both are tools, emitted with the
+   skill verb. This is the exact bug the fix below targets — and the breathing case shows the fix
+   does double duty: nothing told the model "that's a tool", so it re-tried the wrong verb.
+3. **Training-domain gravity — CONFIRMED:** on the metronome OOD failure the model defaulted to
+   `<skill>chess-coach</skill>`. A frozen-weights property; the fix removes the dead-end that
+   triggered it, but the gravity itself is a known limit.
+4. **Arg-extraction deflection — CONFIRMED:** `wanna make like 3x the cookies` loaded
+   `recipe-scaler`, called `scale_recipe from_servings=1 to_servings=3`, then asked "Should I try
+   to scale it to 5 servings, or is 3x okay?" — a defensible clarify, frozen behaviour, out of
+   scope for a harness-only fix.
 
 ## The fix — symmetric corrective error (justified by code asymmetry, not just the transcript)
 
-The primary justification is a **verifiable** asymmetry in the executor (read directly in
-`tools.py`), independent of the transcript: a **skill** name called as a `<tool>` returned a helpful
-corrective error ("`is a skill, not a tool — load it with <skill>…`"), but the reverse — a **tool**
-name loaded as a `<skill>` — dead-ended at `unknown_skill` with no hint of the right verb. That
-asymmetry is a latent correctness gap regardless of how often the model triggers it. The transcript
-(failure mode 2) is the *reported* trigger; the STRESS miss-log will confirm its real frequency.
-Added the symmetric corrective error so the loop self-corrects to `<tool>`:
+Two independent justifications, both verified: (1) a code asymmetry in `tools.py` — a **skill**
+called as a `<tool>` returned a helpful corrective error, but a **tool** loaded as a `<skill>`
+dead-ended at `unknown_skill` with no hint of the right verb; (2) the transcript (failure mode 2)
+**confirms the model actually does this** — `metronome_bpm` and `breathing_timer` were both emitted
+as `<skill>`, and in the breathing case the model re-tried the same wrong verb (→ `duplicate_tool_
+call`) because nothing redirected it. Added the symmetric corrective error so the loop self-corrects
+to `<tool>`:
 
 - `backend/tools.py` — `_load_skill` now checks `_known_tool_names()` (official + compute + enabled
   plugins) before giving up; a tool-as-skill returns
