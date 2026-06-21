@@ -32,9 +32,11 @@ _TAG = re.compile(r"</?([a-zA-Z_][\w]*)")
 _CONTRACT = {"think", "/think", "goal", "/goal", "plan", "/plan", "skill", "/skill", "tool", "/tool"}
 
 
-def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=True):
-    """One condition (fast mode). with_harness=False feeds only the user turn. Tallies the matrix,
-    exact-name, 'soup' (any non-contract tag), per-slice, misses, wall-time. Interrupt-safe."""
+def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=True, native_mode=False):
+    """One condition. with_harness=False feeds only the user turn. native_mode=True scores each row
+    in its TRAINED reasoning mode (goal/think before the action) — the FAIR test for mode-dependent
+    slices; default fast mode forces the action first (cheaper, but handicaps auto/think-trained
+    rows). Tallies the matrix, exact-name, 'soup', per-slice, misses, wall-time. Interrupt-safe."""
     cm = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     nh = nt = soup = done = 0
     sc, st = defaultdict(int), defaultdict(int)
@@ -42,7 +44,7 @@ def _bench(model, rows, *, max_new_tokens, time_budget_s, label, with_harness=Tr
     t0 = time.time()
     for i, r in enumerate(rows, 1):
         user = next(m for m in r["messages"] if m.get("role") == "user")
-        msgs = ([{"role": "system", "content": _system(r, True)}, user] if with_harness else [user])
+        msgs = ([{"role": "system", "content": _system(r, not native_mode)}, user] if with_harness else [user])
         out = model.generate(msgs, max_new_tokens=max_new_tokens, stop=["</skill>", "</tool>"])
         if [t for t in _TAG.findall(out) if t not in _CONTRACT]:
             soup += 1
@@ -79,6 +81,11 @@ def main() -> None:
     ap.add_argument("--time-budget", type=float, default=0, help="seconds PER condition (0 = none)")
     ap.add_argument("--suite", choices=["val", "stress"], default="val",
                     help="val = in-distribution held-out; stress = held-out wild/out-of-domain")
+    ap.add_argument("--native-mode", action="store_true", help="score each row in its TRAINED "
+                    "reasoning mode (fair test for auto/think-trained slices); needs a larger "
+                    "--max-new-tokens so the action lands after the goal/think preamble (~160).")
+    ap.add_argument("--slices", default=None, help="comma-separated slice filter (e.g. G,H,V1_M) — "
+                    "scope a focused probe to specific slices")
     ap.add_argument("--e2b-only", action="store_true", help="evaluate ONLY the prior E2B production "
                     "model (its own base). Disk-safe on Kaggle: frees --free-base + downloads the E2B "
                     "base first, so both bases never sit on the ~20GB disk at once. Run this LAST.")
@@ -93,21 +100,27 @@ def main() -> None:
     from datetime import date
     from llm_dataset.v1.jsonl_io import read_rows
     from backend.inference import AdapterView
-    rows = (_sample(list(read_rows(VAL)), args.per_slice or None) if args.suite == "val"
-            else __import__("llm_training.bench_suites", fromlist=["stress_rows"]).stress_rows())
-    tb, mnt = args.time_budget or None, args.max_new_tokens
+    all_rows = (list(read_rows(VAL)) if args.suite == "val"
+                else __import__("llm_training.bench_suites", fromlist=["stress_rows"]).stress_rows())
+    if args.slices:                          # focused probe: keep only the named slices
+        keep = set(args.slices.split(","))
+        all_rows = [r for r in all_rows if r["slice"] in keep]
+    rows = _sample(all_rows, args.per_slice or None) if args.suite == "val" else all_rows
+    tb, mnt, nat = args.time_budget or None, args.max_new_tokens, args.native_mode
     if args.e2b_only:                       # prior E2B production model — its OWN base, run LAST
         _e2b_only(args, rows, mnt, tb, date)
         return
     model = _load_model(args)
     base = AdapterView(model, False)        # same E4B weights, LoRA OFF (isolates SFT weights)
-    print(f"benchmark [{args.suite}]: {len(rows)} rows · e4b-v4 adapter+harness, e4b base+harness",
+    tag = "native-mode" if nat else "fast-mode"
+    print(f"benchmark [{args.suite}/{tag}]: {len(rows)} rows · adapter vs base (both +harness)",
           flush=True)
     conds = [
-        ("e4b-v4 adapter+harness", _bench(model, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b-v4 adapter+harness")),
-        ("e4b base+harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b base+harness")),
+        ("e4b-v4 adapter+harness", _bench(model, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b-v4 adapter+harness", native_mode=nat)),
+        ("e4b base+harness", _bench(base, rows, max_new_tokens=mnt, time_budget_s=tb, label="e4b base+harness", native_mode=nat)),
     ]
-    bench_report.write_report(conds, f"{date.today():%Y-%m-%d}", args.suite)
+    suite_tag = args.suite if not nat else f"{args.suite}-native"
+    bench_report.write_report(conds, f"{date.today():%Y-%m-%d}", suite_tag)
 
 
 def _e2b_only(args, rows, mnt, tb, date) -> None:

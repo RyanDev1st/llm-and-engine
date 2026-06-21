@@ -63,13 +63,17 @@ def write_report(conds: list, date_str: str, suite: str = "val") -> Path:
     s = {lab: sm for lab, sm in summ}
     prod = conds[0][0]
     src = ("held-out STRESS rows (messy/slang/typo phrasing + UNSEEN out-of-domain catalogs + "
-           "decline cases — hand-written, in NO training row)" if suite == "stress"
+           "decline cases — hand-written, in NO training row)" if suite.startswith("stress")
            else "stratified val rows (held out from training; in-distribution phrasing)")
+    native = "native" in suite
+    mode = ("each row scored in its TRAINED reasoning mode (the FAIR test for auto/think-trained "
+            "slices)" if native else "fast mode (action emitted first; equal handicap to both "
+            "conditions, so the adapter-vs-base delta is honest)")
     L = ["Parent: docs/reference/sft-corpus-generation.md", "",
          f"# Routing benchmark ({suite}) — Gemma 4 chess-coach", "",
-         f"n = {conds[0][1]['n']} {src} · fast mode (routing is mode-independent) · the E4B "
-         "base+harness condition reuses the loaded E4B model with the LoRA disabled; the E2B "
-         "condition (if present) is the prior-production adapter on its OWN E2B base.", "",
+         f"n = {conds[0][1]['n']} {src} · {mode} · the E4B base+harness condition reuses the "
+         "loaded E4B model with the LoRA disabled; the E2B condition (if present) is the prior-"
+         "production adapter on its OWN E2B base.", "",
          f"## Headline — {len(conds)} conditions (product = {prod})", _headline(summ), "",
          "## What each delta isolates (vs the product)"]
     for lab, _ in conds[1:]:
