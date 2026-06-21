@@ -3,6 +3,8 @@ EXECUTOR-ACCURATE, not catalog-display-driven — it must catch genuinely-broken
 (unknown tool name, missing required arg, out-of-range silent-default enum) WITHOUT
 over-rejecting calls the executor already tolerates (depth defaults, board_state field
 supersets, best_move clamping). Start-position tools avoid the engine, so this is fast."""
+import chess.engine
+
 from backend.game import Game
 from backend.skills import load_skills
 from backend.tools import ToolExecutor, validate_call, _condense_skill_body
@@ -65,6 +67,31 @@ def test_valid_and_defaulted_calls_still_pass():
     assert ex.execute("<tool>move san=e4</tool>").startswith("success:")
     # a skill called as a tool still routes to the corrective skill-verb error, not unknown_tool.
     assert "is a skill, not a tool" in ex.execute("<tool>chess-coach</tool>")
+
+
+# --- error labeling: a non-engine tool fault must NOT be reported as a Stockfish outage ---
+
+class _Boom(ToolExecutor):
+    """Fault injection: make dispatch raise so we exercise execute()'s except wrapper on the
+    real call path. `eval` raises a genuine EngineError (Stockfish down); any other tool raises
+    a plain Exception (a plugin/sandbox bug)."""
+    def _dispatch(self, name, args):
+        if name == "eval":
+            raise chess.engine.EngineError("stockfish died")
+        raise ValueError("plugin handler blew up")
+
+
+def test_engine_error_still_reports_engine_unavailable():
+    assert _Boom(Game(), None).execute("<tool>eval depth=12</tool>") == "error: engine_unavailable"
+
+
+def test_non_engine_tool_fault_is_named_not_engine_unavailable():
+    # A plugin/sandbox handler raising a plain exception must NOT be mislabeled as a Stockfish
+    # outage — name the failing tool so the model can re-route and the user isn't told the
+    # engine is down for a non-chess bug.
+    out = _Boom(Game(), None).execute("<tool>convert_units value=5</tool>")
+    assert out == "error: tool_failed 'convert_units'"
+    assert "engine_unavailable" not in out
 
 
 def test_validate_call_unit():

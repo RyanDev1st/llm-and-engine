@@ -113,9 +113,12 @@ class ToolExecutor:
         try:
             return self._dispatch(name, args)
         except chess.engine.EngineError:
-            return "error: engine_unavailable"
+            return "error: engine_unavailable"        # Stockfish genuinely down
         except Exception:
-            return "error: engine_unavailable"
+            # Any OTHER tool fault (a plugin handler, the python/sandbox tool, a board op) is
+            # NOT an engine outage — name the failing tool so the model can re-route and the
+            # user isn't told Stockfish is down for a non-chess bug.
+            return f"error: tool_failed '{name}'"
 
     def _dispatch(self, name: str, args: dict[str, str]) -> str:
         if name == "load_skill":
