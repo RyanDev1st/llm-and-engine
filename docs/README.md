@@ -15,6 +15,7 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 
 | Doc | What it is |
 | --- | --- |
+| [reference/harness-system-overview.md](reference/harness-system-overview.md) | **Peer-review packet** — single self-contained overview of the whole system (product thesis, model, contract, loop, corpus, robustness, latest eval evidence) + an explicit known-gaps/open-questions list for an external reviewer. Start here for a top-down read |
 | [reference/sft-corpus-generation.md](reference/sft-corpus-generation.md) | Plain-English account of how the v1.2 training data is built — factory model, the 20 cards + 25 slices, combinatorial assembly, grounding, generalization, quality gate, split. Source doc for the report/talk |
 | [reference/glossary.md](reference/glossary.md) | Canonical terminology — skill, tool, plugin, skill index, tool manifest, hook gate, etc. |
 | [reference/harness-architecture.md](reference/harness-architecture.md) | The agent harness: deterministic routing layer, tools, skills, plugins, end-to-end turn trace |
