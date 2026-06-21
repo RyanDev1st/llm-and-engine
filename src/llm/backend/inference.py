@@ -693,11 +693,13 @@ class CoachLoop:
         # to the chess domain. tool_hints' triggers are chess-specific regexes; with an OUT-OF-
         # DOMAIN bundle enabled (e.g. life-skills) they would force-fire on non-chess prompts —
         # "how am I doing with my taxes?" -> eval. The trained model routes any domain on its own,
-        # so when a non-chess bundle is active we drop the crutch and let the model decide. (Note
+        # so when non-chess tools are callable we drop the crutch and let the model decide. (Note
         # skill_hints is already manifest-driven — it nudges the LIVE skills index — so it stays.)
-        chess_native = set(PLUGIN_CONTEXT.get("installed", [])) | set(PLUGIN_CONTEXT.get("enabled", []))
-        pc_enabled = set((self.plugin_context or PLUGIN_CONTEXT).get("enabled", []))
-        chess_domain = not (pc_enabled - chess_native)         # any OOD bundle enabled -> False
+        # Gate on the RUNTIME tool surface, not bundle names: a row may list training-time catalog
+        # bundles (user-skills/synthetic-pack) that register NO runtime tools — those stay chess
+        # (live_names - chess = empty -> crutch on); only a bundle that adds real non-chess tools
+        # (life-skills) flips it off.
+        chess_domain = not (live_names - set(_TOOL_NAMES))     # any non-chess tool callable -> False
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode)
         if chess_domain:

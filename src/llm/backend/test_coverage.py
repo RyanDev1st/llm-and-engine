@@ -279,6 +279,18 @@ def test_chess_coverage_still_fires_in_chess_context():
     assert "eval" in _names(out)
 
 
+def test_chess_coverage_on_for_training_catalog_bundles_with_no_runtime_tools():
+    # The gate keys off the RUNTIME tool surface, not bundle names. A val-style context lists
+    # training catalog bundles (user-skills/synthetic-pack) that register NO runtime tools, so
+    # the live surface is still pure-chess -> coverage MUST stay on (else every chess val row
+    # would lose its backstop in the completion eval). Regression guard for the D refinement.
+    syn_pc = {"installed": ["chess-official", "user-skills", "synthetic-pack"],
+              "enabled": ["chess-official", "user-skills", "synthetic-pack"], "marketplace": []}
+    out = CoachLoop(ScriptedModel(["Let me see.", "Position noted."]),
+                    ToolExecutor(Game(), None, syn_pc), plugin_context=syn_pc).respond([], "how am I doing?")
+    assert "eval" in _names(out)                    # crutch stays on for chess-only runtime surface
+
+
 def test_dedup_is_by_full_call_not_name():
     # best_move with different args must BOTH run (name-dedup would have blocked the 2nd).
     out = _loop([
