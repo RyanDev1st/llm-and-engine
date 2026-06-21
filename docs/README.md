@@ -29,6 +29,7 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 
 | Doc | What it is |
 | --- | --- |
+| [findings/2026-06-22-peer-review-gap-verification.md](findings/2026-06-22-peer-review-gap-verification.md) | Verifies an external peer review's 6 harness gaps (all TRUE, file:line evidence) — chess routing force-fires on OOD prompts, first-action-only eval, n=20 stress, GGUF decode drift, frontend reconcile, engine-error mislabel — + a prioritized remediation plan (P0 correctness → P1 proof/fidelity → P2 UI) |
 | [findings/2026-06-21-routing-benchmark-interpretation.md](findings/2026-06-21-routing-benchmark-interpretation.md) | 3-condition routing ablation read (val 96.4% verb / 78.3% macro-prec; harness vs SFT-weights deltas); slice-G/H = over-specialization not label bug; drove the symmetric tool-as-skill corrective-error fix |
 | [findings/2026-06-20-harness-serve-gap-audit.md](findings/2026-06-20-harness-serve-gap-audit.md) | Serve-loop gap audit grounded vs Anthropic/OpenAI loops; 2 PROVEN gaps (`<think>`/`<goal>` reply leak; direct-answer-as-plan-panel) + G3 mode-wiring; report-only, fixes pending |
 | [findings/2026-06-14-v1.2-corpus-audit.md](findings/2026-06-14-v1.2-corpus-audit.md) | Training-readiness audit (GATE PASS; loss mask, fast/think/auto, V1_R Stage-0); pre-Kaggle GO |
