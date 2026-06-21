@@ -13,6 +13,7 @@ import chess.engine
 from . import ask_kb
 from .engine import Engine
 from .game import Game
+from .manifest_view import tool_schema
 from .skills import load_skills
 from .toolfmt import clamp_depth, fmt_white_score, parse_call
 
@@ -35,6 +36,21 @@ def format_score(kind: str, val) -> str:
         side, n = val
         return f"M{n} for {side}"
     return f"{int(val) / 100:+.2f}"
+
+
+def _arg_hint(schema: dict | None) -> str:
+    """Render a tool's manifest args as a fill-in call template: a required arg -> `arg=<arg>`,
+    an enum arg -> `arg=<opt|opt>`. Used by the tool-as-skill corrective error so the model sees
+    the REAL arg names instead of a literal `...`. Empty/unknown schema falls back to `...`."""
+    if not schema:
+        return "..."
+    parts = []
+    for arg, spec in schema.items():
+        if isinstance(spec, (list, tuple)):
+            parts.append(f"{arg}=<{'|'.join(map(str, spec))}>")
+        else:
+            parts.append(f"{arg}=<{arg}>")
+    return " ".join(parts) or "..."
 
 
 # Executor-accurate call validation. DELIBERATELY NARROWER than catalog.OFFICIAL_TOOLS'
@@ -204,9 +220,11 @@ class ToolExecutor:
         # A TOOL loaded as a skill (<skill>metronome_bpm</skill> — seen on out-of-domain
         # routing). Symmetric to the skill-as-tool error in _dispatch: name the right verb so
         # the loop self-corrects to <tool>, instead of a dead 'unknown_skill' (which made the
-        # model flail back to its training-dominant skill).
+        # model flail back to its training-dominant skill). Carry the tool's REAL arg schema
+        # from the live manifest (not a literal '...') so the model doesn't GUESS arg names.
         if name in self._known_tool_names():
-            return f"error: '{name}' is a tool, not a skill — call it with <tool>{name} ...</tool>"
+            hint = _arg_hint(tool_schema(self.plugin_context, name))
+            return f"error: '{name}' is a tool, not a skill — call it with <tool>{name} {hint}</tool>"
         return "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:

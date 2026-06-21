@@ -52,3 +52,15 @@ def test_tool_loaded_as_skill_gets_corrective_error():
     assert "is a tool, not a skill" in out and "<tool>metronome_bpm" in out
     # a genuinely unknown name still reports unknown_skill (no false coercion)
     assert ex.execute("<tool>load_skill name=not_a_real_thing</tool>") == "error: unknown_skill"
+
+
+def test_corrective_error_shows_the_real_arg_schema():
+    # The corrective error must carry the tool's REAL args from the live manifest, not a literal
+    # '...' placeholder — otherwise the model guesses arg names (seen: it invented `seconds=10`).
+    ex = ToolExecutor(Game(), None, PC)
+    out = ex.execute("<tool>load_skill name=breathing_timer</tool>")
+    assert "<tool>breathing_timer seconds=<seconds></tool>" in out
+    assert "..." not in out
+    # a multi-arg tool lists every required arg
+    out2 = ex.execute("<tool>load_skill name=scale_recipe</tool>")
+    assert "from_servings=<from_servings>" in out2 and "to_servings=<to_servings>" in out2
