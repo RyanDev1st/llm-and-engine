@@ -689,9 +689,19 @@ class CoachLoop:
         # Live callable tool names for THIS turn's plugin context — makes tagless/malformed
         # call recovery plugin-aware (a leaked plugin call recovers like a chess one).
         live_names = live_tool_names(self.plugin_context)
+        # Scope the chess deterministic crutch (routing_hints nudge + matched_calls force-routing)
+        # to the chess domain. tool_hints' triggers are chess-specific regexes; with an OUT-OF-
+        # DOMAIN bundle enabled (e.g. life-skills) they would force-fire on non-chess prompts —
+        # "how am I doing with my taxes?" -> eval. The trained model routes any domain on its own,
+        # so when a non-chess bundle is active we drop the crutch and let the model decide. (Note
+        # skill_hints is already manifest-driven — it nudges the LIVE skills index — so it stays.)
+        chess_native = set(PLUGIN_CONTEXT.get("installed", [])) | set(PLUGIN_CONTEXT.get("enabled", []))
+        pc_enabled = set((self.plugin_context or PLUGIN_CONTEXT).get("enabled", []))
+        chess_domain = not (pc_enabled - chess_native)         # any OOD bundle enabled -> False
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
-                                     self.executor.game, reasoning_mode=reasoning_mode) \
-            + routing_hints(user_message, game_over)
+                                     self.executor.game, reasoning_mode=reasoning_mode)
+        if chess_domain:
+            system += routing_hints(user_message, game_over)
         if not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index(self.plugin_context))
         # Persistent memory: the per-user profile block (rating / weaknesses / prefs) rides the
@@ -699,9 +709,9 @@ class CoachLoop:
         # it never trained on. Included in `system` BEFORE fit() so the budget accounts for it.
         if memory_block:
             system += "\n\n" + memory_block
-        # Coverage set: tool -> canonical call for each detected intent. Empty on a
-        # finished game or when coverage is off.
-        required = {} if (game_over or not coverage) else matched_calls(user_message)
+        # Coverage set: tool -> canonical call for each detected intent. Empty on a finished game,
+        # when coverage is off, or outside the chess domain (the triggers are chess-specific).
+        required = {} if (game_over or not coverage or not chess_domain) else matched_calls(user_message)
         kept_history, ctx_stats = self.window.fit(system, history, user_message, compress=True)
         # Clever compaction: when old turns are evicted, their distilled note (goal/plan
         # anchor + what's already done) rides the system prompt so the model keeps the

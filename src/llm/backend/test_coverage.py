@@ -256,6 +256,29 @@ def test_result_signal_delegates_to_generic_for_plugin_results():
     assert _result_signal("metronome_bpm: 120 bpm = 500.0 ms per beat") == "500.0"
 
 
+# --- consumer D: the chess deterministic layer is scoped to the chess domain ---
+
+def test_chess_coverage_suppressed_for_ood_context():
+    # "how am I doing with my taxes?" matches the chess `eval` trigger ("how am i doing"), but
+    # with an OOD (life-skills) context the chess deterministic layer must NOT force-route eval
+    # onto a non-chess turn. The trained model routes any domain on its own here.
+    out = _life_loop([
+        "To check your taxes, gather your forms and compare standard vs itemized deductions.",
+    ]).respond([], "how am I doing with my taxes?")
+    assert "eval" not in _names(out)
+    assert out["tool_calls"] == []                 # nothing force-routed on the OOD turn
+
+
+def test_chess_coverage_still_fires_in_chess_context():
+    # Same trigger phrase, DEFAULT (chess) context -> eval IS force-routed. No regression: the
+    # gate only suppresses the crutch when a non-chess bundle is enabled.
+    out = _loop([
+        "Let me see.",                             # stops without eval -> coverage backstop
+        "Position noted.",
+    ]).respond([], "how am I doing?")
+    assert "eval" in _names(out)
+
+
 def test_dedup_is_by_full_call_not_name():
     # best_move with different args must BOTH run (name-dedup would have blocked the 2nd).
     out = _loop([
