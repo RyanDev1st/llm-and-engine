@@ -26,6 +26,15 @@ def gguf_runtime_config() -> tuple[int, int]:
     return int(os.environ.get("CHESS_N_CTX", "4096")), int(os.environ.get("CHESS_N_GPU_LAYERS", "-1"))
 
 
+def _rep_penalty() -> float:
+    """Match the HF serve path (model_hf._gen_kwargs): decode penalties OFF by default (1.0).
+    repeat_penalty reweights logits even under greedy decode, so it can flip the argmax on a
+    repeated NAME token — the same name-copying corruption that motivated turning penalties off
+    on HF. GGUF used to hardcode 1.2, drifting from HF/train. CHESS_REP_PENALTY=1.2 restores the
+    old behaviour. Single source so generate()/generate_stream() can't diverge again."""
+    return float(os.environ.get("CHESS_REP_PENALTY", "1.0"))
+
+
 class GGUFModel:
     # GREEDY by default (temperature=0.0), matching training and the HF serve path
     # (model_server/web_app build HFModel with temperature=0.0). The model was SFT'd so
@@ -60,7 +69,7 @@ class GGUFModel:
         stops = list(stop or [])
         out = self.llm.create_chat_completion(
             messages=messages, max_tokens=max_new_tokens,
-            temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=1.2, stop=stops)
+            temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=_rep_penalty(), stop=stops)
         text = out["choices"][0]["message"]["content"].strip()
         finish = out["choices"][0].get("finish_reason")
         if finish == "stop" and "</tool>" in stops and text.startswith("<tool>") and "</tool>" not in text:
@@ -82,7 +91,7 @@ class GGUFModel:
         full = ""
         for chunk in self.llm.create_chat_completion(
                 messages=messages, max_tokens=max_new_tokens,
-                temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=1.2,
+                temperature=max(self.temperature, 0.0), top_p=0.9, repeat_penalty=_rep_penalty(),
                 stop=stops, stream=True):
             delta = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content")
             if not delta:
