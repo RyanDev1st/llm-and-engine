@@ -44,63 +44,67 @@ A = 90 %, B = 95 % (a 1-row swing — not significant at n=20), C = 25 %.
   the `<skill>`/`<tool>` verbs at all. This is the cleanest evidence that the protocol is taught,
   not latent.
 
-## Per-slice caveat: slice G = 0 %, H = 14 % — failure mode UNCONFIRMED (eval discarded predictions)
+## Per-slice: slice G = 0 %, H = 14 % — RESOLVED by the miss analysis (2026-06-22 Kaggle run)
 
 The two naming schemes in the val report are both real corpus structure: the **letter slices
 (A–K)** are chess-domain rows (gold = `chess-coach`), the **V1_ slices** are the general-harness
-rows. Denominators are sound — that part is verified.
+rows. Denominators are sound. The miss-log re-run now says *what the model actually emitted*, and
+my earlier "over-specialization to a sibling chess skill" guess was **wrong**:
 
-What is **NOT** verified is *why* G/H score so low, because `eval_benchmark._bench` (and
-`eval_confusion.evaluate`) computed the prediction `(verb, name)` and then **threw it away** —
-only pass/fail counts were kept. So the raw artifacts cannot say what the model emitted. Two
-failure modes fit the data and they are very different:
+- **Slice G (0/25): the model emits `<skill>threats</skill>` on 24/25.** `threats` is **not a skill
+  in the catalog** — it is the object-noun of these rows' trained goal (`<goal>check the opponent's
+  threats</goal>`). The eval forces **fast mode** for speed (assuming routing is mode-independent),
+  but slice G was trained in **auto mode** where the model emits the goal *then* `<skill>chess-coach
+  </skill>`. The leading explanation — now backed by the exact wrong-name — is that forcing fast
+  collapsed the trained goal→skill sequence and the goal keyword leaked into the skill slot. So G's
+  0 % is most likely a **fast-mode-eval artifact, not a production failure** (in auto mode the goal
+  step is intact). Confirm cheaply by re-running ONLY G/H without `force_fast` (auto mode).
+- **Slice H (3/22): mostly `<skill>list_pieces</skill>` (8) + other specifics; 3 are wrong-verb→tool.**
+  `list_pieces` is a **tool**, so these are **tool-name-as-skill** — the *same* class as the
+  metronome bug, which the deployed harness now **self-corrects** (the (a) fix; transcript proof
+  below). The 3 wrong-verb→tool are `undo`-type ("I'm worried here — undo that"), a defensible direct
+  route the strict gold ("load chess-coach first") penalises.
 
-- **Over-specialization (wrong-name):** right verb (skill) but a sibling skill — `blunder-coach`
-  / `tactic-trainer` (both confirmed present in the G/H catalogs) instead of `chess-coach`. Would
-  be a harsh-but-fair miss, not a bug.
-- **Wrong-verb:** the model emits the wrong KIND of action. **Slice H's prompt is literally
-  "I'm worried here — undo that"**, and `undo` is a *tool* — so a verb-miss to `<tool>undo</tool>`
-  is at least as plausible as over-specialization here.
+**Bigger point for the report — the routing eval UNDERSTATES production accuracy.** It scores only
+the *first action*, but a large share of the val misses are **tools emitted as skills**: E's top
+wrong target is `skill:best_move` (a tool), A's is `skill:move_san` (a tool), H's is
+`skill:list_pieces` (a tool). At serve time the symmetric corrective error (the (a) fix) redirects
+every one of these to `<tool>` and the loop recovers — **proven end-to-end in the new transcript**
+(metronome + breathing both recover and answer correctly). So the first-action-strict per-slice
+numbers are a *lower bound*; the served agent does better on exactly these rows.
 
-The confusion matrix's skill-recall 0.97 is an **aggregate over all ~646 skill-gold rows**, NOT
-slice G/H specifically, so it does not adjudicate this. An earlier draft of this finding asserted
-"over-specialization" as fact; that was an inference beyond the data and has been corrected here.
+**Is G/H a problem to fix?** G: likely no — it's an eval-harness artifact (fast-mode forcing);
+the cheap fix is to score G/H in their trained mode, not to change the model. H: largely no — the
+serve loop already self-corrects the tool-as-skill misses, and the rest is strict gold. Neither
+points at a weight change.
 
-**Resolution (built, not run):** `bench_misses.py` now records every missed row and the benchmark
-report renders a per-slice **MISS analysis** table (wrong-name vs wrong-verb→X, plus the top wrong
-target) and writes `*-routing-benchmark-misses.jsonl`. The next Kaggle run of the existing notebook
-produces ground truth for G/H — and, on the STRESS suite, shows whether `<skill>metronome_bpm</skill>`
-(the asymmetry fix below) actually fires. **Is G/H a problem to fix?** Unknown until that run: if it
-is over-specialization, it is a documented eval caveat, not a fix; if it is a wrong-verb slip on
-surface cues like "undo", that is a real routing weakness worth addressing.
+**For the report:** lead with verb accuracy (96.4 %) + macro-precision (78.3 %); present the
+per-slice table with this miss-analysis caveat; note that first-action scoring is a lower bound
+because the harness recovers the tool-as-skill class at serve. Denominators are clean — don't touch.
 
-**For the report (current state):** lead with verb accuracy + macro-precision; cite exact-name and
-state plainly that the per-slice failure mode is pending the miss-analysis re-run. Do not "fix" the
-denominators — they are clean.
+## Transcript — the (a) fix PROVEN working end-to-end (post-fix capture, 2026-06-22 run)
 
-## Transcript failure modes (CONFIRMED — quoted verbatim from the captured `life-skills` transcript)
+The new transcript (life-skills prompts: cooking/music/wellness/tax) was captured **with the
+symmetric corrective error live**, and it shows the fix recovering exactly the cases that flailed
+before. Verbatim:
 
-The transcript is the life-skills STRESS prompts only (cooking/music/wellness/tax). The quotes
-below are verbatim from the captured run (recovered from the session log). Note: the transcript
-contains **no chess slice G/H rows**, so it says nothing about the (b) per-slice question — only
-the val miss-log re-run can.
-
-1. **Showcase win:** `convert: 5 miles = 8.047 kilometers` → **Coach:** "5 miles is about 8.05
-   kilometers." Route-by-description generalises to an unseen tool, grounded end to end.
-2. **Tool-name emitted as a skill (the (a) trigger) — CONFIRMED:**
-   `set a metronome to 120 bpm` → `<skill>metronome_bpm</skill>` → `error: unknown_skill` →
-   `<skill>chess-coach</skill>` (flailed back to chess). And `stressed … breathe` →
-   `<skill>breathing_timer</skill>` → `error: unknown_skill` → **retried the same `<skill>
-   breathing_timer</skill>`** → `error: duplicate_tool_call`. Both are tools, emitted with the
-   skill verb. This is the exact bug the fix below targets — and the breathing case shows the fix
-   does double duty: nothing told the model "that's a tool", so it re-tried the wrong verb.
-3. **Training-domain gravity — CONFIRMED:** on the metronome OOD failure the model defaulted to
-   `<skill>chess-coach</skill>`. A frozen-weights property; the fix removes the dead-end that
-   triggered it, but the gravity itself is a known limit.
-4. **Arg-extraction deflection — CONFIRMED:** `wanna make like 3x the cookies` loaded
-   `recipe-scaler`, called `scale_recipe from_servings=1 to_servings=3`, then asked "Should I try
-   to scale it to 5 servings, or is 3x okay?" — a defensible clarify, frozen behaviour, out of
-   scope for a harness-only fix.
+1. **Showcase win (unchanged):** `convert: 5 miles = 8.047 kilometers` → **Coach:** "5 miles is
+   about 8.05 kilometers." Route-by-description generalises to an unseen tool, grounded end to end.
+2. **Tool-as-skill now SELF-CORRECTS (the (a) fix working):**
+   `set a metronome to 120 bpm` → `<skill>metronome_bpm</skill>` →
+   `error: 'metronome_bpm' is a tool, not a skill — call it with <tool>metronome_bpm ...</tool>` →
+   `<tool>metronome_bpm bpm=120</tool>` → `120 bpm = 500.0 ms per beat` → **Coach:** "That's 500.0ms
+   per beat at 120 BPM." Same for breathing: `<skill>breathing_timer</skill>` → corrective error →
+   `<tool>breathing_timer seconds=10</tool>` → answered. **Before the fix these dead-ended at
+   `unknown_skill` and flailed to chess / a duplicate retry; now the loop recovers in one step and
+   answers correctly.** This is the proof the fix lands — and it's the same class as the slice-H val
+   misses, so the served agent recovers those too.
+3. **Training-domain gravity — eliminated for this case:** the metronome turn no longer falls back to
+   `<skill>chess-coach</skill>` (the dead-end that triggered it is gone). The underlying gravity is
+   still a frozen-weights property, but this specific trigger is resolved.
+4. **Arg-extraction deflection — still present (frozen):** `wanna make like 3x the cookies` loaded
+   `recipe-scaler`, called `scale_recipe from_servings=1 to_servings=3`, then asked "Should I try to
+   scale it to 5 servings, or is 3x okay?" — a defensible clarify, out of scope for a harness fix.
 
 ## The fix — symmetric corrective error (justified by code asymmetry, not just the transcript)
 

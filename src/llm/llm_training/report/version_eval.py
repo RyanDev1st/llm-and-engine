@@ -30,8 +30,10 @@ from llm_training.report import charts  # noqa: E402
 ASSETS = D.REPO / "docs" / "findings" / "report_assets"
 
 
-def _free(model) -> None:
-    del model
+def _gpu_free() -> None:
+    """Release CUDA memory. The caller must drop its own reference to the model FIRST — a `del` on a
+    function parameter alone leaves the caller's binding alive (that was the v3 OOM: v2 still resident
+    when v3 loaded -> 2 E4B models on one T4)."""
     gc.collect()
     try:
         import torch
@@ -64,11 +66,16 @@ def run(per_slice: int, time_budget: float, max_new_tokens: int, workdir: str) -
     from backend.model_hf import HFModel
     versions = [dict(v) for v in D.VERSIONS]   # local copy we fill with measured numbers
     v4_res = None
+    model = None
     for v in versions:
         adir = _resolve_adapter(v, workdir)
         if not adir:
             v["verb"] = None
             continue
+        if model is not None:           # free the PREVIOUS version BEFORE loading the next, in THIS
+            del model                   # scope (the only binding) -> never 2 E4B models on one T4
+            model = None
+            _gpu_free()
         print(f"\n=== {v['label']} ({v['repo']}/{v['sub']}) ===", flush=True)
         model = HFModel(adapter=adir, temperature=0.0)
         res = _bench(model, rows, max_new_tokens=max_new_tokens, time_budget_s=time_budget or None,
@@ -79,7 +86,9 @@ def run(per_slice: int, time_budget: float, max_new_tokens: int, workdir: str) -
               flush=True)
         if v["label"] == "v4":
             v4_res = res
-        _free(model)
+    if model is not None:
+        del model
+        _gpu_free()
 
     ASSETS.mkdir(parents=True, exist_ok=True)
     charts.training_timeline(versions, ASSETS / "chart-training-timeline.png")
