@@ -58,10 +58,48 @@ fixed (`_split_reasoning` in `_finalize`, `inference.py:607`); direct-answer-as-
 the symmetric tool-as-skill corrective error is implemented (`tools.py:170-181` + `_load_skill`);
 memory/context-window/KV reuse have reasonable harness-side guards. The reviewer is credible.
 
+## Second review (2026-06-22, richer) — additional verified gaps + the unifying reframe
+
+A second peer review re-confirmed the 6 above and added more, all **verified true** in source. The
+key insight: most OOD harness gaps share **one root cause — the deterministic layer is chess-
+hardcoded and should read the live manifest (`serving_tool_manifest(plugin_context)`), not a baked-in
+official list.** New verified items:
+
+- **A. Recovery is not plugin-aware.** `inference.py:351` `_TOOL_NAMES = official_tools() |
+  compute_tools() | {load_skill}` (module-level constant), and `_MALFORMED`/`_ECHO`/`_BARE`
+  (lines 358-367) derive their name alternation from it. So malformed/tagless recovery in
+  `extract_call` (line 370) works for chess tools but NOT plugin tools — a perfectly-wrapped
+  `<tool>convert_units …</tool>` runs (the `"<tool>" in s` path is name-agnostic), but a tagless
+  `convert_units value=5 …` is not recovered. **TRUE.**
+- **B. Plugin results are not grounding-enforced in final answers.** `_result_signal` (line 215) only
+  recognizes chess prefixes (`score:`/`best:`/`review:`) → returns None for `breathing_timer: …` /
+  `convert: …`; and `_ensure_required_narrated` (line 233) iterates only the chess `required` set
+  (from `matched_calls`). So a plugin tool's grounded result is never enforced. The captured breathing
+  turn proves it: tool returned `breathing_timer: 10s set …`, final answer dropped it. **TRUE.**
+- **C. Tool-as-skill corrective error lacks the arg schema.** `tools.py _load_skill` returns
+  `… call it with <tool>{name} ...</tool>` — a literal `...` placeholder, no live arg schema, so the
+  model guessed `seconds=10`. Should emit `<tool>breathing_timer seconds=<seconds></tool>` from the
+  manifest. **TRUE.**
+- **D. `applies_when` is prompt text, not a runtime gate.** `serving_tool_manifest:509` returns all
+  official tools unconditionally; `applies_when` (game_in_progress / has_history) is rendered into the
+  prompt but the manifest is not dynamically hidden/disabled per board state (runtime only validates
+  required-args/enums via `validate_call`). A harness-contract gap if strict schemas/hook gates are
+  wanted. **TRUE (lower priority — a design choice, not a bug).**
+- **E. Plugin-local arg extraction (optional).** Obvious deterministic OOD cases ("scale … 12 up to
+  30" → `scale_recipe from_servings=12 to_servings=30`) could be filled by **plugin-local** matchers —
+  explicitly NOT global regex. A nice-to-have that reduces a model weakness without retraining.
+
+The second review's other items map to the first six: its #2→gap1 (coverage/routing global), #6→gap2
+(eval first-action), #7→native-mode framing (probe already built), #8→gap4 (GGUF), #10→gap5 (frontend).
+Its "highest-value next fix" = **make the deterministic layer plugin-aware**, which subsumes A/C/B/E
+and the gap-1 coverage gate. The plan (`quiet-singing-storm.md`) is restructured around that.
+
 ## Remediation plan (prioritized)
 
 Legend — effort: S(<1h) / M(half-day) / L(multi-session). risk: behaviour change that needs a model
-re-test vs. mechanical.
+re-test vs. mechanical. **The plan was restructured around the plugin-aware-layer reframe after the
+second review — see `C:\Users\admin\.claude\plans\quiet-singing-storm.md` for the current execution
+plan; the table below is the first-review summary, kept for provenance.**
 
 | # | Fix | Priority | Effort | Risk | Needs GPU? |
 |---|---|---|---|---|---|
