@@ -218,7 +218,10 @@ class App:
         self.executor.game = self.game
         self.history = list(sess.history)
         session_mem.clear(self.session)                 # facts are board-specific; the board just changed
-        return {"id": sess.id, "title": sess.title, "history": list(self.history), "state": self.state()}
+        # `moves` lets the frontend REPLAY a normal game (so its move list + undo survive reload);
+        # it's [] for a fen-loaded position, where the frontend restores from state.fen instead.
+        return {"id": sess.id, "title": sess.title, "history": list(self.history),
+                "moves": [str(m) for m in sess.moves], "state": self.state()}
 
     def list_sessions(self) -> dict:
         return {"sessions": self.store.list(), "current": self.session_id}
