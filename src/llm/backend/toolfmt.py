@@ -22,7 +22,7 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
     # One free-text arg per tool captures the rest of the call (it may contain
     # spaces / '='): ask_chessbot's query=, load_fen's fen=. Keyed BY TOOL so a
     # 'fen=' inside a question (or odd chars in a FEN) can't truncate the other.
-    free = {"ask_chessbot": "query=", "load_fen": "fen="}.get(name)
+    free = {"ask_chessbot": "query=", "load_fen": "fen=", "python": "code="}.get(name)
     if free and free in rest:
         head, tail = rest.split(free, 1)
         args = _kv(head)

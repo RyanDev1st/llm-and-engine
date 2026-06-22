@@ -12,33 +12,66 @@ from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
 from .renderer.chess import render_chess_row
+from .renderer.audited_plan import render_audited_plan_row
+from .renderer.compound_plan import render_compound_plan_row
+from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
 from .renderer.skill_routing import render_skill_routing_row
 from .renderer.universality import render_universality_row
-from .sampler import CHESS_SLICES, MULTITURN_SLICE, UNIVERSALITY_SLICES, plan_scenarios
+from .sampler import (
+    AUDIT_SLICES, CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE,
+    UNIVERSALITY_SLICES, plan_scenarios,
+)
 from .validate import validate_row
 
 ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
+# Prompt styles whose rendered text is genuinely messy (shorthand/typos) — the only
+# inputs that justify a normalize_human_chat step. formal/casual/anxious/beginner
+# render as coherent sentences (see renderer.skill_routing._style).
+_MESSY_STYLES = frozenset({"slang", "typo"})
 
+# GENERAL-FIRST mix (~75% general / ~25% chess): the product is a general
+# skill+tool harness operator, chess is the flagship demo domain (one of many).
+# Chess = A-K + V1_P (~25%); general = V1_A-O (~75%) with cross-domain routing
+# (V1_O) dominant since "choose the right skill/tool across ANY domain" is the
+# core capability. Proportions are preserved through plan_for_profile scaling.
 DEFAULT_PLAN: dict[str, int] = {
-    "A": 632, "B": 394, "C": 292, "D": 326, "E": 360, "F": 326,
-    "G": 156, "H": 224, "I": 428, "J": 292, "K": 190,
-    "V1_A_skill_index_selection": 70,
-    "V1_B_skill_conflict_and_absence": 70,
-    "V1_C_dynamic_tool_schema": 70,
-    "V1_D_tool_unavailable_and_readonly": 70,
-    "V1_E_board_grounding": 70,
-    "V1_F_special_chess_rules": 70,
-    "V1_G_multi_tool_budget": 70,
-    "V1_H_error_recovery": 70,
-    "V1_I_eval_language": 70,
-    "V1_J_no_tool_and_mixed_intent": 70,
-    "V1_K_adversarial_injection": 70,
-    "V1_L_rejects_and_audit_fixtures": 70,
-    "V1_M_marketplace_navigation": 70,
-    "V1_N_human_chat_skill_bridge": 70,
-    "V1_O_cross_domain_skill_routing": 70,
-    "V1_P_multiturn_followup": 70,
+    # chess coaching (flagship domain) — ~20% of base
+    "A": 180, "B": 110, "C": 80, "D": 95, "E": 100, "F": 95,
+    "G": 50, "H": 65, "I": 120, "J": 80, "K": 55,
+    # domain-agnostic harness lessons — ~48% of base
+    "V1_A_skill_index_selection": 180,
+    "V1_B_skill_conflict_and_absence": 180,
+    "V1_C_dynamic_tool_schema": 200,
+    "V1_D_tool_unavailable_and_readonly": 180,
+    "V1_E_board_grounding": 180,
+    "V1_F_special_chess_rules": 150,
+    "V1_G_multi_tool_budget": 220,
+    "V1_H_error_recovery": 220,
+    "V1_I_eval_language": 150,
+    "V1_J_no_tool_and_mixed_intent": 150,
+    "V1_K_adversarial_injection": 180,
+    "V1_L_rejects_and_audit_fixtures": 120,
+    "V1_M_marketplace_navigation": 180,
+    "V1_N_human_chat_skill_bridge": 200,
+    # cross-domain routing across the whole domain pool — the general flagship
+    "V1_O_cross_domain_skill_routing": 1400,
+    # multi-turn dialogue-state (chess-flavored) — ~6% of base
+    "V1_P_multiturn_followup": 300,
+    # NO listed skill fits -> answer directly (greeting/meta/off-domain); teaches
+    # that loading a skill is conditional, not reflexive.
+    "V1_Q_no_skill_direct": 180,
+    # compute-grounding (Stage 0): verify a claim by RUNNING the python tool and
+    # reading stdout instead of asserting. Base 80 -> ~1000 train rows ≈ 28 per
+    # (3 reasoning modes × ~12 prompt families) cell, the threshold for a 4B to
+    # learn the behavior robustly rather than sample it (audit 2026-06-14).
+    "V1_R_compute_grounding": 80,
+    # Stage 1 compound-plan: goal-driven completion across 2 skills (anti-early-stop).
+    # base 90 -> ~1000 rows after scaling, broad domain-pair coverage.
+    "V1_S_compound_plan": 90,
+    # Stage 2 audited-plan: load the audit skill, verify each checkable box via the
+    # python tool (never assert), split-determinism on semantic boxes, honest-partial.
+    "V1_T_audited_plan": 90,
 }
 
 
@@ -107,14 +140,26 @@ def run(
                         progress(index, total, len(accepted), len(rejected))
                     continue
             elif scenario.slice == ROUTING_SLICE:
+                # Normalize ONLY when the input is genuinely messy (slang/typo) — loading
+                # the chat-cleaner on an already-clean "Please total my spend" taught a
+                # pointless ritual. Gated further by seed so the model still sees messy
+                # inputs answered BOTH with and without a normalize step (judge when it's
+                # needed, not a fixed dance). The dedicated V1_N slice fully covers the
+                # human-chat bridge regardless.
                 row = render_skill_routing_row(
                     pick_domain(scenario.seed),
                     scenario.seed,
                     scenario.prompt_style,
-                    normalize=scenario.seed % 4 == 0,
+                    normalize=scenario.prompt_style in _MESSY_STYLES and scenario.seed % 2 == 0,
                 )
             elif scenario.slice in UNIVERSALITY_SLICES:
                 row = render_universality_row(scenario)
+            elif scenario.slice in COMPUTE_SLICES:
+                row = render_compute_row(scenario)
+            elif scenario.slice in COMPOUND_SLICES:
+                row = render_compound_plan_row(scenario.seed)
+            elif scenario.slice in AUDIT_SLICES:
+                row = render_audited_plan_row(scenario.seed)
             else:
                 if progress and _should_report(index, total):
                     progress(index, total, len(accepted), len(rejected))
@@ -203,7 +248,7 @@ def _bad_duplicate_tool(messages: list[dict]) -> list[dict]:
 
 def _bad_invalid_arg(messages: list[dict]) -> list[dict]:
     return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>load_skill name=chess-coach extra=bad</tool>"},
+        {"role": "assistant", "content": "<tool>board_state fields=basic extra=bad</tool>"},
         messages[-1],
     ]
 
@@ -224,7 +269,7 @@ def _bad_uninstalled_market_tool(messages: list[dict]) -> list[dict]:
 
 def _bad_absent_skill(messages: list[dict]) -> list[dict]:
     return [
-        {"role": "assistant", "content": "<tool>load_skill name=missing-market-skill</tool>"},
+        {"role": "assistant", "content": "<skill>missing-market-skill</skill>"},
         messages[-1],
     ]
 
@@ -251,7 +296,7 @@ def _bad_helper_tool_before_skill(messages: list[dict]) -> list[dict]:
 def _bad_irrelevant_skill_selected(messages: list[dict]) -> list[dict]:
     return [
         messages[0],
-        {"role": "assistant", "content": "<tool>load_skill name=cooking-helper</tool>"},
+        {"role": "assistant", "content": "<skill>cooking-helper</skill>"},
         *messages[1:],
     ]
 

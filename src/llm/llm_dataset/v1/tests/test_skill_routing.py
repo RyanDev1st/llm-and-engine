@@ -13,7 +13,7 @@ _TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)", re.DOTALL)
 
 
 def _loaded(row):
-    return [m["content"] for m in row["messages"] if "load_skill" in m["content"]]
+    return [m["content"] for m in row["messages"] if "<skill>" in m["content"]]
 
 
 def _assistant(row):
@@ -33,7 +33,7 @@ def test_skill_body_is_multiline_real_skill_md():
     d = REAL_DOMAINS[0]
     row = render_skill_routing_row(d, seed=2, style="formal", normalize=False)
     idx = next(i for i, m in enumerate(row["messages"])
-               if m["role"] == "assistant" and "load_skill" in m["content"])
+               if m["role"] == "assistant" and "<skill>" in m["content"])
     body = row["messages"][idx + 1]
     assert body["role"] == "tool"
     assert body["content"].count("\n") >= 3
@@ -44,7 +44,7 @@ def test_domain_tool_called_after_skill_load():
     d = REAL_DOMAINS[1]
     row = render_skill_routing_row(d, seed=3, style="casual", normalize=False)
     flat = "".join(_assistant(row))
-    assert flat.index(f"name={d.skill}") < flat.index(d.tool)
+    assert flat.index(f"<skill>{d.skill}</skill>") < flat.index(d.tool)
 
 
 def test_one_tool_per_inference_message():
@@ -58,7 +58,7 @@ def test_final_ends_with_guiding_question():
     d = REAL_DOMAINS[3]
     row = render_skill_routing_row(d, seed=5, style="casual", normalize=False)
     final = row["messages"][-1]["content"]
-    assert "<tool>" not in final
+    assert "<tool>" not in final and "<skill>" not in final
     assert final.rstrip().endswith("?")
 
 

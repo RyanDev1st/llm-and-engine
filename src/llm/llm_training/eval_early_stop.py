@@ -1,0 +1,206 @@
+"""Early-stop reduction eval: does the `<goal>` anchor stop the model giving a
+half-answer on a MULTI-STEP request?
+
+The Stage-1 failure a small model makes: a request needs several tools, the model
+fires one (or zero), then writes a confident partial answer. This harness rolls
+each COMPOUND case (two domains -> two required tools) forward to the model's
+final reply against a SCRIPTED executor, measures how many required tools fired
+FIRST, and A/Bs the goal anchor ON (plan mode) vs OFF (fast mode).
+
+Per condition:
+- silent_early_stop_rate : final before both tools, no blocker named (PRIMARY, lower better)
+- completion_rate        : both required tools ran before the final
+- honest_partial_rate    : final before both, but the reply names a blocker (acceptable)
+- mean_steps             : assistant action steps taken before the final
+
+reduction = silent_early_stop_rate(off) - silent_early_stop_rate(on)   (>0 => goal helps)
+
+Scoring is by OBJECTIVE (both domain tools' findings gathered), not exact action
+match, so a different-but-valid path is not wrongly flagged. Needs the trained
+model (noisy on a tiny scout — meaningful at the full E4B run).
+
+Run after training:  python -m llm_training.eval_early_stop runs/gemma4_chess
+"""
+from __future__ import annotations
+
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from llm_dataset.v1.domains import REAL_DOMAINS  # noqa: E402
+from llm_training.system_prompt import build_system  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[3]
+MAX_STEPS = 8           # rollout cap (matches serve MAX_TOOL_CALLS headroom)
+STEP_TOKENS = 96        # enough for a lead-in + one action, or a short final
+PLUGINS = {"installed": ["user-skills"], "enabled": ["user-skills"], "marketplace": []}
+
+_BLOCKER = re.compile(r"\b(block|can'?t|cannot|unable|couldn'?t|disabled|stuck)\b", re.I)
+_SKILL_OPEN = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)")
+_TOOL_OPEN = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
+_PANEL = re.compile(r"</?(?:goal|plan)>")     # plan-mode panel turn (not an action, not a final)
+
+
+class ModelBackend(Protocol):
+    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str: ...
+
+
+@dataclass
+class Case:
+    a: object            # Domain
+    b: object            # Domain
+    prompt: str
+    skills_index: list
+    tool_manifest: list
+
+
+def _skill_entry(d) -> dict:
+    return {"name": d.skill, "description": d.description, "plugin": "user-skills",
+            "source": "user_skill", "enabled": True}
+
+
+def _tool_entry(d) -> dict:
+    return {"name": d.tool, "description": f"Domain tool for {d.skill}.", "args": d.tool_args,
+            "applies_when": "always", "plugin": "user-skills", "source": "user_skill", "enabled": True}
+
+
+def build_cases(n: int) -> list[Case]:
+    """n compound cases pairing two distinct real domains; 2 distractor skills each."""
+    cases: list[Case] = []
+    m = len(REAL_DOMAINS)
+    for i in range(n):
+        a = REAL_DOMAINS[i % m]
+        b = REAL_DOMAINS[(i * 7 + 3) % m]
+        if b.skill == a.skill:
+            b = REAL_DOMAINS[(i + 1) % m]
+        prompt = f"{a.prompts[0]}, and also {b.prompts[0]}"
+        index = [_skill_entry(a), _skill_entry(b)]
+        for d in REAL_DOMAINS:
+            if len(index) >= 4:
+                break
+            if d.skill not in (a.skill, b.skill):
+                index.append(_skill_entry(d))
+        cases.append(Case(a, b, prompt, index, [_tool_entry(a), _tool_entry(b)]))
+    return cases
+
+
+def _execute(name: str, kind: str, case: Case) -> str:
+    """Scripted executor: a skill load returns its terse body; a tool returns its
+    first scene's grounded result. Mirrors the V1_S compound renderer exactly."""
+    if kind == "skill":
+        d = {case.a.skill: case.a, case.b.skill: case.b}.get(name)
+        return f"# {d.skill}\nUse {d.tool} for this, then report the finding." if d else "error: unknown_skill"
+    d = {case.a.tool: case.a, case.b.tool: case.b}.get(name)
+    return d.scenes[0][1] if d else "error: unknown_tool"
+
+
+def _close(out: str) -> str:
+    out = out.strip()
+    if "<tool>" in out and "</tool>" not in out:
+        return out + "</tool>"
+    if "<skill>" in out and "</skill>" not in out:
+        return out + "</skill>"
+    return out
+
+
+def rollout(model: ModelBackend, system: str, case: Case) -> tuple[str, set, int]:
+    """Drive the model to its final reply. Returns (final_text, tools_fired, steps)."""
+    convo = [{"role": "system", "content": system}, {"role": "user", "content": case.prompt}]
+    fired: set[str] = set()
+    steps = 0
+    for _ in range(MAX_STEPS):
+        out = model.generate(convo, STEP_TOKENS, ["</tool>", "</skill>"]).strip()
+        tl, sk = _TOOL_OPEN.search(out), _SKILL_OPEN.search(out)
+        if tl:
+            name = tl.group(1)
+            fired.add(name)
+            steps += 1
+            convo += [{"role": "assistant", "content": _close(out)},
+                      {"role": "tool", "content": _execute(name, "tool", case)}]
+        elif sk:
+            name = sk.group(1)
+            steps += 1
+            convo += [{"role": "assistant", "content": _close(out)},
+                      {"role": "tool", "content": _execute(name, "skill", case)}]
+        elif _PANEL.search(out):
+            # plan-mode panel turn (<goal>/<plan>): commit it and KEEP GOING — it is
+            # NOT the final answer (the model proceeds to work each box next). Without
+            # this, the harness would mis-score the panel as an instant early-stop.
+            convo.append({"role": "assistant", "content": out})
+        else:
+            return out, fired, steps          # plain final reply
+    return "", fired, steps                    # never finalized -> non-complete
+
+
+def classify(final: str, fired: set, case: Case) -> str:
+    required = {case.a.tool, case.b.tool}
+    if required <= fired:
+        return "complete"
+    if final and _BLOCKER.search(final):
+        return "honest_partial"
+    return "silent_early_stop"
+
+
+def run(model: ModelBackend, cases: list[Case]) -> dict:
+    """A/B the goal anchor: plan mode (on) vs fast mode (off)."""
+    report: dict = {}
+    for cond, mode in (("goal_on", "plan"), ("goal_off", "fast")):
+        counts = {"complete": 0, "honest_partial": 0, "silent_early_stop": 0}
+        steps_total = 0
+        for c in cases:
+            system = build_system(c.skills_index, c.tool_manifest, PLUGINS, reasoning_mode=mode)
+            final, fired, steps = rollout(model, system, c)
+            counts[classify(final, fired, c)] += 1
+            steps_total += steps
+        n = max(1, len(cases))
+        report[cond] = {
+            "n": len(cases),
+            "silent_early_stop_rate": counts["silent_early_stop"] / n,
+            "completion_rate": counts["complete"] / n,
+            "honest_partial_rate": counts["honest_partial"] / n,
+            "mean_steps": steps_total / n,
+            "counts": counts,
+        }
+    report["reduction"] = (report["goal_off"]["silent_early_stop_rate"]
+                           - report["goal_on"]["silent_early_stop_rate"])
+    return report
+
+
+def _format(adapter, report: dict) -> str:
+    on, off = report["goal_on"], report["goal_off"]
+    lines = [
+        "Parent: none", "", "# Early-stop reduction eval", "", "## Status",
+        f"Goal anchor reduces silent early-stops by {report['reduction']:+.1%} "
+        f"(off={off['silent_early_stop_rate']:.1%} -> on={on['silent_early_stop_rate']:.1%}).", "",
+        "## Scope", f"Adapter: `{adapter}`. {on['n']} compound (two-tool) cases, A/B goal on/off.", "",
+        "## Evidence",
+    ]
+    for cond, d in (("goal ON (plan)", on), ("goal OFF (fast)", off)):
+        lines.append(f"- {cond}: complete={d['completion_rate']:.0%} "
+                     f"silent_early_stop={d['silent_early_stop_rate']:.0%} "
+                     f"honest_partial={d['honest_partial_rate']:.0%} "
+                     f"mean_steps={d['mean_steps']:.1f}")
+    lines += ["", "## Next",
+              "1. If reduction <= ~0, the goal anchor is not earning its tokens — reconsider.",
+              "2. Re-run at the full E4B checkpoint (scout numbers are noisy)."]
+    return "\n".join(lines) + "\n"
+
+
+def main() -> None:
+    adapter = sys.argv[1] if len(sys.argv) > 1 else None
+    n = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+    from backend.model_hf import HFModel
+    model = HFModel(adapter=adapter, temperature=0.0)
+    report = run(model, build_cases(n))
+    text = _format(adapter, report)
+    from datetime import date
+    out = REPO / "docs" / f"{date.today():%Y-%m-%d}-early-stop-eval.md"
+    out.write_text(text, encoding="utf-8")
+    print(text, flush=True)
+
+
+if __name__ == "__main__":
+    main()

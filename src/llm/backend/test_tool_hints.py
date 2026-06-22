@@ -83,13 +83,13 @@ _COACH = {"name": "chess-coach", "description": "analyze a position, choose move
 
 def test_skill_hint_fires_on_a_distinctively_named_skill():
     h = skill_hints("give me a tactical puzzle", [_TACTICS, _COACH])
-    assert "load_skill name=tactical-puzzles" in h
+    assert "<skill>tactical-puzzles</skill>" in h
     assert "chess-coach" not in h            # broad coach name tokens are stoplisted
 
 
 def test_skill_hint_generalizes_to_any_dropped_in_skill():
-    assert "load_skill name=endgame-drills" in skill_hints("let's practice some endgame drills", [_ENDGAME])
-    assert "load_skill name=tactical-puzzles" in skill_hints("got a puzzle for me?", [_TACTICS])  # plural stem
+    assert "<skill>endgame-drills</skill>" in skill_hints("let's practice some endgame drills", [_ENDGAME])
+    assert "<skill>tactical-puzzles</skill>" in skill_hints("got a puzzle for me?", [_TACTICS])  # plural stem
 
 
 def test_skill_hint_silent_on_broad_coach_and_off_topic():
@@ -118,6 +118,54 @@ def test_extract_call_recovers_tagless_bare_call():
     assert extract_call("undo that move when you can") is None
     assert extract_call("eval looks roughly equal to me") is None
     assert extract_call("The best move here is e4.") is None
+
+
+def test_skill_verb_on_a_tool_name_is_coerced_to_a_tool_call():
+    # The dominant E4B miss mode: the model picks the RIGHT tool but wraps it in <skill>
+    # (skill:threats / skill:best_move / skill:list_pieces). The model already chose the tool —
+    # fix the wrapper verb so it EXECUTES, instead of dead-ending on the off-distribution
+    # 'is a tool, not a skill' corrective (which the corpus never trained recovery for).
+    assert extract_call("<skill>threats</skill>") == "<tool>threats</tool>"
+    assert extract_call("<skill>list_pieces</skill>") == "<tool>list_pieces</tool>"
+    assert extract_call("<skill>best_move</skill>") == "<tool>best_move</tool>"
+    # lead-in preserved
+    assert extract_call("Let me check. <skill>threats</skill>") == "Let me check. <tool>threats</tool>"
+    # a REAL skill name still loads the skill (NOT a tool -> not coerced)
+    assert extract_call("<skill>chess-coach</skill>") == "<tool>load_skill name=chess-coach</tool>"
+    # a plugin tool coerces only when its bundle's names are threaded in via `allowed`
+    assert extract_call("<skill>metronome_bpm</skill>") == "<tool>load_skill name=metronome_bpm</tool>"
+    assert extract_call("<skill>metronome_bpm</skill>", allowed={"metronome_bpm"}) == "<tool>metronome_bpm</tool>"
+
+
+def test_verb_coercion_preserves_args_from_the_skill_tag():
+    # When the model DID provide args inside the skill tag (<skill>metronome_bpm bpm=120</skill>),
+    # coercion must KEEP them -> a one-shot tool call, not a stripped argless call that needlessly
+    # errors on the missing arg and forces a recovery step.
+    assert extract_call("<skill>threats depth=20</skill>") == "<tool>threats depth=20</tool>"
+    assert extract_call("<skill>metronome_bpm bpm=120</skill>", allowed={"metronome_bpm"}) == \
+        "<tool>metronome_bpm bpm=120</tool>"
+    assert extract_call("<skill>scale_recipe from_servings=12 to_servings=30</skill>",
+                        allowed={"scale_recipe"}) == \
+        "<tool>scale_recipe from_servings=12 to_servings=30</tool>"
+    # a real skill with trailing words still loads the skill (name only; load_skill takes name=)
+    assert extract_call("<skill>chess-coach</skill>") == "<tool>load_skill name=chess-coach</tool>"
+
+
+def test_extract_call_recovers_plugin_tool_when_allowed():
+    # PLUGIN-AWARE recovery: a tagless plugin call is recovered ONLY when the live tool
+    # names are threaded in via `allowed` (the harness passes live_tool_names(plugin_context)).
+    # Without `allowed`, a plugin name is unknown to recovery and must stay a plain reply —
+    # so chess-only serves keep their exact current behaviour (no regression).
+    assert extract_call("scale_recipe from_servings=12 to_servings=30") is None
+    assert extract_call("scale_recipe from_servings=12 to_servings=30",
+                        allowed={"scale_recipe"}) == \
+        "<tool>scale_recipe from_servings=12 to_servings=30</tool>"
+    # malformed-wrapper recovery is plugin-aware too
+    assert extract_call("Let me set it. <breathing_timer seconds=60</tool>",
+                        allowed={"breathing_timer"}) == \
+        "Let me set it. <tool>breathing_timer seconds=60</tool>"
+    # chess recovery is unchanged whether or not `allowed` is passed
+    assert extract_call("eval depth=18", allowed={"scale_recipe"}) == "<tool>eval depth=18</tool>"
 
 
 def test_extract_call_recovers_channel_token_form():
@@ -187,13 +235,16 @@ def test_extract_call_recovers_loading_skill_gerund():
 
 
 def test_extract_call_recovers_skill_tag():
-    # live leak: model wrapped the call in a <skill> tag it never saw in training (the
-    # prompt is saturated with the word "skill"). Map it to <tool> so it EXECUTES.
-    assert extract_call("<skill>load_skill name=chess-coach</skill>") == \
+    # <skill>NAME</skill> is the trained skill-load VERB; the executor loads via the
+    # canonical load_skill tool, so extract_call translates the verb to that form.
+    assert extract_call("<skill>chess-coach</skill>") == \
         "<tool>load_skill name=chess-coach</tool>"
     # lead-in preserved
-    assert extract_call("Let me load that. <skill>load_skill name=opening-advisor</skill>") == \
+    assert extract_call("Let me load that. <skill>opening-advisor</skill>") == \
         "Let me load that. <tool>load_skill name=opening-advisor</tool>"
+    # tolerate a legacy inner "load_skill name=X" the pretrained model might emit
+    assert extract_call("<skill>load_skill name=chess-coach</skill>") == \
+        "<tool>load_skill name=chess-coach</tool>"
 
 
 def test_extract_call_strips_channel_and_brace_junk():

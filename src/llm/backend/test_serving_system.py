@@ -5,15 +5,18 @@ skill_prompt() body-injection path."""
 from backend.inference import build_system_prompt
 from backend.skills import load_skills
 
-BACKEND_TOOLS = ("load_skill", "board_state", "move", "undo", "legal_moves",
+BACKEND_TOOLS = ("board_state", "move", "undo", "legal_moves",
                  "list_pieces", "ask_chessbot", "eval", "best_move",
                  "review_move", "threats")
 
 
-def test_serving_system_lists_load_skill_and_every_backend_tool():
+def test_serving_system_lists_skill_verb_and_every_backend_tool():
     s = build_system_prompt()
     for tool in BACKEND_TOOLS:
         assert tool in s, tool
+    # skills load via the <skill> verb now — NOT a load_skill tool.
+    assert "<skill>" in s
+    assert "load_skill" not in s
 
 
 def test_serving_system_lists_skill_catalog_names_not_bodies():

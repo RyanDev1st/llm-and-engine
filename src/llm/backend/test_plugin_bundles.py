@@ -54,7 +54,7 @@ def test_plugin_skill_body_loads_via_load_skill():
 
 def test_plugin_skill_called_as_a_tool_gets_corrective_error():
     out = ToolExecutor(_ruy(), None, plugin_context=PC).execute("<tool>opening-advisor</tool>")
-    assert "is a skill, not a tool" in out and "load_skill name=opening-advisor" in out
+    assert "is a skill, not a tool" in out and "<skill>opening-advisor</skill>" in out
 
 
 def test_analysis_accuracy_report_runs_on_a_real_game():

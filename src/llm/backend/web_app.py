@@ -10,7 +10,8 @@ import os
 from .game import Game
 from .engine import Engine
 from .inference import AdapterView, CoachLoop, PLUGIN_CONTEXT
-from . import skill_admin, state_api
+from . import memory, skill_admin, state_api
+from .memory import session as session_mem
 from .tools import ToolExecutor
 
 
@@ -39,6 +40,10 @@ class App:
         self.model_error: str | None = None
         self._adapter = adapter
         self.plugin_context = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
+        # Persistent-memory identity (single-user demo -> "default"; keyed so multi-user is free).
+        self.user_id = os.environ.get("CHESS_USER_ID", "default")
+        # Session fact cache: analysis facts computed this session, FEN-keyed (see memory.session).
+        self.session: dict = {}
 
     def load_model(self) -> None:
         # Dev mode: a persistent model service holds the weights, so this server is
@@ -132,13 +137,13 @@ class App:
         print("base HF model unloaded", flush=True)
         return {"ok": True, "loaded": False}
 
-    def chat_base(self, message: str) -> dict:
+    def chat_base(self, message: str, mode: str = "") -> dict:
         """Run the UNTRAINED base on the mirrored board (independent of the trained side)."""
         if self.loop_base is None:
             return {"reply": "(base model not loaded)", "tool_calls": [], "tool_results": [],
                     "elapsed_s": 0, "state": self.state()}
         self._mirror_base()
-        out = self._run(self.loop_base, self.history_base, message)
+        out = self._run(self.loop_base, self.history_base, message, mode=mode)
         return {**out, "state": self.state()}
 
     def state(self) -> dict:
@@ -151,7 +156,17 @@ class App:
         self.history = []
         self.history_base = []
         self.history_off = []
+        session_mem.clear(self.session)         # a new game -> drop the stale fact cache
         return self.state()
+
+    def _context_block(self, message: str = "") -> str:
+        """The injected memory context: the persistent user profile + any session facts still
+        fresh for the live board + a recalled how-to-operate hint for THIS request (episodic;
+        no-op unless CHESS_EPISODIC=1). Read from the REAL game (base/mirror runs mirror it)."""
+        parts = [memory.memory_block(self.user_id),
+                 session_mem.render(self.session, self.game.board.fen()),
+                 memory.episodic_block(message, self.plugin_context)]
+        return "\n\n".join(p for p in parts if p)
 
     def _mirror_base(self) -> None:
         """Copy the real board onto the base loop's private board so the base
@@ -162,10 +177,25 @@ class App:
         bg.san_stack = list(self.game.san_stack)
 
     def _run(self, loop: CoachLoop, history: list[dict], message: str, coverage: bool = True,
-             on_event=None) -> dict:
+             on_event=None, mode: str = "") -> dict:
         import time
         t0 = time.time()
-        result = loop.respond(history, message, coverage, on_event)
+        entry_fen = self.game.board.fen()      # position the turn's analysis pertains to
+        # Inject memory (user profile + fresh session facts) read BEFORE the turn; run; then
+        # capture durable user facts (idempotent). Only the PRIMARY trained loop updates the
+        # session cache — base/mirror runs are demo comparisons on a copied board.
+        result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode,
+                              memory_block=self._context_block(message))
+        memory.capture(message, self.user_id)
+        # Episodic learning: only the PRIMARY trained loop's turns are real lessons (base/mirror are
+        # demo comparisons). Harvest a how-to-operate episode (no-op unless CHESS_EPISODIC=1).
+        if loop is self.loop:
+            memory.observe(message, result, self.plugin_context)
+        # Cache analysis facts ONLY when the board didn't move this turn (else the facts are
+        # ambiguous as to which position they describe). The render freshness-guard drops them
+        # the moment the live FEN diverges anyway.
+        if loop is self.loop and self.game.board.fen() == entry_fen:
+            session_mem.update(self.session, entry_fen, result.get("tool_results", []))
         elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and
@@ -177,24 +207,25 @@ class App:
                 "tool_results": result.get("tool_results", []),
                 "context": result.get("context"), "elapsed_s": elapsed}
 
-    def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None) -> dict:
+    def chat(self, message: str, variant: str = "sft", coverage: bool = True, on_event=None,
+             mode: str = "") -> dict:
         if self.loop is None:
             return {"reply": f"(model not loaded: {self.model_error or 'no adapter'})",
                     "tool_calls": [], "tool_results": [], "state": self.state()}
         if variant == "both" and self.loop_base is not None:
-            sft = self._run(self.loop, self.history, message, coverage)
+            sft = self._run(self.loop, self.history, message, coverage, mode=mode)
             board = self.state()  # the visible board follows OUR model, snapshot before base runs
             self._mirror_base()   # base runs on a private copy — never touches the real board
-            base = self._run(self.loop_base, self.history_base, message, coverage)
+            base = self._run(self.loop_base, self.history_base, message, coverage, mode=mode)
             return {"sft": sft, "base": base, "state": board}
         if variant == "coverage" and self.loop_mirror is not None:
             # Ablation: same prompt with the coverage layer ON vs OFF, side by side.
-            on = self._run(self.loop, self.history, message, coverage=True)
+            on = self._run(self.loop, self.history, message, coverage=True, mode=mode)
             board = self.state()           # the ON run drives the visible board
             self._mirror_base()            # the OFF run uses a private copy
-            off = self._run(self.loop_mirror, self.history_off, message, coverage=False)
+            off = self._run(self.loop_mirror, self.history_off, message, coverage=False, mode=mode)
             return {"on": on, "off": off, "state": board}
-        out = self._run(self.loop, self.history, message, coverage, on_event)
+        out = self._run(self.loop, self.history, message, coverage, on_event, mode=mode)
         return {**out, "tool_call": out["tool_calls"][-1] if out["tool_calls"] else None,
                 "tool_result": out["tool_results"][-1] if out["tool_results"] else None,
                 "state": self.state()}

@@ -5,7 +5,7 @@ import sys
 import types
 
 
-def _fake_llama_cpp(calls, seen_messages=None):
+def _fake_llama_cpp(calls, seen_messages=None, seen_kw=None):
     m = types.ModuleType("llama_cpp")
 
     class FakeLlama:
@@ -21,6 +21,8 @@ def _fake_llama_cpp(calls, seen_messages=None):
         def create_chat_completion(self, messages, **kw):
             if seen_messages is not None:
                 seen_messages.append(messages)
+            if seen_kw is not None:
+                seen_kw.append(kw)
             return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
 
     class FakeRAMCache:
@@ -74,3 +76,19 @@ def test_gguf_remaps_tool_messages_so_model_sees_results(monkeypatch, tmp_path):
     assert all(m["role"] != "tool" for m in sent)                     # no dropped tool turns
     assert any("score: +0.37" in m["content"] and m["role"] == "user" for m in sent)
     assert any("<tool_result>" in m["content"] for m in sent)         # rendered, not dropped
+
+
+def test_gguf_repeat_penalty_matches_hf_parity(monkeypatch, tmp_path):
+    # The HF serve path runs decode penalties OFF (repetition_penalty=1.0) because they corrupt
+    # NAME COPYING; GGUF used to hardcode 1.2, drifting from HF/train. GGUF must read the SAME
+    # CHESS_REP_PENALTY env with the SAME default (1.0) so the two backends can't diverge.
+    seen_kw = []
+    monkeypatch.setitem(sys.modules, "llama_cpp", _fake_llama_cpp([], seen_messages=None, seen_kw=seen_kw))
+    monkeypatch.delenv("CHESS_REP_PENALTY", raising=False)
+    model = _make(monkeypatch, tmp_path)
+    model.generate([{"role": "user", "content": "hi"}], 16, ["</tool>"])
+    assert seen_kw[-1]["repeat_penalty"] == 1.0                        # HF parity by default
+    # rollback to the old GGUF behaviour is free via the env var
+    monkeypatch.setenv("CHESS_REP_PENALTY", "1.2")
+    model.generate([{"role": "user", "content": "hi"}], 16, ["</tool>"])
+    assert seen_kw[-1]["repeat_penalty"] == 1.2

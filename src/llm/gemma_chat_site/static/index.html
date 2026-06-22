@@ -301,6 +301,23 @@ html, body {
 .think-step { padding: 6px 10px; color: var(--muted); border-bottom: 1px solid var(--border);
   white-space: pre-wrap; word-break: break-word; }
 .think-step:last-child { border-bottom: none; }
+.think-step.note { color: var(--fg); font-style: italic; }
+
+/* Goal + plan panels — the objective and its checklist, pinned at the top of the thread
+   (the <goal>/<plan> the model emits go here, NEVER into the chat bubble). */
+.goalpanel { position: sticky; top: 0; z-index: 3; align-self: stretch; display: flex;
+  gap: 8px; align-items: flex-start; padding: 8px 11px; margin-bottom: 4px;
+  background: var(--surface-raised); border: 1px solid var(--accent);
+  border-radius: var(--radius-sm); box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+.goalpanel .goal-ico { flex-shrink: 0; }
+.goalpanel .goal-txt { font: 600 12px/1.4 var(--font-body); color: var(--fg); }
+.planpanel { align-self: stretch; padding: 8px 11px; margin-bottom: 6px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); font: 400 12px/1.5 var(--font-mono); }
+.planpanel .plan-h { color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+.planpanel .plan-box { color: var(--muted); padding: 1px 0; }
+.planpanel .plan-box.done { color: var(--success); text-decoration: line-through; opacity: .85; }
+.mode-sel { border: 1px solid var(--border-soft); background: var(--bg); color: var(--fg);
+  border-radius: var(--radius-sm); font: 600 12px/1 var(--font-mono); padding: 0 6px; cursor: pointer; }
 
 .ctxmeter { align-self: flex-start; max-width: 92%; width: 240px; }
 .ctxbar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
@@ -550,6 +567,12 @@ html, body {
               <div class="chat-msg ai ft-msg">Trained-weight Gemma 4 chess assistant ready. Ask me about positions, strategy, or your next move.</div>
             </div>
             <div class="chat-input-row" id="chatInputRow">
+              <select id="modeSel" class="mode-sel" title="Reasoning mode — how much the model thinks before acting">
+                <option value="auto" selected>auto</option>
+                <option value="fast">fast</option>
+                <option value="think">think</option>
+                <option value="plan">plan</option>
+              </select>
               <input id="chatInput" placeholder="Ask about the position, strategy, or next move..." onkeydown="if(event.key==='Enter')ChatUI.send()" />
               <button onclick="ChatUI.send()">Send</button>
             </div>
@@ -1146,7 +1169,7 @@ const ChatUI = (() => {
 
       if (compareMode) {
         // Coverage ON/OFF ablation — one request, two panels.
-        const res = await api('/api/chat', { message: text, variant: 'coverage', coverage: true });
+        const res = await api('/api/chat', { message: text, variant: 'coverage', coverage: true, mode: currentMode() });
         if (res.on) {
           renderReply(ftC, res.on, waitFT, 'ft-msg'); renderReply(baseC, res.off, waitBase, '');
         } else {
@@ -1164,7 +1187,7 @@ const ChatUI = (() => {
           addTimer(ftC, res && res.elapsed_s); addContextMeter(ftC, res && res.context);
           reconcileBoard(res, seqAtSend);
         }).catch(() => { if (waitFT && waitFT.parentNode) waitFT.remove(); appendMsg(ftC, 'Trained side unavailable.', 'ai', 'ft-msg'); });
-        const base = api('/api/chat', { message: text, variant: 'base' })
+        const base = api('/api/chat', { message: text, variant: 'base', mode: currentMode() })
           .then(r => renderReply(baseC, r, waitBase, ''))
           .catch(() => { if (waitBase && waitBase.parentNode) waitBase.remove(); appendMsg(baseC, 'Base side unavailable.', 'ai'); });
         await Promise.allSettled([trained, base]);
@@ -1222,9 +1245,36 @@ const ChatUI = (() => {
   function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
     let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
-    let liveTok = 0, liveEl = null;
-    const clean = (txt) => { const cut = txt.search(/<\|?/); return cut >= 0 ? txt.slice(0, cut) : txt; };
+    let liveTok = 0, liveEl = null, thinkLive = null;
+    // Keep reasoning out of the chat bubble while streaming: drop any closed <think>/<goal>
+    // block, then cut at an unclosed '<' (a tag still being generated). The backend also
+    // strips them from the authoritative done.reply, so the bubble is clean either way.
+    const clean = (txt) => {
+      let t = txt.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<goal>[\s\S]*?<\/goal>/g, '');
+      const cut = t.search(/<\|?/); return (cut >= 0 ? t.slice(0, cut) : t).replace(/^\s+/, '');
+    };
     const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
+    // The model's reasoning (<think>…</think>) streams to a LIVE thinking preview, never the
+    // chat bubble. Pulls every closed think block plus an unclosed trailing one (mid-generation).
+    const extractThink = (txt) => {
+      let out = '', re = /<think>([\s\S]*?)<\/think>/g, m;
+      while ((m = re.exec(txt))) out += (out ? ' ' : '') + m[1];
+      const open = txt.lastIndexOf('<think>'), close = txt.lastIndexOf('</think>');
+      if (open > close) out += (out ? ' ' : '') + txt.slice(open + 7);   // think still being written
+      return out.replace(/\s+/g, ' ').trim();
+    };
+    const showLiveThink = (txt) => {
+      if (!txt) return;
+      if (!thinkLive) {
+        thinkLive = document.createElement('details');
+        thinkLive.className = 'thinking'; thinkLive.open = true;
+        thinkLive.innerHTML = '<summary>🧠 thinking…</summary><div class="think-step note"></div>';
+        container.appendChild(thinkLive);
+      }
+      thinkLive.querySelector('.think-step').textContent = '💭 ' + txt;
+      container.scrollTop = container.scrollHeight;
+    };
+    const dropLiveThink = () => { if (thinkLive && thinkLive.parentNode) thinkLive.remove(); thinkLive = null; };
     // Live token meter: count generated tokens AS THEY STREAM (every token/tool-decision
     // token), shown ticking up; replaced by the authoritative context meter on done.
     const liveMeter = () => {
@@ -1237,20 +1287,31 @@ const ChatUI = (() => {
       if (ev.type === 'token') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
         liveTok++; liveMeter();
-        streamed += ev.text; bubble(); tw.set(clean(streamed));
+        streamed += ev.text; showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
       } else if (ev.type === 'reply_chunk') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
-        streamed += (streamed ? ' ' : '') + ev.text; bubble(); tw.set(clean(streamed));
+        streamed += (streamed ? ' ' : '') + ev.text;
+        showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
       } else if (ev.type === 'tool') {
         // the tokens just streamed were this tool's DECISION -> belong in the thinking
-        // panel, not chat. Drop the provisional bubble + typewriter.
+        // panel, not chat. Drop the provisional bubble + typewriter + live-think preview.
         if (replyEl && replyEl.parentNode) replyEl.remove();
-        replyEl = null; tw = null; streamed = '';
+        replyEl = null; tw = null; streamed = ''; dropLiveThink();
         calls.push(ev.call); results.push(ev.result);
         if (waitFT && waitFT.parentNode) waitFT.remove();
         thinkEl = renderLiveThinking(container, calls, results, thinkEl);
+      } else if (ev.type === 'goal') {           // the objective -> pinned goal panel
+        pinGoal(container, ev.content);
+      } else if (ev.type === 'plan') {           // the checklist -> plan/todo panel
+        renderPlan(container, ev.content);
+      } else if (ev.type === 'think') {          // final reasoning note -> recorded in the panel
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        dropLiveThink();                          // the transient preview is now recorded below
+        calls.push('💭 ' + ev.content); results.push('');
+        thinkEl = renderLiveThinking(container, calls, results, thinkEl);
       } else if (ev.type === 'done') {
         done = ev;
+        dropLiveThink();
         if (liveEl && liveEl.parentNode) liveEl.remove();   // authoritative context meter replaces it
       } else if (ev.type === 'error') {
         throw new Error(ev.error || 'stream error');
@@ -1279,7 +1340,7 @@ const ChatUI = (() => {
         tw.finish(finalText, () => resolve({ done: done, replyEl: replyEl }));   // type the rest, then resolve
       };
       xhr.onerror = () => reject(new Error('stream transport error'));
-      xhr.send(JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true }));
+      xhr.send(JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true, mode: currentMode() }));
     });
   }
 
@@ -1294,16 +1355,67 @@ const ChatUI = (() => {
     el.querySelector('summary').textContent = '🧠 thinking · ' + calls.length +
       ' step' + (calls.length > 1 ? 's' : '');
     el.querySelectorAll('.think-step').forEach(n => n.remove());
-    calls.forEach((c, i) => {
-      const step = document.createElement('div');
-      step.className = 'think-step';
-      const s = typeof c === 'string' ? c : JSON.stringify(c);
-      step.textContent = s.replace(/\s+/g, ' ').trim() + '  →  ' + ((results && results[i]) || '');
-      el.appendChild(step);
-    });
+    fillSteps(el, calls, results);
     container.scrollTop = container.scrollHeight;
     return el;
   }
+
+  // One thinking-step's display text + css class. A SKILL load shows ONLY the name
+  // ("📚 Loaded chess-coach") — the user doesn't need the skill's body dumped into the panel.
+  // A 💭 reasoning note shows as-is; a tool step shows "call → result".
+  function stepRender(c, r) {
+    const s = (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\s+/g, ' ').trim();
+    const sk = s.match(/<skill>\s*([\w./-]+)\s*<\/skill>/);
+    if (sk) return { text: '📚 Loaded ' + sk[1], cls: ' note' };   // name only, body hidden
+    if (s.startsWith('💭')) return { text: s, cls: ' note' };
+    return { text: s + (r ? '  →  ' + r : ''), cls: '' };
+  }
+
+  function fillSteps(parent, calls, results) {
+    calls.forEach((c, i) => {
+      const { text, cls } = stepRender(c, (results && results[i]) || '');
+      const step = document.createElement('div');
+      step.className = 'think-step' + cls;
+      step.textContent = text;
+      parent.appendChild(step);
+    });
+  }
+
+  // The objective (<goal>) the model committed, pinned at the top of the chat thread.
+  function pinGoal(container, text) {
+    if (!text) return;
+    let el = container.querySelector('.goalpanel');
+    if (!el) {
+      el = document.createElement('div'); el.className = 'goalpanel';
+      el.innerHTML = '<span class="goal-ico">🎯</span><span class="goal-txt"></span>';
+      container.insertBefore(el, container.firstChild);   // pin at the top of the thread
+    }
+    el.querySelector('.goal-txt').textContent = text;
+  }
+
+  // The <plan> checklist, rendered as a todo panel under the goal.
+  function renderPlan(container, content) {
+    const boxes = [];
+    (content || '').split('\n').forEach(line => {
+      const m = line.match(/-\s*\[([ xX])\]\s*(.+)/);
+      if (m) boxes.push({ done: m[1].toLowerCase() === 'x', text: m[2].replace(/\s*\([^)]*\)\s*$/, '').trim() });
+    });
+    if (!boxes.length) return;
+    let el = container.querySelector('.planpanel');
+    if (!el) {
+      el = document.createElement('div'); el.className = 'planpanel';
+      const g = container.querySelector('.goalpanel');
+      container.insertBefore(el, g ? g.nextSibling : container.firstChild);
+    }
+    el.innerHTML = '<div class="plan-h">📋 Plan</div>';
+    boxes.forEach(b => {
+      const d = document.createElement('div'); d.className = 'plan-box' + (b.done ? ' done' : '');
+      d.textContent = (b.done ? '☑ ' : '☐ ') + b.text;   // textContent escapes the model's text
+      el.appendChild(d);
+    });
+  }
+
+  function currentMode() { const s = document.getElementById('modeSel'); return s ? s.value : ''; }
 
   function appendMsg(container, text, role, extraClass) {
     const div = document.createElement('div');
@@ -1330,16 +1442,10 @@ const ChatUI = (() => {
     // by default; expand to prove the reply is grounded in real engine output.
     if (!calls || !calls.length) return;
     const det = document.createElement('details');
-    det.className = 'thinking';
+    det.className = 'thinking'; det.open = true;   // the think block stays expanded
     det.innerHTML = '<summary>🧠 thinking · ' + calls.length +
       ' step' + (calls.length > 1 ? 's' : '') + '</summary>';
-    calls.forEach((c, i) => {
-      const step = document.createElement('div');
-      step.className = 'think-step';
-      const callStr = typeof c === 'string' ? c : JSON.stringify(c);
-      step.textContent = callStr.replace(/\s+/g, ' ').trim() + '  →  ' + ((results && results[i]) || '');
-      det.appendChild(step);
-    });
+    fillSteps(det, calls, results);          // skill loads show "📚 Loaded <name>", body hidden
     container.appendChild(det);
     container.scrollTop = container.scrollHeight;
   }

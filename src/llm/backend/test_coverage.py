@@ -19,7 +19,15 @@ class ScriptedModel:
 
 
 def _names(out):
-    return [parse_call(c)[0] for c in out["tool_calls"]]
+    # tool_calls now DISPLAYS skill loads as the trained verb <skill>NAME</skill>
+    # (execution still uses load_skill); map it back so these behavior assertions hold.
+    names = []
+    for c in out["tool_calls"]:
+        n = parse_call(c)[0]
+        if n is None and "<skill>" in c:
+            n = "load_skill"
+        names.append(n)
+    return names
 
 
 def _loop(steps, game=None):
@@ -208,6 +216,129 @@ def test_answer_coverage_no_double_when_already_mentioned():
         "Position is 0.00 (equal); best is e4, then d4, c4.",
     ]).respond([], "best moves and the eval")
     assert out["reply"].count("0.00") == 1           # not duplicated
+
+
+# --- consumer C: grounding is plugin-aware (not chess-required-only) ---
+
+_LIFE_PC = {"installed": ["life-skills"], "enabled": ["life-skills"], "marketplace": []}
+
+
+def _life_loop(steps):
+    return CoachLoop(ScriptedModel(steps), ToolExecutor(Game(), None, _LIFE_PC),
+                     plugin_context=_LIFE_PC)
+
+
+def test_dropped_plugin_result_is_grounded():
+    # The breathing/convert transcript bug: a plugin tool returns a real result, the final
+    # answer DROPS its number. matched_calls is chess-only so `required` is empty here — the
+    # grounding must still fire for the executed plugin tool (domain-neutral).
+    out = _life_loop([
+        "<tool>convert_units value=5 from_unit=miles to_unit=km",
+        "I converted that for you.",                  # drops the 8.047 result
+    ]).respond([], "how many km is 5 miles?")
+    assert _names(out) == ["convert_units"]
+    assert "8.047" in out["reply"]                    # grounded fact appended
+
+
+def test_plugin_result_not_doubled_when_narrated():
+    # If the model already cites the plugin result, don't append it again.
+    out = _life_loop([
+        "<tool>convert_units value=5 from_unit=miles to_unit=km",
+        "5 miles is about 8.047 kilometers.",         # already grounded
+    ]).respond([], "how many km is 5 miles?")
+    assert out["reply"].count("8.047") == 1
+
+
+def test_result_signal_delegates_to_generic_for_plugin_results():
+    from backend.inference import _result_signal
+    assert _result_signal("score: +0.44 pawns from white POV, depth=18") == "+0.44"  # chess unchanged
+    assert _result_signal("convert: 5 miles = 8.047 kilometers (length)") == "8.047"  # delegated
+    assert _result_signal("metronome_bpm: 120 bpm = 500.0 ms per beat") == "500.0"
+
+
+def test_grounding_does_not_double_append_when_model_paraphrases_or_rounds():
+    # Transcript bug: the model grounded NATURALLY ("60 seconds", "8.05 km") but the brittle
+    # exact-substring check ("60s" not in "60 seconds"; "8.047" not in the rounded "8.05") thought
+    # the fact was dropped and appended the RAW tool line -> "...8.05 kilometers. convert: 5 miles =
+    # 8.047 kilometers (length)". A numeric-aware check must treat these as already-grounded.
+    from backend.inference import _ensure_required_narrated
+    reply = "You're set for 60 seconds — about 3 slow 4-7-8 breath cycles."
+    res = "breathing_timer: 60s set — about 3 slow 4-7-8 breath cycle(s)."
+    out = _ensure_required_narrated(reply, {}, ["<tool>breathing_timer seconds=60</tool>"], [res])
+    assert out == reply and "breathing_timer:" not in out          # "60" present as "60 seconds"
+    reply2 = "5 miles is about 8.05 kilometers."                    # model rounded 8.047 -> 8.05
+    res2 = "convert: 5 miles = 8.047 kilometers (length)"
+    out2 = _ensure_required_narrated(reply2, {}, ["<tool>convert_units value=5 from_unit=miles to_unit=km</tool>"], [res2])
+    assert out2 == reply2 and "convert:" not in out2
+
+
+def test_san_grounding_not_fooled_by_a_coincidental_number():
+    # Regression: a SAN signal's RANK DIGIT ('3' in 'Nf3') is a coordinate, not a quantity. The
+    # numeric-tolerance path must NOT treat a stray '3' in the reply as grounding the move, or a
+    # genuinely-dropped best_move gets silently swallowed. Numeric signals keep the tolerance.
+    from backend.inference import _fact_in_reply
+    assert _fact_in_reply("Nf3", "you have 3 reasonable plans here") is False   # move NOT grounded
+    assert _fact_in_reply("e4", "e4 is the move") is True                       # exact still works
+    assert _fact_in_reply("8.047", "about 8.05 km") is True                     # numeric round kept
+    assert _fact_in_reply("60s", "set for 60 seconds") is True                  # num+unit paraphrase kept
+
+
+def test_grounding_still_appends_a_genuinely_dropped_fact():
+    # The leniency must NOT swallow a real drop: a reply with NO matching number still gets grounded.
+    from backend.inference import _ensure_required_narrated
+    reply = "Ready to try it?"
+    res = "breathing_timer: 60s set — about 3 slow 4-7-8 breath cycle(s)."
+    out = _ensure_required_narrated(reply, {}, ["<tool>breathing_timer seconds=60</tool>"], [res])
+    assert out != reply and "60" in out
+
+
+# --- consumer D: the chess deterministic layer is scoped to the chess domain ---
+
+def test_chess_coverage_suppressed_for_ood_context():
+    # "how am I doing with my taxes?" matches the chess `eval` trigger ("how am i doing"), but
+    # with an OOD (life-skills) context the chess deterministic layer must NOT force-route eval
+    # onto a non-chess turn. The trained model routes any domain on its own here.
+    out = _life_loop([
+        "To check your taxes, gather your forms and compare standard vs itemized deductions.",
+    ]).respond([], "how am I doing with my taxes?")
+    assert "eval" not in _names(out)
+    assert out["tool_calls"] == []                 # nothing force-routed on the OOD turn
+
+
+def test_chess_coverage_still_fires_in_chess_context():
+    # Same trigger phrase, DEFAULT (chess) context -> eval IS force-routed. No regression: the
+    # gate only suppresses the crutch when a non-chess bundle is enabled.
+    out = _loop([
+        "Let me see.",                             # stops without eval -> coverage backstop
+        "Position noted.",
+    ]).respond([], "how am I doing?")
+    assert "eval" in _names(out)
+
+
+def test_tool_as_skill_miss_is_coerced_and_grounded_without_model_recovery():
+    # The dominant E4B miss mode = a tool emitted as a skill (<skill>list_pieces</skill>). BEFORE
+    # coercion, a model that doesn't recover from the off-distribution corrective dead-ended on
+    # duplicate_tool_call -> ungrounded non-answer. With verb-coercion, the tool RUNS on the first
+    # step regardless of whether the (frozen) model recovers. list_pieces needs no engine.
+    out = _loop([
+        "<skill>list_pieces</skill>",          # tool-as-skill miss
+        "You still have your pieces.",          # model does NOT re-emit the tool (non-compliant)
+    ]).respond([], "which pieces do I have left?")
+    assert _names(out) == ["list_pieces"]                       # coerced + executed (not load_skill)
+    assert any(r.startswith("pieces:") for r in out["tool_results"])   # real grounded result
+    assert "duplicate_tool_call" not in out["tool_results"]     # no dead-end
+
+
+def test_chess_coverage_on_for_training_catalog_bundles_with_no_runtime_tools():
+    # The gate keys off the RUNTIME tool surface, not bundle names. A val-style context lists
+    # training catalog bundles (user-skills/synthetic-pack) that register NO runtime tools, so
+    # the live surface is still pure-chess -> coverage MUST stay on (else every chess val row
+    # would lose its backstop in the completion eval). Regression guard for the D refinement.
+    syn_pc = {"installed": ["chess-official", "user-skills", "synthetic-pack"],
+              "enabled": ["chess-official", "user-skills", "synthetic-pack"], "marketplace": []}
+    out = CoachLoop(ScriptedModel(["Let me see.", "Position noted."]),
+                    ToolExecutor(Game(), None, syn_pc), plugin_context=syn_pc).respond([], "how am I doing?")
+    assert "eval" in _names(out)                    # crutch stays on for chess-only runtime surface
 
 
 def test_dedup_is_by_full_call_not_name():

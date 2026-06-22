@@ -48,9 +48,10 @@ def build_config(args: argparse.Namespace) -> TrainConfig:
         max_val_examples=args.max_val,
         loss_mask="assistant-only", load_in_4bit=not getattr(args, "no_4bit", False),
         engine=getattr(args, "engine", "cuda"),
+        save_every=getattr(args, "save_every", 0), resume=getattr(args, "resume", False),
         model_path=MODELS / model,
-        data_path=DATA / "v1_2_train.jsonl",
-        val_path=DATA / "v1_2_val.jsonl",
+        data_path=DATA / f"{getattr(args, 'data_stem', 'v1_2')}_train.jsonl",
+        val_path=DATA / f"{getattr(args, 'data_stem', 'v1_2')}_val.jsonl",
         output_dir=REPO / "runs" / args.output,
     )
 
@@ -62,7 +63,7 @@ def main() -> None:
     ap.add_argument("--max-examples", type=int, default=None, dest="max_examples",
                     help="cap training rows loaded (quick local de-risk runs); smoke forces 32")
     ap.add_argument("--epochs", type=int, default=3)
-    ap.add_argument("--max-seq", type=int, default=1280, dest="max_seq")
+    ap.add_argument("--max-seq", type=int, default=1664, dest="max_seq")  # v1_2 floor: max row 1655, median 1291; lower truncates finals
     ap.add_argument("--rank", type=int, default=16)
     ap.add_argument("--targets", default="all-linear")
     ap.add_argument("--grad-accum", type=int, default=16, dest="grad_accum")
@@ -77,6 +78,12 @@ def main() -> None:
                     help="train in bf16 (no bitsandbytes 4-bit) — fits E2B on one T4 at full seq")
     ap.add_argument("--engine", default="cuda", choices=["cuda", "unsloth"],
                     help="cuda = proven HF path; unsloth = Gemma4-native, ~2x faster + ~70%% less VRAM")
+    ap.add_argument("--save-every", type=int, default=0, dest="save_every",
+                    help="checkpoint adapter+optimizer every N updates for resume (0 = use --eval-every)")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume from output_dir/checkpoint (multi-session / after a 12h timeout)")
+    ap.add_argument("--data-stem", default="v1_2", dest="data_stem",
+                    help="dataset stem under data/sft: 'v1_2' (full) or 'v1_2_lean' (M1 subset)")
     args = ap.parse_args()
     if args.smoke:
         args.output = "gemma4_chess_smoke"

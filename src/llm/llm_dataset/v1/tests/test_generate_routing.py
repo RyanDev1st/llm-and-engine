@@ -41,9 +41,9 @@ def test_dispatch_path_builds_diverse_rows():
 
 def test_loaded_skill_diversity_counts_distinct_loads():
     rows = [
-        {"messages": [{"role": "assistant", "content": "<tool>load_skill name=math-tutor</tool>"}]},
-        {"messages": [{"role": "assistant", "content": "<tool>load_skill name=code-reviewer</tool>"}]},
-        {"messages": [{"role": "assistant", "content": "<tool>load_skill name=math-tutor</tool>"}]},
-        {"messages": [{"role": "tool", "content": "<tool>load_skill name=ignored</tool>"}]},
+        {"messages": [{"role": "assistant", "content": "<skill>math-tutor</skill>"}]},
+        {"messages": [{"role": "assistant", "content": "<skill>code-reviewer</skill>"}]},
+        {"messages": [{"role": "assistant", "content": "<skill>math-tutor</skill>"}]},
+        {"messages": [{"role": "tool", "content": "<skill>ignored</skill>"}]},
     ]
     assert _loaded_skill_diversity(rows) == 2

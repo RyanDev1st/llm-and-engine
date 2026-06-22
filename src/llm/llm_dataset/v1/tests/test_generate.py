@@ -61,21 +61,21 @@ def test_audit_rejects_all_fail_validation():
 def test_human_chat_skill_bridge_loads_helper_before_chess_skill():
     scenario = plan_scenarios({"V1_N_human_chat_skill_bridge": 1}, seed=12)[0]
     row = render_universality_row(scenario)
-    # Conversational shape: a short lead-in may precede each call, so extract the
-    # <tool> span rather than anchoring on startswith.
-    calls = [
-        match.group(0)
+    # Skills load via <skill>NAME</skill>; tools via <tool>. Extract the ordered
+    # action stream (a short lead-in may precede each), skipping by startswith.
+    actions = [
+        m
         for msg in row["messages"] if msg["role"] == "assistant"
-        for match in [re.search(r"<tool>[^<]*</tool>", msg["content"])] if match
+        for m in re.findall(r"<skill>[^<]*</skill>|<tool>[^<]*</tool>", msg["content"])
     ]
     helper_tool = next(t for t in row["tool_manifest"] if t["name"] == "normalize_human_chat")
 
     assert any(skill["name"] == "hood-human-chat" for skill in row["skills_index"])
     assert helper_tool["plugin"] == "user-skills"
-    assert calls[:3] == [
-        "<tool>load_skill name=hood-human-chat</tool>",
+    assert actions[:3] == [
+        "<skill>hood-human-chat</skill>",
         "<tool>normalize_human_chat text=messy_user_chat</tool>",
-        "<tool>load_skill name=chess-coach</tool>",
+        "<skill>chess-coach</skill>",
     ]
     assert row["selected_skills"] == ["hood-human-chat", "chess-coach"]
     assert "human-chat helper accepted coverage" in row["acceptance_rules"]
@@ -95,7 +95,7 @@ def test_human_chat_skill_bridge_uses_style_prompt():
 
 
     p = profile("v1.2")
-    assert p.accepted_target == 50_000
+    assert p.accepted_target == 75_000
     assert 5_000 <= p.rejected_target <= 10_000
     assert p.gold_dir.as_posix().endswith("data/sft/v1_2")
     assert p.train_path.as_posix().endswith("data/sft/v1_2_train.jsonl")

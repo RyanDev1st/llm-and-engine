@@ -5,12 +5,15 @@ plus load_skill (progressive disclosure — returns a skill's SKILL.md body).
 review_move and threats are computed here because they compose board + engine."""
 from __future__ import annotations
 
+import re
+
 import chess
 import chess.engine
 
 from . import ask_kb
 from .engine import Engine
 from .game import Game
+from .manifest_view import tool_schema
 from .skills import load_skills
 from .toolfmt import clamp_depth, fmt_white_score, parse_call
 
@@ -35,6 +38,79 @@ def format_score(kind: str, val) -> str:
     return f"{int(val) / 100:+.2f}"
 
 
+def _arg_hint(schema: dict | None) -> str:
+    """Render a tool's manifest args as a fill-in call template: a required arg -> `arg=<arg>`,
+    an enum arg -> `arg=<opt|opt>`. Used by the tool-as-skill corrective error so the model sees
+    the REAL arg names instead of a literal `...`. Empty/unknown schema falls back to `...`."""
+    if not schema:
+        return "..."
+    parts = []
+    for arg, spec in schema.items():
+        if isinstance(spec, (list, tuple)):
+            parts.append(f"{arg}=<{'|'.join(map(str, spec))}>")
+        else:
+            parts.append(f"{arg}=<{arg}>")
+    return " ".join(parts) or "..."
+
+
+# Executor-accurate call validation. DELIBERATELY NARROWER than catalog.OFFICIAL_TOOLS'
+# "args" display schema: that schema is a TRAINING-DISPLAY hint, and the executor
+# tolerates loose args (depth defaults via clamp_depth, board_state.fields accepts a
+# superset turn/last_move/..., best_move.top/series clamp to 1-5). Validating against the
+# display schema would REJECT calls the executor handles fine. So this lists ONLY what the
+# executor truly constrains: a required arg whose absence yields a cryptic downstream error,
+# and enum args the executor SILENTLY DEFAULTS on a bad value (so a typo would otherwise
+# return wrong-but-plausible data instead of an error the model can self-correct from).
+_REQUIRED_ARGS = {"move": "san"}                       # move("") -> cryptic; name the gap
+_ENUM_ARGS = {                                         # silent-default enums (wrong -> wrong data)
+    "list_pieces": ("color", ("white", "black", "mine")),
+    "random_position": ("kind", ("puzzle", "scramble", "open")),
+}
+
+
+def validate_call(name: str, args: dict[str, str]) -> str | None:
+    """Corrective error (for the model to self-correct from) when a known call is missing a
+    truly-required arg or passes an out-of-range value to a silent-default enum; else None.
+    Unknown tools and harmless extra/defaulted args are left to dispatch — never over-reject."""
+    req = _REQUIRED_ARGS.get(name)
+    if req and not args.get(req):
+        return f"error: tool '{name}' needs '{req}=...' — e.g. <tool>{name} {req}=...</tool>"
+    enum = _ENUM_ARGS.get(name)
+    if enum:
+        arg, allowed = enum
+        if args.get(arg) is not None and args[arg] not in allowed:
+            return (f"error: arg '{arg}' for '{name}' must be one of "
+                    f"{'/'.join(allowed)} (got '{args[arg]}')")
+    return None
+
+
+_SKILL_BODY_CAP = 2800   # chars (~700 tok) — a SAFETY bound for a pathological dropped-in
+                         # SKILL.md only; a well-formed skill (incl. chess-coach) is never cut,
+                         # so this never severs a rule mid-body. Terseness is the SKILL.md's job.
+
+
+def _condense_skill_body(body: str) -> str:
+    """Return the instructional body the model should follow, shaped like what it TRAINED
+    on (a terse `# name / steps`), not a verbose markdown dump:
+    - strip the YAML frontmatter (name+description are ALREADY in the system-prompt catalog —
+      re-sending them in the body is pure redundancy the model never saw at train time);
+    - collapse blank-line runs;
+    - cap length (protects against a pathological dropped-in skill re-encoding every loop step).
+    Why: training set the load_skill result to a 17-93 token lesson; serving the full 616-token
+    SKILL.md was both off-distribution (a cause of post-load deflection/reloading) and the
+    skill-load LATENCY (the body re-prefills on every subsequent step)."""
+    text = (body or "").strip()
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        if end != -1:                       # drop the frontmatter block + its closing fence
+            text = text[end + 4:].lstrip("-\n ").strip()
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    if len(text) > _SKILL_BODY_CAP:
+        cut = text.rfind("\n", 0, _SKILL_BODY_CAP)   # cut on a line boundary, not mid-sentence
+        text = text[: cut if cut > _SKILL_BODY_CAP // 2 else _SKILL_BODY_CAP].rstrip() + "\n…"
+    return text
+
+
 class ToolExecutor:
     def __init__(self, game: Game, engine: Engine, plugin_context: dict | None = None) -> None:
         self.game = game
@@ -47,12 +123,18 @@ class ToolExecutor:
         name, args = parse_call(tool_call)
         if not name:
             return "error: invalid_syntax"
+        bad = validate_call(name, args)            # missing required / bad enum -> corrective error
+        if bad:
+            return bad
         try:
             return self._dispatch(name, args)
         except chess.engine.EngineError:
-            return "error: engine_unavailable"
+            return "error: engine_unavailable"        # Stockfish genuinely down
         except Exception:
-            return "error: engine_unavailable"
+            # Any OTHER tool fault (a plugin handler, the python/sandbox tool, a board op) is
+            # NOT an engine outage — name the failing tool so the model can re-route and the
+            # user isn't told Stockfish is down for a non-chess bug.
+            return f"error: tool_failed '{name}'"
 
     def _dispatch(self, name: str, args: dict[str, str]) -> str:
         if name == "load_skill":
@@ -80,6 +162,12 @@ class ToolExecutor:
             return self.game.list_pieces(args.get("color", "mine"))
         if name == "ask_chessbot":
             return ask_kb.answer(args.get("query", ""))
+        if name == "python":
+            # Domain-neutral verification primitive: ground a computed/checkable
+            # claim by RUNNING a short script and reading stdout, not by asserting.
+            # Sandboxed subprocess — see sandbox.run_python.
+            from .sandbox import run_python
+            return run_python(args.get("code", ""))
         if name == "eval":
             depth = clamp_depth(args, DEFAULT_EVAL_DEPTH)
             if self.game.board.fen() == chess.STARTING_FEN:
@@ -98,26 +186,46 @@ class ToolExecutor:
         plugin_res = plugins.dispatch(name, args, self, self.plugin_context)
         if plugin_res is not None:
             return plugin_res
-        # A skill is NOT a tool. The harness contract is load_skill name=<skill>.
-        # If the model calls a known skill BY NAME as a tool
-        # (<tool>chess-coach</tool>), do NOT silently accept it — that would mask
-        # the protocol violation. Return a corrective error naming the right
-        # call so the loop retries with load_skill (self-correction, enforced).
+        # A skill is NOT a tool. The harness contract loads a skill with the
+        # <skill>NAME</skill> verb. If the model calls a known skill BY NAME as a
+        # tool (<tool>chess-coach</tool>), do NOT silently accept it — that masks
+        # the protocol violation. Return a corrective error naming the right verb
+        # so the loop retries with <skill> (self-correction, enforced).
         plugin_skill_names = {s["name"] for s in plugins.plugin_skills(self.plugin_context)}
         if name in {s.name for s in load_skills()} | plugin_skill_names:
-            return f"error: '{name}' is a skill, not a tool — call load_skill name={name}"
-        return "error: invalid_syntax"
+            return f"error: '{name}' is a skill, not a tool — load it with <skill>{name}</skill>"
+        # Parsed a name that is neither a known tool, a plugin tool, nor a skill: a
+        # hallucinated tool. Say so by NAME (not generic invalid_syntax, which also means
+        # "unparseable") so the model can re-route to a real tool from its manifest.
+        return f"error: unknown_tool '{name}'"
+
+    def _known_tool_names(self) -> set[str]:
+        """Every callable tool name in the current surface (official + compute + enabled plugins)."""
+        from llm_dataset.v1.catalog import compute_tools, official_tools
+        from . import plugins
+        return ({t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()}
+                | {t["name"] for t in plugins.plugin_tools(self.plugin_context)})
 
     def _load_skill(self, name: str) -> str:
-        """Progressive disclosure: return the named skill's full SKILL.md body so
-        the model can follow it. Checks the skills dir first, then enabled plugins'
-        bundled skills (openings/analysis/...)."""
+        """Progressive disclosure: return the named skill's body so the model can follow
+        it — CONDENSED (see _condense_skill_body) so it matches the terse body shape the
+        model trained on and doesn't re-encode a 600+ token markdown dump every loop step."""
         bodies = {skill.name: skill.content for skill in load_skills()}
         if name in bodies:
-            return bodies[name]
+            return _condense_skill_body(bodies[name])
         from . import plugins
         body = plugins.skill_body(name, self.plugin_context)
-        return body if body is not None else "error: unknown_skill"
+        if body is not None:
+            return _condense_skill_body(body)
+        # A TOOL loaded as a skill (<skill>metronome_bpm</skill> — seen on out-of-domain
+        # routing). Symmetric to the skill-as-tool error in _dispatch: name the right verb so
+        # the loop self-corrects to <tool>, instead of a dead 'unknown_skill' (which made the
+        # model flail back to its training-dominant skill). Carry the tool's REAL arg schema
+        # from the live manifest (not a literal '...') so the model doesn't GUESS arg names.
+        if name in self._known_tool_names():
+            hint = _arg_hint(tool_schema(self.plugin_context, name))
+            return f"error: '{name}' is a tool, not a skill — call it with <tool>{name} {hint}</tool>"
+        return "error: unknown_skill"
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board

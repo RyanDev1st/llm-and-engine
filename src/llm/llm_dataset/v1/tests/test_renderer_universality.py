@@ -30,6 +30,16 @@ def test_universality_finals_are_slice_specific_not_boilerplate():
         assert GENERIC_FINAL not in row["messages"][-1]["content"]
 
 
+def test_no_skill_direct_loads_no_skill_and_no_tool():
+    for scenario in plan_scenarios({"V1_Q_no_skill_direct": 10}, seed=4):
+        row = render_universality_row(scenario)
+        assert validate_row(row) == [], validate_row(row)
+        asst = "".join(m["content"] for m in row["messages"] if m["role"] == "assistant")
+        assert "<skill>" not in asst and "<tool>" not in asst   # answered directly
+        assert row["selected_skills"] == []
+        assert any(s["name"] == "chess-coach" for s in row["skills_index"])  # skills SEEN, none chosen
+
+
 def test_universality_prompts_use_human_styles():
     rows = [
         render_universality_row(scenario)

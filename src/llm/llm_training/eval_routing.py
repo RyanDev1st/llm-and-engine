@@ -100,7 +100,7 @@ def _report(adapter, correct, total, confusion, leak, m2total) -> None:
     overall_c = sum(correct.values())
     overall_t = sum(total.values())
     lines = [
-        "Parent: docs/superpowers/specs/2026-05-23-chess-coach-sft-design.md", "",
+        "Parent: docs/reference/2026-05-23-chess-coach-sft-design.md", "",
         "# Routing-accuracy audit", "", "## Status",
         f"Overall tool-routing accuracy: {overall_c}/{overall_t} = {overall_c/overall_t:.1%}", "",
         "## Scope", f"Adapter: `{adapter}`. Validation set: {overall_t} conversations.", "",
@@ -116,10 +116,10 @@ def _report(adapter, correct, total, confusion, leak, m2total) -> None:
         lines.append(f"- {v}x {k}")
     lines += ["", "## Next", "1. Export merged adapter to Q4_0 GGUF.",
               "2. Wire adapter into the web app and run end-to-end."]
-    # Dated report per CLAUDE.md (docs/YYYY-MM-DD-topic); each audit run lands fresh in
-    # docs/ root rather than overwriting an old fixed-date file (now in docs/legacy/).
+    # Dated finding per CLAUDE.md (docs/findings/YYYY-MM-DD-topic); each audit run lands
+    # fresh in docs/findings/ rather than overwriting an old fixed-date file.
     from datetime import date
-    out = REPO / "docs" / f"{date.today():%Y-%m-%d}-routing-audit.md"
+    out = REPO / "docs" / "findings" / f"{date.today():%Y-%m-%d}-routing-audit.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines[3:]), flush=True)
 

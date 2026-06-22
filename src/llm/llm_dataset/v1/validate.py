@@ -19,8 +19,53 @@ _MOVE_SAN = re.compile(r"<tool>\s*move\s+san=([^\s<]+)")
 _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
 
+_SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
+# PLAN-mode structure: <goal>…</goal>, <plan>…</plan>, and checkbox bindings (the
+# trailing "(name)" the serve gate maps to the executed skill/tool).
+_GOAL_TAG = re.compile(r"<goal>(.*?)</goal>", re.DOTALL)
+_PLAN_TAG = re.compile(r"<plan>(.*?)</plan>", re.DOTALL)
+_BOX_BIND = re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
+
+# Tools whose final arg is FREE TEXT (may contain spaces / '='): it captures the
+# rest of the call, mirroring backend.toolfmt.parse_call so train-time validation
+# and the serve-time parser agree. python's code= carries a whole script.
+_FREE = {"ask_chessbot": "query=", "load_fen": "fen=", "python": "code="}
+
+
+def _parse_args(name: str, inner: str) -> dict[str, str]:
+    inner = inner.strip()
+    free = _FREE.get(name)
+    if free and free in inner:
+        head, tail = inner.split(free, 1)
+        args = dict(_ARG.findall(head))
+        args[free[:-1]] = tail.strip()
+        return args
+    return dict(_ARG.findall(inner))
+
+
 def _tool_matches(content: str) -> list[re.Match]:
     return list(_CALL.finditer(content))
+
+
+def _skill_loads(messages: list[dict[str, str]]) -> list[str]:
+    """Skill names loaded via the <skill>NAME</skill> verb, in order."""
+    return [m for msg in messages if msg.get("role") == "assistant"
+            for m in _SKILL.findall(msg.get("content", ""))]
+
+
+def _actions(messages: list[dict[str, str]]) -> list[tuple[str, str]]:
+    """Ordered (kind, name) stream of harness actions: ('skill'|'tool', name).
+    One per assistant message by contract; preserves cross-message order."""
+    out: list[tuple[str, str]] = []
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        content = msg.get("content", "")
+        for s in _SKILL.findall(content):
+            out.append(("skill", s))
+        for match in _tool_matches(content):
+            out.append(("tool", match.group(1)))
+    return out
 
 
 @dataclass(frozen=True)
@@ -53,6 +98,9 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_move_legality(row))
     violations.extend(_board_state_turn(row))
     violations.extend(_one_tool_per_message(row["messages"]))
+    violations.extend(_reasoning_mode(row))
+    violations.extend(_plan_structure(row))
+    violations.extend(_audit_boxes(row, calls))
     return violations
 
 
@@ -90,7 +138,7 @@ def _tool_calls(messages: list[dict[str, str]]) -> list[tuple[str, dict[str, str
         if message.get("role") != "assistant":
             continue
         for match in _tool_matches(message.get("content", "")):
-            calls.append((match.group(1), dict(_ARG.findall(match.group(2))), match.group(0)))
+            calls.append((match.group(1), _parse_args(match.group(1), match.group(2)), match.group(0)))
     return calls
 
 
@@ -104,19 +152,27 @@ def _skills(row: dict[str, Any]) -> list[Violation]:
             out.append(Violation("selected_skill_exists", selected))
         elif skill.get("plugin") and (not skill.get("enabled", True) or skill.get("plugin") not in enabled):
             out.append(Violation("selected_skill_exists", selected))
-    loaded = [args.get("name") for name, args, _ in _tool_calls(row["messages"]) if name == "load_skill"]
+    loaded = _skill_loads(row["messages"])
+    for name in loaded:                       # every <skill> must be a listed skill
+        if name not in skills:
+            out.append(Violation("selected_skill_exists", f"unknown skill <skill>{name}</skill>"))
     for selected in row["selected_skills"]:
         if selected not in loaded:
             out.append(Violation("skill_loaded_after_selection", selected))
     return out
 
 
+def _is_action(content: str) -> bool:
+    return bool(_tool_matches(content)) or bool(_SKILL.search(content))
+
+
 def _final(messages: list[dict[str, str]]) -> list[Violation]:
-    finals = [m["content"] for m in messages if m.get("role") == "assistant" and not _tool_matches(m.get("content", ""))]
+    finals = [m["content"] for m in messages if m.get("role") == "assistant" and not _is_action(m.get("content", ""))]
     if not finals:
         return [Violation("final_no_xml", "missing final assistant answer")]
     final = finals[-1]
-    return [Violation("final_no_xml", "final contains raw tool XML")] if "<tool>" in final or "</tool>" in final else []
+    leaks = any(t in final for t in ("<tool>", "</tool>", "<skill>", "</skill>"))
+    return [Violation("final_no_xml", "final contains raw action XML")] if leaks else []
 
 
 def _tool_names(calls: list[tuple[str, dict[str, str], str]], tools: dict[str, Any]) -> list[Violation]:
@@ -156,11 +212,10 @@ def _skill_index_order(row: dict[str, Any], calls: list[tuple[str, dict[str, str
     indexed = {skill.get("name") for skill in row.get("skills_index", [])}
     loaded: set[str] = set()
     out: list[Violation] = []
-    for name, args, _ in calls:
-        if name == "load_skill":
-            skill_name = args.get("name")
-            if skill_name in indexed:
-                loaded.add(skill_name)
+    for kind, name in _actions(row["messages"]):
+        if kind == "skill":
+            if name in indexed:
+                loaded.add(name)
             continue
         if name == "normalize_human_chat" and "hood-human-chat" in indexed and "hood-human-chat" not in loaded:
             out.append(Violation("skill_index_only_before_load", "helper tool before helper skill load"))
@@ -175,13 +230,11 @@ def _skill_body(
     out: list[Violation] = []
     selected = set(row.get("selected_skills", []))
     loaded: set[str] = set()
-    for name, args, _ in calls:
-        if name == "load_skill":
-            skill_name = args.get("name")
-            if skill_name not in selected:
-                out.append(Violation("skill_body_strict", f"irrelevant skill loaded: {skill_name}"))
-            if skill_name:
-                loaded.add(skill_name)
+    for kind, name in _actions(row["messages"]):
+        if kind == "skill":
+            if name not in selected:
+                out.append(Violation("skill_body_strict", f"irrelevant skill loaded: {name}"))
+            loaded.add(name)
             continue
         tool = tools.get(name, {})
         if name == "normalize_human_chat" and "hood-human-chat" in selected and "hood-human-chat" not in loaded:
@@ -228,6 +281,9 @@ def _narration_grounded(row: dict[str, Any]) -> list[Violation]:
     messages = row["messages"]
 
     def facts(text: str) -> set[str]:
+        # <think> is intent/plan reasoning, never facts — strip it so the grounding
+        # check ignores it (the trained thinking trace must not be fact-checked).
+        text = re.sub(r"<think>.*?</think>", " ", text, flags=re.DOTALL)
         return {f.lstrip("+-") for f in _FACT.findall(text)}
 
     tool_facts: set[str] = set()
@@ -235,7 +291,7 @@ def _narration_grounded(row: dict[str, Any]) -> list[Violation]:
         if m.get("role") == "tool":
             tool_facts |= facts(m.get("content", ""))
     finals = [m["content"] for m in messages
-              if m.get("role") == "assistant" and not _tool_matches(m.get("content", ""))]
+              if m.get("role") == "assistant" and not _is_action(m.get("content", ""))]
     final_facts = facts(finals[-1]) if finals else set()
     if final_facts <= tool_facts:
         return []
@@ -321,9 +377,73 @@ def _one_tool_per_message(messages: list[dict[str, str]]) -> list[Violation]:
     for message in messages:
         if message.get("role") != "assistant":
             continue
-        if len(_tool_matches(message.get("content", ""))) > 1:
-            out.append(Violation("one_tool_per_message", "multiple tool calls in one inference step"))
+        content = message.get("content", "")
+        if len(_tool_matches(content)) + len(_SKILL.findall(content)) > 1:
+            out.append(Violation("one_tool_per_message", "multiple actions in one inference step"))
     return out
+
+
+def _reasoning_mode(row: dict[str, Any]) -> list[Violation]:
+    """Dual-mode integrity: a `fast` row must carry NO <think> (else the model
+    can never run snappy); `think`/`auto`/unset are unconstrained here. This is
+    what makes fast-vs-think a real toggle rather than an always-on reflex."""
+    mode = (row.get("reasoning_mode") or "").strip().lower()
+    if mode != "fast":
+        return []
+    for m in row.get("messages", []):
+        if m.get("role") == "assistant" and "<think>" in m.get("content", ""):
+            return [Violation("reasoning_mode_fast_no_think", "fast row contains <think>")]
+    return []
+
+
+def _plan_structure(row: dict[str, Any]) -> list[Violation]:
+    """PLAN-mode (Stage 1/2) deterministic gates:
+    - goal_before_plan: a <goal> AND a <plan> exist, and <goal> comes first (commit the
+      objective before the checklist — the anti-early-stop contract).
+    - plan_boxes_bound: every checkbox's binding "(name)" maps to a real listed skill or
+      tool (or the literal synthesis marker), so the serve box-tracking gate can map each
+      box to an executed action — no dangling boxes."""
+    rules = row.get("acceptance_rules", [])
+    if "goal_before_plan" not in rules and "plan_boxes_bound" not in rules:
+        return []
+    text = "\n".join(m.get("content", "") for m in row["messages"] if m.get("role") == "assistant")
+    out: list[Violation] = []
+    gm, pm = _GOAL_TAG.search(text), _PLAN_TAG.search(text)
+    if "goal_before_plan" in rules:
+        if not gm or not pm:
+            out.append(Violation("goal_before_plan", "missing <goal> or <plan>"))
+        elif gm.start() > pm.start():
+            out.append(Violation("goal_before_plan", "<plan> appears before <goal>"))
+    if "plan_boxes_bound" in rules and pm:
+        names = {s.get("name") for s in row.get("skills_index", [])}
+        names |= {t.get("name") for t in row.get("tool_manifest", [])}
+        for binding in _BOX_BIND.findall(pm.group(1)):
+            b = binding.strip()
+            if b in ("none", "synthesize", "synthesis"):
+                continue
+            if b not in names:
+                out.append(Violation("plan_boxes_bound", f"box binding '{b}' not a listed skill/tool"))
+    return out
+
+
+def _audit_boxes(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str]]) -> list[Violation]:
+    """Stage 2: every plan box bound to `python` must be CLOSED by a real python audit —
+    the model runs the script and reads the output, it does not assert. Enforced only when
+    the audit procedure actually ran (plan-audit in selected_skills); an honest-partial
+    abort (audit skill disabled -> not selected) is exempt, since the point is it couldn't."""
+    if "audit_boxes_grounded" not in row.get("acceptance_rules", []):
+        return []
+    if "plan-audit" not in row.get("selected_skills", []):
+        return []                                   # honest-partial abort -> nothing to audit
+    text = "\n".join(m.get("content", "") for m in row["messages"] if m.get("role") == "assistant")
+    pm = _PLAN_TAG.search(text)
+    if not pm:
+        return [Violation("audit_boxes_grounded", "missing <plan>")]
+    py_boxes = sum(1 for b in _BOX_BIND.findall(pm.group(1)) if b.strip() == "python")
+    py_calls = sum(1 for name, _, _ in calls if name == "python")
+    if py_calls < py_boxes:
+        return [Violation("audit_boxes_grounded", f"{py_calls} python audits for {py_boxes} checkable boxes")]
+    return []
 
 
 def _injection(row: dict[str, Any]) -> list[Violation]:

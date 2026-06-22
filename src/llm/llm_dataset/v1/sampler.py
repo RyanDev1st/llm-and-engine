@@ -9,6 +9,7 @@ from .catalog import (
     USER_SKILL_TOOLS,
     alt_skills,
     alt_tools,
+    compute_tools,
     official_tools,
     synthetic_skill_name,
     synthetic_tool_name,
@@ -33,7 +34,14 @@ UNIVERSALITY_SLICES = {
     "V1_L_rejects_and_audit_fixtures",
     "V1_M_marketplace_navigation",
     "V1_N_human_chat_skill_bridge",
+    "V1_Q_no_skill_direct",
 }
+# Compute-grounding slice: its own renderer, domain-neutral, calls the calc tool.
+COMPUTE_SLICES = {"V1_R_compute_grounding"}
+# Stage 1 compound-plan slice: its own renderer builds the multi-skill index/manifest.
+COMPOUND_SLICES = {"V1_S_compound_plan"}
+# Stage 2 audited-plan slice: its own renderer (audit skill + python-verified boxes).
+AUDIT_SLICES = {"V1_T_audited_plan"}
 
 PROMPT_STYLES = ("formal", "casual", "slang", "typo", "anxious", "beginner")
 
@@ -148,5 +156,7 @@ def _tools(rng: random.Random, name_family: str, slice_name: str) -> tuple:
                 "enabled": True,
             }
         ]
+    if slice_name in COMPUTE_SLICES:
+        base += compute_tools()       # calc must be listed for the model to call it
     rng.shuffle(base)
     return tuple(base)

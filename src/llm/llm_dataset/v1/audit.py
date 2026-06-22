@@ -12,8 +12,12 @@ from .paths import OUT
 from .profiles import DatasetProfile, V1_2, profile
 from .validate import validate_row
 
-CHESS_TARGETS = {"A": 630, "B": 385, "C": 280, "D": 315, "E": 350, "F": 315, "G": 140, "H": 210, "I": 420, "J": 280, "K": 175}
-BASE_UNIVERSAL_TARGET = 70
+# Must stay proportional to generate.DEFAULT_PLAN (general-first 75/25 mix). Chess
+# slices keep a tight tolerance; universal slices vary (V1_O dominant) so they are
+# only floor-checked. BASE_UNIVERSAL_TARGET = mean universal base (sum/16) so the
+# scale denominator matches the real plan total.
+CHESS_TARGETS = {"A": 180, "B": 110, "C": 80, "D": 95, "E": 100, "F": 95, "G": 50, "H": 65, "I": 120, "J": 80, "K": 55}
+BASE_UNIVERSAL_TARGET = 257  # mean of the 17 V1_* base counts (sum 4370 / 17)
 UNIVERSAL_MINIMUM = 60
 RULE_MINIMUMS = {"engine_grounded": 200, "skill_body_strict": 200}
 GENERALIZATION_MINIMUMS = {
@@ -22,7 +26,7 @@ GENERALIZATION_MINIMUMS = {
 }
 GENERIC_FINAL_MAX_SHARE = 0.02
 LOADED_SKILL_DIVERSITY_MIN = 50
-_LOAD_SKILL = re.compile(r"<tool>\s*load_skill\s+name=([^\s<]+)")
+_LOAD_SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
 GENERIC_FINAL_PATTERNS = (
     "i read the index",
     "picked the right skill",

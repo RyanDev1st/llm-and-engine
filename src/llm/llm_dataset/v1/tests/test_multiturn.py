@@ -69,9 +69,11 @@ def test_tool_followup_reloads_skill_and_grounds():
     for row in _rows(24):
         names = [n for m in row["messages"] if m["role"] == "assistant"
                  for n in _TOOL.findall(m["content"])]
-        if names:  # archetype B
-            assert names[0] == "load_skill"
+        if names:  # tool archetype: reloads skill via <skill>, then grounds
+            assert names[0] == "board_state"
+            joined = "".join(m["content"] for m in row["messages"])
+            assert "<skill>chess-coach</skill>" in joined
             assert "chess-coach" in row["selected_skills"]
             assert "narration_grounded" in row["acceptance_rules"]
-        else:       # archetype A
+        else:       # reference/clarify archetype: no tool, no skill reload
             assert row["selected_skills"] == []

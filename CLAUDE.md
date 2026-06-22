@@ -5,6 +5,10 @@ Project memory for Claude Code and other agents. Loaded every session. Keep **un
 ! Archive bin is `./legacy [ignore]/` — gitignored. Never edit, import, or reference it from live code; only move dead files INTO it.
 <!-- Maintainer: add path-scoped rules under .claude/rules/ when this file grows. -->
 
+## Persona
+
+Think like John Carmack and work like Andrej Karpathy
+
 ## Mission
 
 Ship **working software** for reliable **LLM tool use**: tool selection, JSON schemas, multi-turn loops, argument validation, and failure handling.
@@ -18,19 +22,19 @@ Ship **working software** for reliable **LLM tool use**: tool selection, JSON sc
 
 ### What we train: the agent (LLM harness)
 
-The product is a **chess-coach agent** = an LLM that **routes user intent to tools and narrates tool results** (see `src/llm/llm_training/system_prompt.py`). It does **not** compute chess — the engine/backend does. Goal: train Gemma 4 **E4B** QLoRA on **Kaggle T4** → LoRA adapter → serve **q4_0 GGUF locally on the RTX 4060** (E2B fallback). Active plan files at root: `implementation.md` (the plan, 3 phases) and `handoff.md`.
+The product is a **general agentic HARNESS operator** = an LLM that **chooses among the skills+tools listed in its prompt and thinks to complete a goal in ANY domain**, narrating tool results without computing them. Chess-coach is the **flagship demo domain, one of many** — not the whole product. The contract (`src/llm/llm_training/system_prompt.py`) has TWO verbs, one action per step: **`<skill>NAME</skill>`** loads a listed skill's body into context; **`<tool>NAME args</tool>`** calls a function (there is NO `load_skill` tool). Reasoning runs in 3 modes via a prompt signal: **fast** (no `<think>`), **think** (`<think>` every step), **auto** (`<think>` only on hard decisions — interleaved). Corpus mix is ~75% general / ~25% chess. Goal: train Gemma 4 **E4B** QLoRA via **Unsloth** (anomaly-guarded, seq 1664) on **Colab/Kaggle T4** → LoRA adapter → serve **q4_0 GGUF locally on the RTX 4060** (E2B fallback). Active plan files at root: `implementation.md` and `handoff.md`.
 
 | Path | Purpose |
 | --- | --- |
 | `CLAUDE.md` | Team agent instructions (this file) |
 | `src/llm/llm_dataset/v1/` | **ACTIVE** SFT generator. Spec = `contracts.py`; `profiles.py` writes the v1_2 corpus. Source of truth for harness behavior |
 | `data/sft/v1_2_train.jsonl`, `data/sft/v1_2_val.jsonl`, `data/sft/v1_2/` | **ACTIVE** SFT corpus (split + accepted/rejected). The ONLY corpus trainers read |
-| `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py` |
-| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server. Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Plugin bundles = `backend/plugins/` (each contributes tools+skills+hooks; registry aggregates enabled ones into the served manifest — tests cross-bundle routing). Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`) |
+| `src/llm/llm_training/` | QLoRA trainer (`run_train.py`, `train_cuda.py`), loader, `eval_routing.py`, `system_prompt.py`. Eval/benchmark: `eval_confusion.py` (routing confusion matrix), `eval_benchmark.py` (routing ablation: e4b-v4 adapter+harness vs e4b base+harness; plus a disk-safe standalone `--e2b-only` that frees the E4B base + downloads the E2B base to eval the prior E2B production model — both bases never co-reside on Kaggle's ~20GB disk), `bench_report.py` (the markdown/PNG rendering half of the benchmark, split out for the size cap), `bench_suites.py` (held-out wild/out-of-domain STRESS rows, catalog sourced from the real `life-skills` plugin), `bench_transcript.py` (captures a real end-to-end agent conversation on unseen domains for the report), `bench_misses.py` (per-row routing MISS log → per-slice failure-mode table, so "slice G 0/25" is explained not guessed), `eval_completion.py` (COMPLETION-grading tier: runs the FULL CoachLoop per row and scores completed/exec_ok/args_ok/grounded + `recovered` = a wrong first route the loop self-corrects to a grounded answer — the metric strict first-action routing misses; rubric unit-tested offline, full run on Kaggle Cell 6.7 over the OOD STRESS suite). `report/` = report-asset generation: `charts.py` (GPU-free matplotlib: layer-contribution bars, corpus composition, per-slice bars, training timeline), `chart_data.py` (numbers traced to real artifacts + v2/v3/v4 metadata), `version_eval.py` (Kaggle multi-version measured routing trend → assets in `docs/findings/report_assets/`); serve notebook `colab_serve_e4b.ipynb`, benchmark notebook `kaggle_benchmark.ipynb` |
+| `src/llm/backend/` | Environment the agent calls: tool executor + Stockfish engine + HTTP server + `sandbox.py` (the domain-neutral `python` verification tool — isolated subprocess, used to ground/verify a claim by running a script; Stage-0 keystone). Live skills catalog = `src/llm/skills/` (loaded by `skills.load_skills`). Plugin bundles = `backend/plugins/` (each contributes tools+skills+hooks; registry aggregates enabled ones into the served manifest — tests cross-bundle routing). `life_skills.py` = a real out-of-domain bundle (cooking/music/wellness/tax — real bodies + deterministic executors) installed-but-off by default; the benchmark enables it to prove the harness generalizes to unseen domains. Dev runtime: `model_server.py` (persistent weights service) + `model_remote.py` + `dev_serve.py` (weightless app auto-restart via `CHESS_MODEL_SERVER`). Memory system = `backend/memory/` (persistent per-user profile auto-captured each turn behind a write-discipline gate; injected into the system prompt every turn — runtime profiles in `data/memory/`, gitignored. `episodic.py` = a 4th tier: a GLOBAL flag-gated `CHESS_EPISODIC` "how-to-operate" store that learns a tool's correct usage from a turn's error→fix recovery and recalls it for similar later requests — self-learning with the model frozen, persists across machines via a synced `CHESS_MEMORY_DIR`; ADR 0001) |
 | `src/llm/skills_demo/` | 40 chess SKILL.md fixtures for routing tests + presentation demo. `_specs.py` (data) + `_generate.py` (renderer); NOT auto-loaded by the backend (pass as `load_skills` root) |
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
 | `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |
-| `src/engine/research/` | Standalone custom chess engine (alt backend) |
+| `src/chess_engine/` | The team's neural chess engine, **slimmed to serve-runtime only** (NN value net `models/nee.py` + alpha-beta `battle/selector.py` + `features`/`move_encoding` + `evaluation/static.py`) + the ONE verified checkpoint `weights/nee_latest.pt` (distilled+RL, ~1400 Elo, verified genuine). The 4.2GB of training bulk / RL checkpoints / duplicate `engine_team` tree were deleted (we don't develop the engine, only serve it). Imported as `chess_engine` (serve adds `src/` to path); pluggable via `backend/eval_engines.py` |
 | `docs/` | Durable docs + dated reports; index = `docs/README.md`. Superseded docs → `docs/legacy/` (tracked archive) |
 | `legacy [ignore]/` | **Archive bin** for superseded plans/code/data — gitignored, never imported by live code |
 | `.claude/settings.local.json` | Personal permissions — **gitignored**, never commit |
@@ -68,26 +72,25 @@ The repo accumulates dead plans, datasets, and build scripts. Hard rules to stay
 2. No `_copy`, `_old`, `temp`, or duplicate scripts.
 3. Every new path is referenced by code, tests, or docs in the same change set.
 4. New top-level or feature folder → add one row to **Repository map** in this file in the same change set.
+5. **Throwaways** (probes, one-off scripts, sample outputs) → name them `scratch_*` (already gitignored). Never commit them, never leave them in `src/`; promote to a real path (with refs) or delete before "done".
+6. **Wrote a doc or learned a lesson?** Doc sits in the right `docs/` bucket (reference/findings/adr) AND has its `docs/README.md` row; durable lesson is a memory one-fact file + `MEMORY.md` row. See **Writing artifacts** above.
 
-### Reports (required layout)
+### Writing artifacts — where does it go? (MANDATORY)
 
-- Path: `<scope-dir>/YYYY-MM-DD-<topic>-<artifact>.md`
-- Allowed `<scope-dir>`: `docs/` (default).
-- Line 1: `Parent: <relative-path>` or `Parent: none`
-- Sections in order: **Status**, **Scope**, **Evidence** (commands + outcomes), **Next** (numbered list)
-- Same topic + same calendar date → append to the existing file **or** supersede as `…-v2.md` with a link to the prior file. Do not create a parallel sibling for the same topic.
+Every written artifact has ONE home, shape, and lifecycle. Decide BEFORE writing; never default to repo root or a "misc" pile. Picking the wrong bucket is the #1 way the workspace rots.
 
-### Docs hygiene (MANDATORY — keep `docs/` legible so the human knows what to do)
+| What you're writing | Home | Shape | Lifecycle |
+| --- | --- | --- | --- |
+| How a thing works **now** | `docs/reference/<topic>.md` | living doc, no date in name | **mutable in place** |
+| Dated audit / triage / inspection / eval report | `docs/findings/YYYY-MM-DD-<topic>.md` | `Parent:` line 1, then Status / Scope / Evidence / Next | **immutable**; supersede by newer date → `docs/legacy/` |
+| Non-obvious decision (the **why**) | `docs/adr/NNNN-title.md` | Context / Decision / Consequences / Status | **immutable**; reverse via a new ADR |
+| Cross-session lesson / preference / gotcha | memory one-fact file + `MEMORY.md` row | typed frontmatter + **Why** + **How to apply** | update the file; delete if wrong |
+| Active plan + handoff state | root `implementation.md` + `handoff.md` | — | one set only; supersede in place |
+| Throwaway (probe, sample, scratch) | `scratch_*` (gitignored) | — | promote w/ refs or delete before "done" |
 
-`docs/` holds ONLY current, in-use documentation. Superseded docs (old handoffs, finished
-phase reports, abandoned-path runbooks, retired designs) move to **`docs/legacy/`** — a
-tracked, discoverable archive (distinct from the gitignored `legacy [ignore]/` code/data bin).
+**Prefer the smallest durable home:** before writing a `findings/` file, ask if it should instead update a `reference/` doc (then the investigation dies) or become an `adr/`. A finding is justified only when the dated snapshot itself has lasting value (e.g. an ML experiment/eval log). Don't let `findings/` rot into a graveyard.
 
-1. **One index:** `docs/README.md` lists every active doc with a one-line purpose. Add a row when you add a doc; remove it when you archive one — in the **same change**.
-2. **Archive on supersede:** when a doc is replaced, finished, or its path is abandoned, `git mv` it to `docs/legacy/` and add a one-line "why retired" note in `docs/legacy/README.md`. Move, never delete.
-3. **No dangling refs:** never leave live code or an active plan pointing at a doc you moved to `docs/legacy/`. If a tool WRITES a report, it must write a fresh `docs/YYYY-MM-DD-…` path, not overwrite an archived one.
-4. **Root plan files stay at root:** `implementation.md` + `handoff.md` are the active plan set and do NOT live under `docs/`.
-5. **Check on cleanup:** when asked to tidy, audit `docs/` — anything not reachable from `docs/README.md` and not current → `docs/legacy/`.
+Rules: **`docs/README.md` is the ONE index** — add/remove its row in the SAME change a doc is added/archived. **Archive = `git mv` to `docs/legacy/`** + a why-line in `docs/legacy/README.md`; never delete, never edit an archived doc. **No dangling refs** — a tool that writes a report emits a fresh `docs/findings/YYYY-MM-DD-…` path; it never overwrites a `reference/` or archived doc. **Lessons live in memory, not a `docs/experience` folder** (the buckets above have no "experience" — that's what memory is). When asked to tidy: anything in `docs/` not reachable from `docs/README.md` and not current → `docs/legacy/`.
 
 ## Verification
 
@@ -114,7 +117,6 @@ If verification fails, fix or report the failure with the failing command and er
 - After tasks are **confirmed with the user**, respond **AYE** once that turn (team convention).
 - **Max four concurrent threads** (orchestrator + subagents). Do not fan out beyond four.
 - Prefer parallel subagents for independent work. If a Claude subagent fails for more than 3 times, retry with **codex** (`codex-rescue` or project Codex runtime).
-- RTK (token reduction) hooks: `~/.claude/RTK.md`
 
 ## Git and delivery
 
@@ -122,10 +124,6 @@ If verification fails, fix or report the failure with the failing command and er
 - **Push / PR** only when the user explicitly requests it.
 - Commit messages: conventional, scoped, one logical change per commit; subject states *why*.
 - Never commit secrets, `.env`, or large generated artifacts unless they are intentional, documented fixtures.
-
-## OpenSpec
-
-When the user drives OpenSpec changes, use skills under `.claude/skills/openspec-*` and respect `openspec/config.yaml`. Do not bypass the OpenSpec workflow for tracked changes unless the user directs a hotfix path.
 
 ## Maintaining this file
 
