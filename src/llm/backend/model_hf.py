@@ -16,6 +16,23 @@ LLM_DIR = Path(__file__).resolve().parents[1]
 # An E4B LoRA on an E2B base = shape mismatch, so this MUST match the training base.
 BASE = Path(os.environ.get("CHESS_HF_BASE") or (LLM_DIR / "models" / "gemma4_e2b"))
 
+# CHESS_GEN_TRACE=1 prints per-generate decode cost (tokens + wall-time + tok/s + stop path) so a
+# latency regression is measurable from the server log without a profiler. Off by default.
+_GEN_TRACE = os.environ.get("CHESS_GEN_TRACE", "") not in ("", "0", "false", "False")
+_warned_no_earlystop = False
+
+
+def _warn_no_earlystop_once(exc: Exception) -> None:
+    """Loud one-time warning when generate() can't accept stop_strings, so the run falls back to
+    NO early-stop — i.e. every step decodes to max_new_tokens. That silent fallback is the prime
+    suspect for the 'each step takes dozens of seconds' regression; make it impossible to miss."""
+    global _warned_no_earlystop
+    if not _warned_no_earlystop:
+        _warned_no_earlystop = True
+        print(f"[gen] WARNING: stop_strings unsupported here ({exc!r}) — early-stop OFF, every step "
+              f"decodes to max_new_tokens. Latency will be high. Check the transformers version.",
+              flush=True)
+
 
 class HFModel:
     def __init__(self, base: str | Path = BASE, adapter: str | Path | None = None,
@@ -136,13 +153,26 @@ class HFModel:
             gkw["input_ids"] = input_ids
             if attn is not None:
                 gkw["attention_mask"] = attn
+        import time as _time
+        _t0 = _time.time()
+        _in_len = gkw["input_ids"].shape[1]
+        _path = "stop_strings"
         try:
             go = self.model.generate(**gkw, **kw, stop_strings=stops, tokenizer=self.tok)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            # FALLBACK = NO early-stop -> every step decodes to max_new_tokens (the latency knot).
+            # Warn ONCE so a transformers version that can't take stop_strings is OBVIOUS, not silent.
+            _warn_no_earlystop_once(_exc)
+            _path = "fallback(no-stop)"
             go = self.model.generate(**gkw, **kw)
         seq = go.sequences[0]
         if prefix is not None:                                # rebuild the full sequence
             seq = torch.cat([prefix[0], seq], dim=0)
+        if _GEN_TRACE:                                        # CHESS_GEN_TRACE=1: per-call decode cost
+            _gen = int(seq.shape[0]) - (_in_len + (start if prefix is not None else 0))
+            _dt = _time.time() - _t0
+            print(f"[gen] in={_in_len} cap={max_new_tokens} out={_gen} tok "
+                  f"{_dt:.1f}s ({_gen / max(_dt, 1e-3):.1f} tok/s) stop={_path}", flush=True)
         return seq, getattr(go, "past_key_values", None)
 
     def _run_plain(self, enc: dict, max_new_tokens: int, stop: list[str]):
