@@ -243,8 +243,14 @@ def _fact_in_reply(sig: str, reply_low: str) -> bool:
     if s in reply_low:
         return True
     import re as _r
+    # Numeric tolerance applies ONLY to a QUANTITY signal — one that LEADS with a digit/sign
+    # (eval '+0.44', score '500.0', plugin num+unit '60s'/'2x'). A SAN move ('nf3') or a word
+    # label ('blunder') starts with a letter; its digits are coordinates, NOT quantities, so it
+    # must match EXACTLY (the in-reply check above) and never via the numeric fallback.
+    if not _r.match(r"[-+]?\d", s):
+        return False
     m = _r.search(r"[-+]?\d+(?:\.\d+)?", s)
-    if not m:                                        # SAN / label — exact only
+    if not m:
         return False
     val = float(m.group(0))
     for tok in _r.findall(r"[-+]?\d+(?:\.\d+)?", reply_low):

@@ -272,6 +272,17 @@ def test_grounding_does_not_double_append_when_model_paraphrases_or_rounds():
     assert out2 == reply2 and "convert:" not in out2
 
 
+def test_san_grounding_not_fooled_by_a_coincidental_number():
+    # Regression: a SAN signal's RANK DIGIT ('3' in 'Nf3') is a coordinate, not a quantity. The
+    # numeric-tolerance path must NOT treat a stray '3' in the reply as grounding the move, or a
+    # genuinely-dropped best_move gets silently swallowed. Numeric signals keep the tolerance.
+    from backend.inference import _fact_in_reply
+    assert _fact_in_reply("Nf3", "you have 3 reasonable plans here") is False   # move NOT grounded
+    assert _fact_in_reply("e4", "e4 is the move") is True                       # exact still works
+    assert _fact_in_reply("8.047", "about 8.05 km") is True                     # numeric round kept
+    assert _fact_in_reply("60s", "set for 60 seconds") is True                  # num+unit paraphrase kept
+
+
 def test_grounding_still_appends_a_genuinely_dropped_fact():
     # The leniency must NOT swallow a real drop: a reply with NO matching number still gets grounded.
     from backend.inference import _ensure_required_narrated
