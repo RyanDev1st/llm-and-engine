@@ -159,11 +159,13 @@ class App:
         session_mem.clear(self.session)         # a new game -> drop the stale fact cache
         return self.state()
 
-    def _context_block(self) -> str:
+    def _context_block(self, message: str = "") -> str:
         """The injected memory context: the persistent user profile + any session facts still
-        fresh for the live board. Read from the REAL game (base/mirror runs mirror it)."""
+        fresh for the live board + a recalled how-to-operate hint for THIS request (episodic;
+        no-op unless CHESS_EPISODIC=1). Read from the REAL game (base/mirror runs mirror it)."""
         parts = [memory.memory_block(self.user_id),
-                 session_mem.render(self.session, self.game.board.fen())]
+                 session_mem.render(self.session, self.game.board.fen()),
+                 memory.episodic_block(message, self.plugin_context)]
         return "\n\n".join(p for p in parts if p)
 
     def _mirror_base(self) -> None:
@@ -183,8 +185,12 @@ class App:
         # capture durable user facts (idempotent). Only the PRIMARY trained loop updates the
         # session cache — base/mirror runs are demo comparisons on a copied board.
         result = loop.respond(history, message, coverage, on_event, reasoning_mode=mode,
-                              memory_block=self._context_block())
+                              memory_block=self._context_block(message))
         memory.capture(message, self.user_id)
+        # Episodic learning: only the PRIMARY trained loop's turns are real lessons (base/mirror are
+        # demo comparisons). Harvest a how-to-operate episode (no-op unless CHESS_EPISODIC=1).
+        if loop is self.loop:
+            memory.observe(message, result, self.plugin_context)
         # Cache analysis facts ONLY when the board didn't move this turn (else the facts are
         # ambiguous as to which position they describe). The render freshness-guard drops them
         # the moment the live FEN diverges anyway.

@@ -42,7 +42,11 @@ A tool that writes a report MUST write a fresh `docs/findings/YYYY-MM-DD-<topic>
 
 ## adr/ — decisions (the why)
 
-_None yet._ Add `adr/NNNN-short-title.md` when a non-obvious choice is made (sequential number). See [adr/README.md](adr/README.md).
+| ADR | Decision |
+| --- | --- |
+| [adr/0001-episodic-tool-memory.md](adr/0001-episodic-tool-memory.md) | Add a 4th memory tier — episodic, global, file-backed, flag-gated — that learns a tool's correct usage from a turn's error→fix and recalls it for similar later requests. The system self-learns with the model frozen; persists across runs/machines via a synced dir. Rejects retraining + global-regex arg-fillers |
+
+Add `adr/NNNN-short-title.md` when a non-obvious choice is made (sequential number). See [adr/README.md](adr/README.md).
 
 ---
 `screenshots/` holds UI captures referenced by docs.
