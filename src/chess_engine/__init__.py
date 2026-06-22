@@ -1,0 +1,2 @@
+"""LiquidChess engine package."""
+
