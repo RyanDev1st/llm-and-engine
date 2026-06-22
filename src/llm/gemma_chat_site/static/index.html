@@ -1081,7 +1081,22 @@ const ChessUI = (() => {
     return true;
   }
 
-  function autoOpponent() {
+  // The opponent's move: ask the team's neural engine (backend /api/opponent) for the side to
+  // move and apply it; if that's unreachable or illegal, fall back to a random legal move so the
+  // game never stalls. async + fire-and-forget (all callers use setTimeout).
+  async function autoOpponent() {
+    if (state.gameOver || state.turn === state.playerColor) return;
+    try {
+      const r = await fetch('/api/opponent', { method: 'POST', headers: { 'content-type': 'application/json' },
+                                               body: JSON.stringify({ fen: getFEN() }) });
+      const j = await r.json();
+      // Re-check the turn: the user may have moved/undone/switched games while the engine thought.
+      if (j && j.ok && j.uci && state.turn !== state.playerColor && tryApplyUci(j.uci)) return;
+    } catch (e) { /* backend down -> random fallback below */ }
+    randomOpponentMove();
+  }
+
+  function randomOpponentMove() {
     if (state.gameOver || state.turn === state.playerColor) return;
     const allMoves = [];
     for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {

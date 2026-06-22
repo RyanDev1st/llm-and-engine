@@ -105,6 +105,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, **APP.use_session(sid or None)})
             if path == "/api/session/delete":
                 return self._json(APP.delete_session(str(body.get("id", "")).strip()))
+            if path == "/api/opponent":    # neural engine plays the side to move (vs random)
+                from . import opponent
+                return self._json(opponent.choose(str(body.get("fen", ""))))
             if path == "/api/engine":      # toggle the eval-bar engine (stockfish | custom)
                 from . import eval_engines
                 eval_engines.set_engine(str(body.get("engine", "")).strip())
