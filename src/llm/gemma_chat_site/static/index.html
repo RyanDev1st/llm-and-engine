@@ -754,13 +754,16 @@ const Chess = (() => {
     return false;
   }
 
-  function makeMove(state, fromR, fromC, toR, toC) {
+  function makeMove(state, fromR, fromC, toR, toC, promotion) {
     const b = cloneBoard(state.board), p = b[fromR][fromC];
     let captured = b[toR][toC], epTarget = null, promo = null;
     b[fromR][fromC] = null; b[toR][toC] = p;
     if (p.type === 'p' && !captured && fromC !== toC) { const epR = p.color==='w'?toR+1:toR-1; captured = b[epR][toC]; b[epR][toC] = null; }
     if (p.type === 'p' && Math.abs(toR - fromR) === 2) epTarget = {r: (fromR + toR) / 2, c: fromC};
-    if (p.type === 'p' && (toR === 0 || toR === 7)) { b[toR][toC] = {type:'q', color:p.color}; promo = 'q'; }
+    if (p.type === 'p' && (toR === 0 || toR === 7)) {
+      promo = /^[qrbn]$/i.test(promotion || '') ? promotion.toLowerCase() : 'q';
+      b[toR][toC] = {type: promo, color:p.color};
+    }
     if (p.type === 'k' && Math.abs(toC - fromC) === 2) {
       const rfc = toC > fromC ? 7 : 0, rtc = toC > fromC ? 5 : 3;
       b[toR][rtc] = b[toR][rfc]; b[toR][rfc] = null;
@@ -978,7 +981,10 @@ const ChessUI = (() => {
   function reconcile(st) {
     if (!st || !st.fen) return;
     if (st.eval) EvalBar.render(st.eval);             // fresh backend eval -> update the bar
-    const sameBoard = (a, b) => a.split(' ')[0] === b.split(' ')[0] && a.split(' ')[1] === b.split(' ')[1];
+    const sameBoard = (a, b) => {
+      const key = f => String(f || '').trim().split(/\s+/).slice(0, 4).join(' ');
+      return key(a) === key(b);
+    };
     if (sameBoard(getFEN(), st.fen)) return;          // board unchanged
     if (st.last_move && tryApplyUci(st.last_move) && sameBoard(getFEN(), st.fen)) return;  // model's move
     loadFEN(st.fen);                                   // position jump (load_fen)
@@ -994,7 +1000,8 @@ const ChessUI = (() => {
     if ([fromC, fromR, toC, toR].some(v => isNaN(v) || v < 0 || v > 7)) return false;
     const dests = Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget);
     if (!dests.some(d => d.r === toR && d.c === toC)) return false;
-    state = Chess.makeMove(state, fromR, fromC, toR, toC);
+    const promotion = uci.length >= 5 ? uci[4] : null;
+    state = Chess.makeMove(state, fromR, fromC, toR, toC, promotion);
     bump();
     clearSel(); render();
     return true;
@@ -1027,7 +1034,7 @@ const ChessUI = (() => {
     for (const m of moves) {
       const dests = Chess.legalMoves(state.board, m.fromR, m.fromC, state.castlingRights, state.enPassantTarget);
       const d = dests.find(d => d.r === m.toR && d.c === m.toC);
-      if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
+      if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC, m.promo);
     }
     bump();
     render();
@@ -1077,7 +1084,21 @@ const ChessUI = (() => {
     const cr = state.castlingRights;
     let crs = ''; if (cr.wK) crs += 'K'; if (cr.wQ) crs += 'Q'; if (cr.bK) crs += 'k'; if (cr.bQ) crs += 'q';
     fen += (crs || '-') + ' ';
-    fen += (state.enPassantTarget ? 'abcdefgh'[state.enPassantTarget.c] + (8-state.enPassantTarget.r) : '-');
+    let ep = '-';
+    if (state.enPassantTarget) {
+      const dir = state.turn === 'w' ? -1 : 1, fromR = state.enPassantTarget.r - dir;
+      for (const dc of [-1, 1]) {
+        const fromC = state.enPassantTarget.c + dc;
+        const p = state.board[fromR] && state.board[fromR][fromC];
+        if (p && p.type === 'p' && p.color === state.turn &&
+            Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget)
+              .some(m => m.epCapture && m.r === state.enPassantTarget.r && m.c === state.enPassantTarget.c)) {
+          ep = 'abcdefgh'[state.enPassantTarget.c] + (8-state.enPassantTarget.r);
+          break;
+        }
+      }
+    }
+    fen += ep;
     fen += ' 0 ' + (Math.floor(state.moveHistory.length/2)+1);
     return fen;
   }
