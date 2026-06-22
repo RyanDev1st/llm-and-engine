@@ -120,6 +120,23 @@ def test_extract_call_recovers_tagless_bare_call():
     assert extract_call("The best move here is e4.") is None
 
 
+def test_skill_verb_on_a_tool_name_is_coerced_to_a_tool_call():
+    # The dominant E4B miss mode: the model picks the RIGHT tool but wraps it in <skill>
+    # (skill:threats / skill:best_move / skill:list_pieces). The model already chose the tool —
+    # fix the wrapper verb so it EXECUTES, instead of dead-ending on the off-distribution
+    # 'is a tool, not a skill' corrective (which the corpus never trained recovery for).
+    assert extract_call("<skill>threats</skill>") == "<tool>threats</tool>"
+    assert extract_call("<skill>list_pieces</skill>") == "<tool>list_pieces</tool>"
+    assert extract_call("<skill>best_move</skill>") == "<tool>best_move</tool>"
+    # lead-in preserved
+    assert extract_call("Let me check. <skill>threats</skill>") == "Let me check. <tool>threats</tool>"
+    # a REAL skill name still loads the skill (NOT a tool -> not coerced)
+    assert extract_call("<skill>chess-coach</skill>") == "<tool>load_skill name=chess-coach</tool>"
+    # a plugin tool coerces only when its bundle's names are threaded in via `allowed`
+    assert extract_call("<skill>metronome_bpm</skill>") == "<tool>load_skill name=metronome_bpm</tool>"
+    assert extract_call("<skill>metronome_bpm</skill>", allowed={"metronome_bpm"}) == "<tool>metronome_bpm</tool>"
+
+
 def test_extract_call_recovers_plugin_tool_when_allowed():
     # PLUGIN-AWARE recovery: a tagless plugin call is recovered ONLY when the live tool
     # names are threaded in via `allowed` (the harness passes live_tool_names(plugin_context)).

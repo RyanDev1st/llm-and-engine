@@ -279,6 +279,20 @@ def test_chess_coverage_still_fires_in_chess_context():
     assert "eval" in _names(out)
 
 
+def test_tool_as_skill_miss_is_coerced_and_grounded_without_model_recovery():
+    # The dominant E4B miss mode = a tool emitted as a skill (<skill>list_pieces</skill>). BEFORE
+    # coercion, a model that doesn't recover from the off-distribution corrective dead-ended on
+    # duplicate_tool_call -> ungrounded non-answer. With verb-coercion, the tool RUNS on the first
+    # step regardless of whether the (frozen) model recovers. list_pieces needs no engine.
+    out = _loop([
+        "<skill>list_pieces</skill>",          # tool-as-skill miss
+        "You still have your pieces.",          # model does NOT re-emit the tool (non-compliant)
+    ]).respond([], "which pieces do I have left?")
+    assert _names(out) == ["list_pieces"]                       # coerced + executed (not load_skill)
+    assert any(r.startswith("pieces:") for r in out["tool_results"])   # real grounded result
+    assert "duplicate_tool_call" not in out["tool_results"]     # no dead-end
+
+
 def test_chess_coverage_on_for_training_catalog_bundles_with_no_runtime_tools():
     # The gate keys off the RUNTIME tool surface, not bundle names. A val-style context lists
     # training catalog bundles (user-skills/synthetic-pack) that register NO runtime tools, so

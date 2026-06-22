@@ -417,18 +417,30 @@ def extract_call(decision: str, allowed: "set[str] | None" = None) -> str | None
     # Gemma natively wraps calls in <tool_code>…</tool_code>; the harness speaks
     # <tool>. Map it so those calls execute instead of leaking into the reply.
     s = decision.strip().replace("<tool_code>", "<tool>").replace("</tool_code>", "</tool>")
-    # <skill>NAME</skill> is the trained skill-load VERB. The executor still loads a
-    # skill via the canonical 'load_skill name=NAME' tool, so translate the verb to
-    # that internal form so it EXECUTES. Take the name from a legacy inner
-    # "load_skill name=X" if present, else the first token.
+    # <skill>NAME</skill> is the trained skill-load VERB. The executor loads a skill via the
+    # canonical 'load_skill name=NAME' tool, so translate the verb to that internal form so it
+    # EXECUTES. Take the name from a legacy inner "load_skill name=X" if present, else first token.
+    # VERB COERCION: the dominant E4B miss is the model picking the RIGHT tool but wrapping it in
+    # <skill> (skill:threats / skill:best_move / skill:list_pieces). When NAME is a live TOOL (not
+    # a skill), emit the tool call directly so it RUNS — same class as the tagless/malformed recovery
+    # above. This makes the loop robust without depending on the frozen model recovering from the
+    # off-distribution 'is a tool, not a skill' corrector (the corpus only trained invalid_syntax
+    # recovery). The routing benchmark scores RAW first-action, so the miss stays visible there.
+    coerce = (frozenset(_TOOL_NAMES) | frozenset(allowed or ())) - {"load_skill"}
+
+    def _verb_open(name: str) -> str:
+        if not name:
+            return ""
+        return f"<tool>{name}</tool>" if name in coerce else f"<tool>load_skill name={name}</tool>"
+
     def _skill_sub(m: "_re.Match") -> str:
         inner = m.group(1).strip()
         mm = _re.search(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)", inner)
         name = mm.group(1) if mm else (inner.split()[0] if inner else "")
-        return f"<tool>load_skill name={name}</tool>" if name else ""
+        return _verb_open(name)
     s = _re.sub(r"<skill>(.*?)</skill>", _skill_sub, s, flags=_re.S)
     s = _re.sub(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)",   # close-tag dropped
-                r"<tool>load_skill name=\1</tool>", s)
+                lambda m: _verb_open(m.group(1)), s)
     s = s.replace("<skill>", "<tool>").replace("</skill>", "</tool>")
     # Strip model artifacts that pollute the call: channel tokens — ANY <...> containing a
     # pipe, e.g. "<|tool_call>", "<tool_call|>" (both seen live; <tool>/</tool> have no pipe
