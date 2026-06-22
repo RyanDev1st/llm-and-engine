@@ -74,6 +74,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"token": _dev_reload_token()})
         if path == "/api/skills":
             return self._json(APP.skills_payload())
+        if path == "/api/sessions":            # the sidebar's session list (+ the active id)
+            return self._json(APP.list_sessions())
         if path in ("/", "/index.html"):
             return self._file(WEB / "index.html")
         if path.startswith("/static/"):
@@ -89,19 +91,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
             if path == "/api/sync":
                 # The client board is authoritative (smooth, no per-move round-trip);
-                # mirror it here before a chat turn. Normal play sends a move list
-                # (replayed -> preserves history for review_move/undo); a FEN-loaded
-                # position (puzzle/paste) sends fen (history starts fresh).
-                fen = str(body.get("fen", "")).strip()
-                moves = body.get("moves", [])
-                if fen:
-                    ok = APP.game.load_fen(fen)
-                else:
-                    ok = APP.game.load_uci_moves([str(m) for m in moves] if isinstance(moves, list) else [])
-                APP.executor.game = APP.game
-                return self._json({"ok": ok, "state": APP.state()}, 200 if ok else 400)
+                # mirror it here AND persist to the active session (so a reload restores
+                # the exact position). Normal play sends a move list (replayed -> preserves
+                # history for review_move/undo); a FEN-loaded position sends fen.
+                out = APP.sync(fen=str(body.get("fen", "")), moves=body.get("moves", []))
+                return self._json(out, 200 if out.get("ok") else 400)
             if path == "/api/reset":
                 return self._json({"ok": True, "state": APP.reset()})
+            if path == "/api/session/new":     # create + switch to a fresh empty game
+                return self._json({"ok": True, **APP.new_session()})
+            if path == "/api/session/switch":  # restore a session: board + chat history
+                sid = str(body.get("id", "")).strip()
+                return self._json({"ok": True, **APP.use_session(sid or None)})
+            if path == "/api/session/delete":
+                return self._json(APP.delete_session(str(body.get("id", "")).strip()))
             if path == "/api/engine":      # toggle the eval-bar engine (stockfish | custom)
                 from . import eval_engines
                 eval_engines.set_engine(str(body.get("engine", "")).strip())
