@@ -137,6 +137,20 @@ def test_skill_verb_on_a_tool_name_is_coerced_to_a_tool_call():
     assert extract_call("<skill>metronome_bpm</skill>", allowed={"metronome_bpm"}) == "<tool>metronome_bpm</tool>"
 
 
+def test_verb_coercion_preserves_args_from_the_skill_tag():
+    # When the model DID provide args inside the skill tag (<skill>metronome_bpm bpm=120</skill>),
+    # coercion must KEEP them -> a one-shot tool call, not a stripped argless call that needlessly
+    # errors on the missing arg and forces a recovery step.
+    assert extract_call("<skill>threats depth=20</skill>") == "<tool>threats depth=20</tool>"
+    assert extract_call("<skill>metronome_bpm bpm=120</skill>", allowed={"metronome_bpm"}) == \
+        "<tool>metronome_bpm bpm=120</tool>"
+    assert extract_call("<skill>scale_recipe from_servings=12 to_servings=30</skill>",
+                        allowed={"scale_recipe"}) == \
+        "<tool>scale_recipe from_servings=12 to_servings=30</tool>"
+    # a real skill with trailing words still loads the skill (name only; load_skill takes name=)
+    assert extract_call("<skill>chess-coach</skill>") == "<tool>load_skill name=chess-coach</tool>"
+
+
 def test_extract_call_recovers_plugin_tool_when_allowed():
     # PLUGIN-AWARE recovery: a tagless plugin call is recovered ONLY when the live tool
     # names are threaded in via `allowed` (the harness passes live_tool_names(plugin_context)).

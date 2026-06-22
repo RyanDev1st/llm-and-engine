@@ -256,6 +256,31 @@ def test_result_signal_delegates_to_generic_for_plugin_results():
     assert _result_signal("metronome_bpm: 120 bpm = 500.0 ms per beat") == "500.0"
 
 
+def test_grounding_does_not_double_append_when_model_paraphrases_or_rounds():
+    # Transcript bug: the model grounded NATURALLY ("60 seconds", "8.05 km") but the brittle
+    # exact-substring check ("60s" not in "60 seconds"; "8.047" not in the rounded "8.05") thought
+    # the fact was dropped and appended the RAW tool line -> "...8.05 kilometers. convert: 5 miles =
+    # 8.047 kilometers (length)". A numeric-aware check must treat these as already-grounded.
+    from backend.inference import _ensure_required_narrated
+    reply = "You're set for 60 seconds — about 3 slow 4-7-8 breath cycles."
+    res = "breathing_timer: 60s set — about 3 slow 4-7-8 breath cycle(s)."
+    out = _ensure_required_narrated(reply, {}, ["<tool>breathing_timer seconds=60</tool>"], [res])
+    assert out == reply and "breathing_timer:" not in out          # "60" present as "60 seconds"
+    reply2 = "5 miles is about 8.05 kilometers."                    # model rounded 8.047 -> 8.05
+    res2 = "convert: 5 miles = 8.047 kilometers (length)"
+    out2 = _ensure_required_narrated(reply2, {}, ["<tool>convert_units value=5 from_unit=miles to_unit=km</tool>"], [res2])
+    assert out2 == reply2 and "convert:" not in out2
+
+
+def test_grounding_still_appends_a_genuinely_dropped_fact():
+    # The leniency must NOT swallow a real drop: a reply with NO matching number still gets grounded.
+    from backend.inference import _ensure_required_narrated
+    reply = "Ready to try it?"
+    res = "breathing_timer: 60s set — about 3 slow 4-7-8 breath cycle(s)."
+    out = _ensure_required_narrated(reply, {}, ["<tool>breathing_timer seconds=60</tool>"], [res])
+    assert out != reply and "60" in out
+
+
 # --- consumer D: the chess deterministic layer is scoped to the chess domain ---
 
 def test_chess_coverage_suppressed_for_ood_context():

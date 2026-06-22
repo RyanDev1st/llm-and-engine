@@ -234,6 +234,26 @@ def _result_signal(result: str) -> str | None:
     return generic_result_signal(t)
 
 
+def _fact_in_reply(sig: str, reply_low: str) -> bool:
+    """Is the tool fact reflected in the reply? Exact token match, OR a numeric match within a
+    rounding tolerance — so the model PARAPHRASING ('60 seconds' for a '60s' signal) or ROUNDING
+    ('8.05' for '8.047') counts as grounded and we DON'T re-append the raw tool line. A non-numeric
+    signal (a SAN move, a review label) requires the exact token (no false leniency)."""
+    s = sig.lower()
+    if s in reply_low:
+        return True
+    import re as _r
+    m = _r.search(r"[-+]?\d+(?:\.\d+)?", s)
+    if not m:                                        # SAN / label — exact only
+        return False
+    val = float(m.group(0))
+    for tok in _r.findall(r"[-+]?\d+(?:\.\d+)?", reply_low):
+        f = float(tok)
+        if abs(f - val) <= 0.05 or round(f, 1) == round(val, 1):
+            return True
+    return False
+
+
 def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
                               tool_results: list[str]) -> str:
     """Answer-coverage: tool-coverage guarantees the required tools RAN; this
@@ -249,7 +269,7 @@ def _ensure_required_narrated(reply: str, required: dict, tool_calls: list[str],
         if not res or res.startswith("error"):
             return
         sig = _result_signal(res)
-        if sig and sig.lower() not in low:          # the result's fact is missing from the reply
+        if sig and not _fact_in_reply(sig, low):     # the result's fact is genuinely absent (not just reworded)
             additions.append(narrate_tool_result(res))
             grounded_names.add(name)
 
@@ -428,16 +448,21 @@ def extract_call(decision: str, allowed: "set[str] | None" = None) -> str | None
     # recovery). The routing benchmark scores RAW first-action, so the miss stays visible there.
     coerce = (frozenset(_TOOL_NAMES) | frozenset(allowed or ())) - {"load_skill"}
 
-    def _verb_open(name: str) -> str:
+    def _verb_open(name: str, rest: str = "") -> str:
         if not name:
             return ""
-        return f"<tool>{name}</tool>" if name in coerce else f"<tool>load_skill name={name}</tool>"
+        if name in coerce:                          # a TOOL wrapped as a skill: emit the tool call,
+            return f"<tool>{name}{(' ' + rest) if rest else ''}</tool>"   # PRESERVING any args given
+        return f"<tool>load_skill name={name}</tool>"
 
     def _skill_sub(m: "_re.Match") -> str:
         inner = m.group(1).strip()
         mm = _re.search(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)", inner)
-        name = mm.group(1) if mm else (inner.split()[0] if inner else "")
-        return _verb_open(name)
+        if mm:                                       # legacy "load_skill name=X" form (a skill load)
+            return _verb_open(mm.group(1))
+        toks = inner.split()
+        name = toks[0] if toks else ""
+        return _verb_open(name, " ".join(toks[1:]))  # keep args after the name (e.g. bpm=120) for a tool
     s = _re.sub(r"<skill>(.*?)</skill>", _skill_sub, s, flags=_re.S)
     s = _re.sub(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)",   # close-tag dropped
                 lambda m: _verb_open(m.group(1)), s)
