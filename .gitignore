@@ -33,3 +33,6 @@ scratch_*
 
 # persistent user-memory profiles — runtime state, per-user, never committed
 data/memory/
+
+# persistent conversation sessions (board + chat per game) — runtime state, never committed
+data/sessions/

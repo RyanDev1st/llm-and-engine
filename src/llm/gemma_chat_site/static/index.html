@@ -230,6 +230,48 @@ html, body {
 .side-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
 .side-content.active { display: flex; }
 
+/* ── Game sessions (persisted; survive reload/restart) ── */
+.session-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--surface);
+}
+.session-dropdown { position: relative; flex: 1; min-width: 0; }
+.session-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-warm); color: var(--fg); cursor: pointer;
+  font: 500 12px/1.2 var(--font-body); text-align: left;
+}
+.session-toggle:hover { border-color: var(--accent); }
+.session-toggle #sessionCurrent { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-ico { color: var(--accent); }
+.session-caret { color: var(--muted); font-size: 10px; }
+.session-list {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  max-height: 300px; overflow-y: auto; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 4px;
+}
+.session-dropdown.open .session-list { display: block; }
+.session-item {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer;
+}
+.session-item:hover { background: var(--surface-warm); }
+.session-item.active { background: var(--surface-warm); outline: 1px solid var(--accent); }
+.session-title {
+  flex: 1; min-width: 0; border: none; background: transparent; color: var(--fg);
+  font: 500 12px/1.3 var(--font-body); text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.session-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+.session-del {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 4px; flex-shrink: 0; border-radius: 4px;
+}
+.session-del:hover { color: #c0392b; background: rgba(192,57,43,0.1); }
+.session-empty { padding: 10px; text-align: center; font-size: 12px; color: var(--muted); }
+.session-new { white-space: nowrap; flex-shrink: 0; }
+
 /* ── Chat ── */
 .chat-container { display: flex; flex-direction: column; flex: 1; }
 .chat-dual-toggle {
@@ -551,6 +593,18 @@ html, body {
 
     <!-- Chat tab -->
     <div class="side-content active" id="panel-chat">
+      <!-- Game sessions: each game's board + chat persist to disk; pick one to resume it -->
+      <div class="session-bar">
+        <div class="session-dropdown" id="sessionDropdown">
+          <button class="session-toggle" onclick="SessionsUI.toggleList()" title="Switch game">
+            <span class="session-ico">♟</span>
+            <span id="sessionCurrent">New game</span>
+            <span class="session-caret">▾</span>
+          </button>
+          <div class="session-list" id="sessionList"></div>
+        </div>
+        <button class="btn btn-sm session-new" onclick="SessionsUI.create()">＋ New game</button>
+      </div>
       <div class="chat-container">
         <div class="chat-dual-toggle">
           <label>Dual Model Comparison</label>
@@ -754,13 +808,16 @@ const Chess = (() => {
     return false;
   }
 
-  function makeMove(state, fromR, fromC, toR, toC) {
+  function makeMove(state, fromR, fromC, toR, toC, promotion) {
     const b = cloneBoard(state.board), p = b[fromR][fromC];
     let captured = b[toR][toC], epTarget = null, promo = null;
     b[fromR][fromC] = null; b[toR][toC] = p;
     if (p.type === 'p' && !captured && fromC !== toC) { const epR = p.color==='w'?toR+1:toR-1; captured = b[epR][toC]; b[epR][toC] = null; }
     if (p.type === 'p' && Math.abs(toR - fromR) === 2) epTarget = {r: (fromR + toR) / 2, c: fromC};
-    if (p.type === 'p' && (toR === 0 || toR === 7)) { b[toR][toC] = {type:'q', color:p.color}; promo = 'q'; }
+    if (p.type === 'p' && (toR === 0 || toR === 7)) {
+      promo = /^[qrbn]$/i.test(promotion || '') ? promotion.toLowerCase() : 'q';
+      b[toR][toC] = {type: promo, color:p.color};
+    }
     if (p.type === 'k' && Math.abs(toC - fromC) === 2) {
       const rfc = toC > fromC ? 7 : 0, rtc = toC > fromC ? 5 : 3;
       b[toR][rtc] = b[toR][rfc]; b[toR][rfc] = null;
@@ -811,18 +868,38 @@ const ChessUI = (() => {
     _evalT = setTimeout(() => { if (!(window.ChatUI && ChatUI.isBusy && ChatUI.isBusy())) EvalBar.refresh(); }, 350);
   }
 
-  function newGame() {
+  // Reset the CLIENT board to the start (no server call) — the shared core of newGame,
+  // a session-switch-to-fresh, and the boot. originFromStart=true so syncs send a move
+  // list (history preserved) rather than a FEN snapshot.
+  function resetLocal() {
     state = {
       board: Chess.initBoard(), turn: 'w', inCheck: false, gameOver: null,
       castlingRights: {wK:true,wQ:true,bK:true,bQ:true}, enPassantTarget: null,
       lastMove: null, moveHistory: [], playerColor: 'w'
     };
     selectedR = selectedC = -1; legalDests = []; originFromStart = true;
-    // Also clear the backend board + conversation history, else the model keeps
-    // the old game's context and references positions from the finished game.
-    try { fetch('/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {}); } catch (e) {}
-    bump();
-    render();
+  }
+  function freshBoard() { resetLocal(); bump(); render(); }
+
+  function newGame() {
+    freshBoard();
+    // A new game = a NEW session slot (old games stay in the list to resume). The session
+    // create also clears the backend board + conversation. Pre-sessions fallback: /api/reset.
+    if (typeof SessionsUI !== 'undefined') SessionsUI.create(false);
+    else try { fetch('/api/reset', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {}); } catch (e) {}
+  }
+
+  // Restore a saved game: replay its uci moves (so the move list + undo survive reload),
+  // falling back to a FEN snapshot for a loaded position or if a replay step is illegal.
+  function restoreSession(st, moves) {
+    if (Array.isArray(moves) && moves.length) {
+      resetLocal();
+      let ok = true;
+      for (const u of moves) { if (!tryApplyUci(u)) { ok = false; break; } }
+      if (ok) { bump(); render(); if (st && st.eval) EvalBar.render(st.eval); return; }
+    }
+    if (st && st.fen) loadFEN(st.fen); else freshBoard();
+    if (st && st.eval) EvalBar.render(st.eval);
   }
 
   function newGameColor(color) {
@@ -978,7 +1055,10 @@ const ChessUI = (() => {
   function reconcile(st) {
     if (!st || !st.fen) return;
     if (st.eval) EvalBar.render(st.eval);             // fresh backend eval -> update the bar
-    const sameBoard = (a, b) => a.split(' ')[0] === b.split(' ')[0] && a.split(' ')[1] === b.split(' ')[1];
+    const sameBoard = (a, b) => {
+      const key = f => String(f || '').trim().split(/\s+/).slice(0, 4).join(' ');
+      return key(a) === key(b);
+    };
     if (sameBoard(getFEN(), st.fen)) return;          // board unchanged
     if (st.last_move && tryApplyUci(st.last_move) && sameBoard(getFEN(), st.fen)) return;  // model's move
     loadFEN(st.fen);                                   // position jump (load_fen)
@@ -994,13 +1074,29 @@ const ChessUI = (() => {
     if ([fromC, fromR, toC, toR].some(v => isNaN(v) || v < 0 || v > 7)) return false;
     const dests = Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget);
     if (!dests.some(d => d.r === toR && d.c === toC)) return false;
-    state = Chess.makeMove(state, fromR, fromC, toR, toC);
+    const promotion = uci.length >= 5 ? uci[4] : null;
+    state = Chess.makeMove(state, fromR, fromC, toR, toC, promotion);
     bump();
     clearSel(); render();
     return true;
   }
 
-  function autoOpponent() {
+  // The opponent's move: ask the team's neural engine (backend /api/opponent) for the side to
+  // move and apply it; if that's unreachable or illegal, fall back to a random legal move so the
+  // game never stalls. async + fire-and-forget (all callers use setTimeout).
+  async function autoOpponent() {
+    if (state.gameOver || state.turn === state.playerColor) return;
+    try {
+      const r = await fetch('/api/opponent', { method: 'POST', headers: { 'content-type': 'application/json' },
+                                               body: JSON.stringify({ fen: getFEN() }) });
+      const j = await r.json();
+      // Re-check the turn: the user may have moved/undone/switched games while the engine thought.
+      if (j && j.ok && j.uci && state.turn !== state.playerColor && tryApplyUci(j.uci)) return;
+    } catch (e) { /* backend down -> random fallback below */ }
+    randomOpponentMove();
+  }
+
+  function randomOpponentMove() {
     if (state.gameOver || state.turn === state.playerColor) return;
     const allMoves = [];
     for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
@@ -1027,7 +1123,7 @@ const ChessUI = (() => {
     for (const m of moves) {
       const dests = Chess.legalMoves(state.board, m.fromR, m.fromC, state.castlingRights, state.enPassantTarget);
       const d = dests.find(d => d.r === m.toR && d.c === m.toC);
-      if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC);
+      if (d) state = Chess.makeMove(state, m.fromR, m.fromC, m.toR, m.toC, m.promo);
     }
     bump();
     render();
@@ -1077,7 +1173,21 @@ const ChessUI = (() => {
     const cr = state.castlingRights;
     let crs = ''; if (cr.wK) crs += 'K'; if (cr.wQ) crs += 'Q'; if (cr.bK) crs += 'k'; if (cr.bQ) crs += 'q';
     fen += (crs || '-') + ' ';
-    fen += (state.enPassantTarget ? 'abcdefgh'[state.enPassantTarget.c] + (8-state.enPassantTarget.r) : '-');
+    let ep = '-';
+    if (state.enPassantTarget) {
+      const dir = state.turn === 'w' ? -1 : 1, fromR = state.enPassantTarget.r - dir;
+      for (const dc of [-1, 1]) {
+        const fromC = state.enPassantTarget.c + dc;
+        const p = state.board[fromR] && state.board[fromR][fromC];
+        if (p && p.type === 'p' && p.color === state.turn &&
+            Chess.legalMoves(state.board, fromR, fromC, state.castlingRights, state.enPassantTarget)
+              .some(m => m.epCapture && m.r === state.enPassantTarget.r && m.c === state.enPassantTarget.c)) {
+          ep = 'abcdefgh'[state.enPassantTarget.c] + (8-state.enPassantTarget.r);
+          break;
+        }
+      }
+    }
+    fen += ep;
     fen += ' 0 ' + (Math.floor(state.moveHistory.length/2)+1);
     return fen;
   }
@@ -1093,8 +1203,10 @@ const ChessUI = (() => {
   }
 
   document.getElementById('board').addEventListener('click', handleBoardClick);
-  newGame();
-  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci, syncPayload, reconcile, moveSeq: () => moveSeq };
+  freshBoard();   // local-only reset at boot (NO /api/reset — that would wipe the active session
+                  // before SessionsUI.restore() resumes it); restore() loads the real game next.
+  return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci,
+           syncPayload, reconcile, freshBoard, restoreSession, moveSeq: () => moveSeq };
 })();
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1536,6 +1648,22 @@ const ChatUI = (() => {
     }
   }
 
+  // Replace the trained-panel transcript with a saved session's chat (used when restoring
+  // or switching games). An empty history shows the ready greeting.
+  function loadHistory(history) {
+    const c = document.getElementById('msgs-ft');
+    if (!c) return;
+    c.innerHTML = '';
+    if (!history || !history.length) {
+      appendMsg(c, 'Trained-weight Gemma 4 chess assistant ready. Ask me about positions, strategy, or your next move.', 'ai', 'ft-msg');
+      return;
+    }
+    for (const t of history) {
+      if (t && t.role === 'user') appendMsg(c, t.content || '', 'user');
+      else if (t) appendMsg(c, t.content || '', 'ai', 'ft-msg');
+    }
+  }
+
   // Default: GGUF only, single streaming path. Comparison is opt-in (loads the base on
   // demand, with a confirm). Reflect that default in the toggles + panels on load.
   function init() {
@@ -1546,7 +1674,7 @@ const ChatUI = (() => {
   }
   init();
 
-  return { send, toggleDual, toggleCompare, isBusy: () => busy };
+  return { send, toggleDual, toggleCompare, loadHistory, isBusy: () => busy };
 })();
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -1558,6 +1686,113 @@ const Storage = {
   get(key) { try { return JSON.parse(localStorage.getItem('easychess_' + key) || 'null'); } catch(e) { return null; } },
   set(key, val) { localStorage.setItem('easychess_' + key, JSON.stringify(val)); }
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   Game sessions — each game's board + chat persist to disk on the backend, so a page
+   reload OR a server restart can resume the exact game; the user can keep several games
+   and switch between them. The backend holds ONE active session; we switch it via
+   /api/session/* and remember the last id in localStorage to auto-resume on load.
+   ═══════════════════════════════════════════════════════════════ */
+const SessionsUI = (() => {
+  let current = null;
+
+  async function call(path, body) {
+    const opt = body !== undefined
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
+      : {};
+    const r = await fetch(path, opt);
+    return r.json();
+  }
+
+  function render(sessions) {
+    const el = document.getElementById('sessionList');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!sessions || !sessions.length) { el.innerHTML = '<div class="session-empty">No saved games yet</div>'; return; }
+    for (const s of sessions) {
+      const row = document.createElement('div');
+      row.className = 'session-item' + (s.id === current ? ' active' : '');
+      const title = document.createElement('button');
+      title.className = 'session-title'; title.textContent = s.title || 'New game';
+      title.title = s.title || 'New game';
+      title.onclick = () => switchTo(s.id);
+      const meta = document.createElement('span');
+      meta.className = 'session-meta'; meta.textContent = (s.moves || 0) + (s.moves === 1 ? ' move' : ' moves');
+      const del = document.createElement('button');
+      del.className = 'session-del'; del.textContent = '×'; del.title = 'Delete game';
+      del.onclick = (e) => { e.stopPropagation(); remove(s.id); };
+      row.append(title, meta, del);
+      el.appendChild(row);
+    }
+  }
+
+  function updateLabel(sessions) {
+    const lbl = document.getElementById('sessionCurrent');
+    if (!lbl) return;
+    const s = (sessions || []).find(x => x.id === current);
+    lbl.textContent = s ? (s.title || 'New game') : 'New game';
+  }
+
+  async function refresh() {
+    const { sessions, current: cur } = await call('/api/sessions');
+    if (cur) current = cur;
+    render(sessions); updateLabel(sessions);
+    return sessions || [];
+  }
+
+  // Switch the backend's active session and restore its board + chat into the UI.
+  async function switchTo(id) {
+    const res = await call('/api/session/switch', { id });
+    current = res.id; Storage.set('session_id', current);
+    ChatUI.loadHistory(res.history || []);
+    ChessUI.restoreSession(res.state, res.moves);
+    close();
+    await refresh();
+  }
+
+  // Start a fresh game (new slot; old games stay in the list). resetBoard=false when the
+  // caller (ChessUI.newGame) already reset the client board, to avoid a double reset.
+  async function create(resetBoard = true) {
+    const res = await call('/api/session/new', {});
+    current = res.id; Storage.set('session_id', current);
+    ChatUI.loadHistory([]);
+    if (resetBoard !== false) ChessUI.freshBoard();
+    close();
+    await refresh();
+    return res;
+  }
+
+  async function remove(id) {
+    const res = await call('/api/session/delete', { id });
+    if (id === current) current = null;
+    if (current == null) {                       // deleted the active game -> open another, or a fresh one
+      if (res.sessions && res.sessions.length) { await switchTo(res.sessions[0].id); return; }
+      await create(); return;
+    }
+    render(res.sessions); updateLabel(res.sessions);
+  }
+
+  function toggleList() { document.getElementById('sessionDropdown').classList.toggle('open'); }
+  function close() { const dd = document.getElementById('sessionDropdown'); if (dd) dd.classList.remove('open'); }
+
+  // On load: resume the active server session (survives a page reload) or the last one we
+  // used (survives a server restart) or the most recent saved game; else stay on the fresh board.
+  async function restore() {
+    const sessions = await refresh();
+    const want = current || Storage.get('session_id') || (sessions[0] && sessions[0].id);
+    if (want) await switchTo(want);
+  }
+
+  function init() {
+    restore().catch(() => {});
+    document.addEventListener('click', (e) => {       // click outside the dropdown closes it
+      const dd = document.getElementById('sessionDropdown');
+      if (dd && !dd.contains(e.target)) close();
+    });
+  }
+
+  return { init, refresh, switchTo, create, remove, toggleList };
+})();
 
 /* Bridge the Skills/Plugins panels to the real model so what you install here
    actually changes the catalog/context the coach sees (best-effort; the panels
@@ -1941,6 +2176,7 @@ document.getElementById('navTabs').addEventListener('click', e => {
    ═══════════════════════════════════════════════════════════════ */
 SkillsUI.init();
 PluginsUI.init();
+SessionsUI.init();   // resume the last game (board + chat) on load; populate the games dropdown
 
 // Eval bar: render the initial position eval and sync the engine selector to the backend.
 (async () => {

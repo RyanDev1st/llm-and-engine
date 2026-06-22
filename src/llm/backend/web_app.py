@@ -12,6 +12,7 @@ from .engine import Engine
 from .inference import AdapterView, CoachLoop, PLUGIN_CONTEXT
 from . import memory, skill_admin, state_api
 from .memory import session as session_mem
+from .sessions import SessionStore
 from .tools import ToolExecutor
 
 
@@ -44,6 +45,10 @@ class App:
         self.user_id = os.environ.get("CHESS_USER_ID", "default")
         # Session fact cache: analysis facts computed this session, FEN-keyed (see memory.session).
         self.session: dict = {}
+        # Persistent CONVERSATION sessions (board + chat), disk-keyed so a reload / restart restores
+        # them and the user can switch between games. `session_id` = the active one (None until set).
+        self.store = SessionStore()
+        self.session_id: str | None = None
 
     def load_model(self) -> None:
         # Dev mode: a persistent model service holds the weights, so this server is
@@ -157,7 +162,96 @@ class App:
         self.history_base = []
         self.history_off = []
         session_mem.clear(self.session)         # a new game -> drop the stale fact cache
+        self._persist_session(moves=[])         # clear the active session's board + chat on disk
         return self.state()
+
+    # --- persistent conversation sessions (board + chat survive reload / restart) ---
+    def _ensure_session(self) -> str:
+        """Adopt a session for the active board if none is selected yet (back-compat: a legacy
+        client that never calls /api/session/* still gets its board+chat persisted)."""
+        if self.session_id is None:
+            self.session_id = self.store.create().id
+        return self.session_id
+
+    def _persist_session(self, moves=None, fen=None) -> None:
+        """Write the active board (moves XOR fen) + the chat history to the active session on disk.
+        moves=None and fen=None keeps the stored board (e.g. a chat turn saves only the conversation)."""
+        if not self.session_id:
+            return
+        sess = self.store.get(self.session_id)
+        if not sess:
+            return
+        if fen is not None:
+            sess.fen, sess.moves = fen, []
+        elif moves is not None:
+            sess.moves, sess.fen = list(moves), ""
+        sess.history = list(self.history)
+        if (sess.title or "New game") == "New game":    # title from the first user message
+            first = next((t.get("content", "") for t in self.history if t.get("role") == "user"), "")
+            if first.strip():
+                sess.title = first.strip()[:60]
+        self.store.save(sess)
+
+    def _persist_current_board(self) -> None:
+        """Snapshot the live board into the active session, preserving its representation: a normal
+        game persists the full uci move list (so review_move/undo survive reload AND the model's move
+        is captured); a loaded position (puzzle/paste) persists fen. A bare fen save would clobber a
+        normal game's move history, so we branch on the stored session's kind."""
+        sess = self.store.get(self.session_id) if self.session_id else None
+        if sess is None:
+            return
+        if sess.fen:                                    # a loaded position -> keep it fen-based
+            self._persist_session(fen=self.game.board.fen())
+        else:                                           # startpos game -> full uci history (incl. the model's move)
+            self._persist_session(moves=[m.uci() for m in self.game.board.move_stack])
+
+    def use_session(self, sid: str | None = None) -> dict:
+        """Switch to a session (or create one): rebuild the live board from its moves/fen and load
+        its chat history, so the frontend can restore the exact game. Returns board + history."""
+        sess = (self.store.get(sid) if sid else None) or self.store.create()
+        self.session_id = sess.id
+        self.game = Game()
+        if sess.fen:
+            self.game.load_fen(sess.fen)
+        elif sess.moves:
+            self.game.load_uci_moves([str(m) for m in sess.moves])
+        self.executor.game = self.game
+        self.history = list(sess.history)
+        session_mem.clear(self.session)                 # facts are board-specific; the board just changed
+        # `moves` lets the frontend REPLAY a normal game (so its move list + undo survive reload);
+        # it's [] for a fen-loaded position, where the frontend restores from state.fen instead.
+        return {"id": sess.id, "title": sess.title, "history": list(self.history),
+                "moves": [str(m) for m in sess.moves], "state": self.state()}
+
+    def list_sessions(self) -> dict:
+        return {"sessions": self.store.list(), "current": self.session_id}
+
+    def new_session(self) -> dict:
+        return self.use_session(None)                   # create + switch to a fresh empty game
+
+    def delete_session(self, sid: str) -> dict:
+        ok = self.store.delete(sid)
+        if sid == self.session_id:
+            self.session_id = None
+        return {"ok": ok, **self.list_sessions()}
+
+    def sync(self, fen: str = "", moves=None) -> dict:
+        """Mirror the client-authoritative board here AND persist it to the active session, so a
+        reload restores the exact position. Normal play sends a uci move list (history preserved);
+        a loaded position (puzzle/paste) sends fen (history starts fresh)."""
+        self._ensure_session()
+        fen = (fen or "").strip()
+        if fen:
+            ok = self.game.load_fen(fen)
+            if ok:
+                self._persist_session(fen=self.game.board.fen())
+        else:
+            mv = [str(m) for m in (moves or [])] if isinstance(moves, list) else []
+            ok = self.game.load_uci_moves(mv)
+            if ok:
+                self._persist_session(moves=mv)
+        self.executor.game = self.game
+        return {"ok": ok, "state": self.state()}
 
     def _context_block(self, message: str = "") -> str:
         """The injected memory context: the persistent user profile + any session facts still
@@ -203,6 +297,9 @@ class App:
         # context. The model re-derives via tools next turn if it needs to.
         history += [{"role": "user", "content": message},
                     {"role": "assistant", "content": result["reply"]}]
+        if loop is self.loop:                  # persist the REAL conversation (+ current board) to disk
+            self._ensure_session()
+            self._persist_current_board()
         return {"reply": result["reply"], "tool_calls": result.get("tool_calls", []),
                 "tool_results": result.get("tool_results", []),
                 "context": result.get("context"), "elapsed_s": elapsed}
