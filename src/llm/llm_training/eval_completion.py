@@ -95,17 +95,33 @@ def grade(row: dict, result: dict) -> dict:
             "args_ok": args_ok, "grounded": grounded, "recovered": recovered}
 
 
+def _failure_detail(row: dict, res: dict, g: dict) -> dict:
+    """One failing row, captured so the aggregate is DIAGNOSABLE: which metric(s) failed, what the
+    model routed first, and the actual erroring tool results (the cause of an exec_ok miss)."""
+    user = next(m for m in row["messages"] if m.get("role") == "user")["content"]
+    gv, gn = gold_action(row["messages"])
+    calls = res.get("tool_calls", []) or []
+    results = res.get("tool_results", []) or []
+    first = first_action(calls[0]) if calls else ("none", None)
+    errs = [f"{first_action(c)[1]}:{r[:70]}" for c, r in zip(calls, results) if _is_err(r)]
+    return {"slice": row["slice"], "user": user[:80], "gold": f"{gv}:{gn}",
+            "first": f"{first[0]}:{first[1]}", "failed": [k for k in METRICS if not g[k]],
+            "errors": errs[:3]}
+
+
 def run_completion(model, rows: list[dict], *, engine=None, coverage: bool = True,
                    time_budget_s: float | None = None, progress_every: int = 10) -> dict:
     """Run each row through a fresh CoachLoop (real serve loop) and aggregate the rubric. Chess
     rows need a Stockfish `engine`; OOD (life-skills) rows run with engine=None. INTERRUPT-SAFE:
-    stops on the time budget and returns what's done (a Kaggle disconnect still yields a result)."""
+    stops on the time budget and returns what's done (a Kaggle disconnect still yields a result).
+    Logs each FAILING row (failures) so a low metric like exec_ok is explained, not a mystery."""
     import time
     from backend.game import Game
     from backend.inference import CoachLoop
     from backend.tools import ToolExecutor
     totals = {k: 0 for k in METRICS}
     by_slice: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    failures: list[dict] = []
     t0 = time.time()
     done = 0
     for i, row in enumerate(rows, 1):
@@ -119,13 +135,17 @@ def run_completion(model, rows: list[dict], *, engine=None, coverage: bool = Tru
             totals[k] += int(v)
             by_slice[row["slice"]][k] += int(v)
         by_slice[row["slice"]]["n"] += 1
+        # log the actionable failures (not first_ok alone — a recovered route is a WIN, not a bug)
+        if not (g["completed"] and g["exec_ok"] and g["grounded"] and g["args_ok"]):
+            failures.append(_failure_detail(row, res, g))
         done += 1
         if progress_every and i % progress_every == 0:
             print(f"  {i}/{len(rows)} graded...", flush=True)
         if time_budget_s and time.time() - t0 > time_budget_s:
             print(f"  time budget hit at {done} rows", flush=True)
             break
-    return {"n": done, "totals": totals, "by_slice": {k: dict(v) for k, v in by_slice.items()}}
+    return {"n": done, "totals": totals, "by_slice": {k: dict(v) for k, v in by_slice.items()},
+            "failures": failures}
 
 
 def _report(res: dict, label: str) -> str:
@@ -136,6 +156,13 @@ def _report(res: dict, label: str) -> str:
         L.append(f"| {k} | {res['totals'][k]}/{res['n']} ({100 * res['totals'][k] / n:.1f}%) |")
     L += ["", "_grounded is a token-presence PROXY. recovered = wrong first route that still "
           "completed+grounded (the win strict routing misses)._"]
+    fails = res.get("failures") or []
+    if fails:
+        L += ["", f"### failing rows ({len(fails)}) — why a metric missed",
+              "| slice | gold | first | failed | erroring results |", "|---|---|---|---|---|"]
+        for f in fails:
+            errs = " · ".join(f["errors"]) or "—"
+            L.append(f"| {f['slice']} | {f['gold']} | {f['first']} | {','.join(f['failed'])} | {errs} |")
     return "\n".join(L)
 
 

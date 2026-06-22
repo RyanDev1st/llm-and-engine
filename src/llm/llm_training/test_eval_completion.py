@@ -82,6 +82,38 @@ class _Scripted:
         return out
 
 
+def test_run_completion_logs_per_row_failures_for_diagnosis():
+    # exec_ok 70% in the Kaggle flight was UNDIAGNOSABLE because run_completion only aggregated.
+    # It must log each failing row (slice, gold, first action, which metric failed, the erroring
+    # results) so the next flight explains exec_ok instead of leaving 12 rows a mystery.
+    pc = {"installed": ["life-skills"], "enabled": ["life-skills"], "marketplace": []}
+    row = {"slice": "STRESS_x", "reasoning_mode": "", "plugin_context": pc,
+           "messages": [{"role": "user", "content": "convert 5 miles to kg"},
+                        {"role": "assistant",
+                         "content": "<tool>convert_units value=5 from_unit=miles to_unit=kg</tool>"}]}
+    # miles->kg is cross-dimension, so the executor returns an error and the model gives up.
+    model = _Scripted(["<tool>convert_units value=5 from_unit=miles to_unit=kg",
+                       "I couldn't convert those units, sorry."])
+    res = run_completion(model, [row], engine=None, progress_every=0)
+    assert res["totals"]["exec_ok"] == 0
+    assert len(res["failures"]) == 1
+    f = res["failures"][0]
+    assert "exec_ok" in f["failed"] and f["slice"] == "STRESS_x"
+    assert any("convert_units" in e for e in f["errors"])
+
+
+def test_run_completion_logs_no_failure_for_a_clean_row():
+    pc = {"installed": ["life-skills"], "enabled": ["life-skills"], "marketplace": []}
+    row = {"slice": "STRESS_y", "reasoning_mode": "", "plugin_context": pc,
+           "messages": [{"role": "user", "content": "convert 5 miles to km"},
+                        {"role": "assistant",
+                         "content": "<tool>convert_units value=5 from_unit=miles to_unit=km</tool>"}]}
+    model = _Scripted(["<tool>convert_units value=5 from_unit=miles to_unit=km",
+                       "5 miles is about 8.047 km."])
+    res = run_completion(model, [row], engine=None, progress_every=0)
+    assert res["failures"] == []
+
+
 def test_run_completion_wires_loop_to_rubric_on_an_ood_row():
     # End-to-end on CPU: a real CoachLoop runs over a life-skills row (engine=None), the executed
     # plugin tool returns a real result, and run_completion aggregates the rubric. Proves the
