@@ -15,7 +15,10 @@ from pathlib import Path
 
 import chess
 
-_CKPT = Path(__file__).resolve().parents[1] / "chess_engine" / "weights" / "nee_latest.pt"
+# parents[2] = src/ (this file is src/llm/backend/opponent.py); the engine lives at src/chess_engine.
+# Using parents[1] (src/llm) was a real bug: the path didn't exist, torch.load raised, and EVERY
+# move silently fell back to random — a "stupid" engine. Mirrors eval_engines._ensure_engine_on_path.
+_CKPT = Path(__file__).resolve().parents[2] / "chess_engine" / "weights" / "nee_latest.pt"
 _DEPTH = max(1, int(os.environ.get("CHESS_ENGINE_DEPTH", "3")))
 
 
@@ -60,7 +63,21 @@ def choose(fen: str) -> dict:
         mv = _selector().choose_move(board)
         if mv in board.legal_moves:
             return {"ok": True, "uci": mv.uci(), "source": "neural"}
-    except Exception:
-        pass                                       # torch/ckpt missing or a selector hiccup
-    mv = random.choice(list(board.legal_moves))    # safety net so the board never stalls
+    except Exception as exc:                        # torch/ckpt missing or a selector hiccup
+        _warn_random_once(exc)                      # don't let a broken engine degrade SILENTLY
+    mv = random.choice(list(board.legal_moves))     # safety net so the board never stalls
     return {"ok": True, "uci": mv.uci(), "source": "random"}
+
+
+_warned = False
+
+
+def _warn_random_once(exc: Exception) -> None:
+    """Print ONE loud warning the first time the neural engine fails to load. The fallback keeps
+    the board playable, but a deploy serving random moves should be obvious, not silent — that
+    invisibility is exactly what hid the wrong-path bug."""
+    global _warned
+    if not _warned:
+        _warned = True
+        print(f"[opponent] NEURAL ENGINE UNAVAILABLE — falling back to RANDOM moves. "
+              f"checkpoint={_CKPT} (exists={_CKPT.exists()}); reason: {exc!r}", file=sys.stderr, flush=True)
