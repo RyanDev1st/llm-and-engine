@@ -114,6 +114,43 @@ def test_run_completion_logs_no_failure_for_a_clean_row():
     assert res["failures"] == []
 
 
+def test_game_for_loads_the_row_position():
+    # THE chess-completion correctness guard. A chess val row carries position_fen — the position
+    # its expected actions were generated for. run_completion MUST load it; otherwise the loop runs
+    # at the starting position, eval short-circuits to 0.00, and best_move/review analyze the wrong
+    # board (942/2731 val rows have a non-starting fen). Deterministic, no engine.
+    import chess
+    from llm_training.eval_completion import _game_for
+    fen = "rnbqk1nr/1ppp1ppp/p2bp3/8/P7/N6P/1PPPPPP1/R1BQKBNR b KQkq - 0 4"
+    g = _game_for({"position_fen": fen})
+    assert g.board.fen() == fen and g.board.turn == chess.BLACK   # the row's position, black to move
+    assert _game_for({}).board.fen() == chess.STARTING_FEN        # OOD row -> starting board
+
+
+def test_run_completion_chess_path_with_real_engine():
+    # Integration smoke for Cell 6.7b: a chess row at a NON-starting position (so eval can't short-
+    # circuit) runs the full loop with the real Stockfish engine, executes eval, and grounds the
+    # number. Proves Engine + position-load + grounding wire together end to end.
+    import os
+    import shutil
+    from backend.engine import Engine, DEFAULT_SF
+    if not (shutil.which("stockfish") or os.path.exists(DEFAULT_SF)):
+        import pytest
+        pytest.skip("no Stockfish available")
+    engine = Engine(timeout=2.0)
+    pc = {"installed": ["chess-official"], "enabled": ["chess-official"], "marketplace": []}
+    row = {"slice": "V1_I_eval_language", "reasoning_mode": "",
+           "position_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNB1KBNR w KQkq - 0 1",  # white down its queen
+           "plugin_context": pc,
+           "messages": [{"role": "user", "content": "how am I doing?"},
+                        {"role": "assistant", "content": "<tool>eval depth=10</tool>"}]}
+    model = _Scripted(["<tool>eval depth=10", "Let me see where things stand."])
+    res = run_completion(model, [row], engine=engine, progress_every=0)
+    engine.quit()
+    assert res["totals"]["completed"] == 1 and res["totals"]["exec_ok"] == 1
+    assert res["totals"]["grounded"] == 1 and res["failures"] == []
+
+
 def test_run_completion_wires_loop_to_rubric_on_an_ood_row():
     # End-to-end on CPU: a real CoachLoop runs over a life-skills row (engine=None), the executed
     # plugin tool returns a real result, and run_completion aggregates the rubric. Proves the

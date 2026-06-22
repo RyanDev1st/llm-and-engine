@@ -3,17 +3,11 @@ and scores task COMPLETION + recovery. Answers the peer-review gap that strict f
 UNDERCOUNTS the harness: a wrong first route that the loop corrects to a grounded answer is a WIN
 that routing accuracy records as a loss.
 
-Per-row metrics (grade), aggregated adapter-vs-base:
-  first_ok    the FIRST action matched gold (the strict routing metric, for the delta)
-  completed   every expected tool name fired
-  exec_ok     every expected tool's (last) result was non-error
-  args_ok     every executed <tool> call passed validate_call (no missing-required / bad-enum)
-  grounded    the final reply cites the last fact tool's result token (reuse _result_signal) — a
-              PROXY (token presence), report it as such
-  recovered   the first action was wrong (!= gold) yet the loop still completed + grounded
-
-The rubric (grade) is unit-tested offline with scripted results — no GPU. Full run on Kaggle:
-  python -m llm_training.eval_completion --adapter <best> [--per-slice N --stress --coverage/--no-coverage]
+Per-row metrics (grade): first_ok (first action == gold), completed (every expected tool fired),
+exec_ok (each expected tool's last result non-error), args_ok (validate_call passed), grounded (reply
+cites the last fact tool's result token — a token-presence PROXY), recovered (first action wrong yet
+still completed + grounded). The rubric is unit-tested offline (no GPU). Full run on Kaggle:
+  python -m llm_training.eval_completion --adapter <best> [--per-slice N --stress]
 """
 from __future__ import annotations
 
@@ -109,6 +103,19 @@ def _failure_detail(row: dict, res: dict, g: dict) -> dict:
             "errors": errs[:3]}
 
 
+def _game_for(row: dict):
+    """The board the loop must run on: a chess val row carries a `position_fen` (the position the
+    row's expected actions were generated for). Loading it is REQUIRED — without it the loop runs
+    at the starting position, so `eval` short-circuits to 0.00 and best_move/review/threats analyze
+    the wrong board, making chess completion meaningless. OOD rows have no fen -> starting board."""
+    from backend.game import Game
+    g = Game()
+    fen = row.get("position_fen")
+    if fen:
+        g.load_fen(fen)
+    return g
+
+
 def run_completion(model, rows: list[dict], *, engine=None, coverage: bool = True,
                    time_budget_s: float | None = None, progress_every: int = 10) -> dict:
     """Run each row through a fresh CoachLoop (real serve loop) and aggregate the rubric. Chess
@@ -116,7 +123,6 @@ def run_completion(model, rows: list[dict], *, engine=None, coverage: bool = Tru
     stops on the time budget and returns what's done (a Kaggle disconnect still yields a result).
     Logs each FAILING row (failures) so a low metric like exec_ok is explained, not a mystery."""
     import time
-    from backend.game import Game
     from backend.inference import CoachLoop
     from backend.tools import ToolExecutor
     totals = {k: 0 for k in METRICS}
@@ -126,7 +132,7 @@ def run_completion(model, rows: list[dict], *, engine=None, coverage: bool = Tru
     done = 0
     for i, row in enumerate(rows, 1):
         pc = row.get("plugin_context") or {}
-        loop = CoachLoop(model, ToolExecutor(Game(), engine, pc), plugin_context=pc)
+        loop = CoachLoop(model, ToolExecutor(_game_for(row), engine, pc), plugin_context=pc)
         user = next(m for m in row["messages"] if m.get("role") == "user")
         res = loop.respond([], user["content"], coverage=coverage,
                            reasoning_mode=row.get("reasoning_mode", ""))

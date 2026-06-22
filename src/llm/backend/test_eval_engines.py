@@ -14,6 +14,18 @@ def _white_up_a_pawn() -> Game:
     return g
 
 
+def test_engine_timeout_is_env_configurable(monkeypatch):
+    # The completion eval runs many deep analyses per chess row; a configurable per-call timeout
+    # lets a benchmark bound engine wait (CHESS_SF_TIMEOUT) without touching depth (which would
+    # change the tool output). Construction is lazy (no Stockfish popen), so this is headless.
+    from backend.engine import Engine
+    monkeypatch.delenv("CHESS_SF_TIMEOUT", raising=False)
+    assert Engine().timeout == 5.0                       # default unchanged for production
+    monkeypatch.setenv("CHESS_SF_TIMEOUT", "2.0")
+    assert Engine().timeout == 2.0                       # env override for the bench
+    assert Engine(timeout=1.0).timeout == 1.0            # explicit arg still wins
+
+
 def test_engine_toggle_and_available():
     assert "stockfish" in eval_engines.available() and "custom" in eval_engines.available()
     assert eval_engines.set_engine("custom") == "custom"

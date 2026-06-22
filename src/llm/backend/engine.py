@@ -36,9 +36,12 @@ DEFAULT_SF = _resolve_sf()
 
 
 class Engine:
-    def __init__(self, path: str | Path = DEFAULT_SF, timeout: float = 5.0) -> None:
+    def __init__(self, path: str | Path = DEFAULT_SF, timeout: float | None = None) -> None:
         self.path = str(path)
-        self.timeout = timeout
+        # Per-analysis time cap. Default 5.0 (production); a benchmark can lower it via
+        # CHESS_SF_TIMEOUT to bound engine wait over many rows WITHOUT changing depth (which
+        # would alter the tool's eval output). An explicit timeout= arg always wins.
+        self.timeout = timeout if timeout is not None else float(os.environ.get("CHESS_SF_TIMEOUT", "5.0"))
         self._eng: chess.engine.SimpleEngine | None = None
 
     def _ensure(self) -> chess.engine.SimpleEngine:
