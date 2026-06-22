@@ -36,6 +36,39 @@ def test_dispatches_through_real_executor_when_enabled():
     assert "unknown_tool" in ex_off.execute("<tool>convert_units value=5 from_unit=miles to_unit=km</tool>")
 
 
+def test_arg_taking_skill_bodies_say_extract_dont_re_ask():
+    # Transcript bug: "scale my cookie recipe from 12 up to 30 servings" -> recipe-scaler loaded ->
+    # the model ASKED for the servings the user already gave. The body's "ask if not given" wording
+    # induced over-asking; it must now tell the model to EXTRACT args from the message and not re-ask.
+    bodies = {s["name"]: s["body"] for s in L.SKILLS}
+    rs = bodies["recipe-scaler"].lower()
+    assert "do not ask for numbers the user already gave" in rs
+    assert "from_servings=12" in rs                     # a concrete extract-from-message example
+    assert "don't ask for a number they gave" in bodies["guitar-tutor"].lower()
+    assert "default to 60" in bodies["breathing-coach"].lower()
+
+
+def test_dropped_breathing_result_is_grounded_in_the_loop():
+    # The transcript dropped the breathing_timer result from the final answer ("Breathing helps
+    # reset the nervous system. Ready to try it?" with NO duration). Consumer C grounding must
+    # append the real fact. Full live loop, engine-free (breathing_timer needs no engine).
+    from backend.inference import CoachLoop
+
+    class Scripted:
+        def __init__(self, steps):
+            self.steps = list(steps); self.i = 0
+        def generate(self, messages, max_new_tokens, stop):
+            out = self.steps[min(self.i, len(self.steps) - 1)]; self.i += 1
+            return out
+
+    loop = CoachLoop(Scripted(["<tool>breathing_timer seconds=10",
+                               "Breathing helps reset the nervous system. Ready to try it?"]),
+                     ToolExecutor(Game(), None, PC), plugin_context=PC)
+    out = loop.respond([], "stressed af rn need to chill n breathe for a bit")
+    assert any(r.startswith("breathing_timer:") for r in out["tool_results"])
+    assert "10s" in out["reply"]                        # the dropped fact is now grounded
+
+
 def test_skills_have_real_bodies_and_load():
     ex = ToolExecutor(Game(), None, PC)
     for name in ("recipe-scaler", "guitar-tutor", "breathing-coach", "tax-filing-helper"):

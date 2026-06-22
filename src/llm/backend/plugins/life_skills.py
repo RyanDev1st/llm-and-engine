@@ -90,19 +90,24 @@ SKILLS = [
     {"name": "recipe-scaler",
      "description": "Use when the user wants to scale a recipe up or down for a different number of servings.",
      "body": _body("recipe-scaler", "Scale a recipe to a new serving count.",
-                   "Ask for the original and target servings if not given, then call "
-                   "`scale_recipe from_servings=<a> to_servings=<b>` and tell the user the multiplier "
-                   "to apply to every ingredient. Never guess the factor — use the tool.")},
+                   "Read the serving counts from the user's message (e.g. 'from 12 up to 30' -> "
+                   "from_servings=12, to_servings=30) and call `scale_recipe from_servings=<a> "
+                   "to_servings=<b>` right away. Do NOT ask for numbers the user already gave — only "
+                   "ask if a count is genuinely missing. Then tell the user the multiplier to apply "
+                   "to every ingredient. Never guess the factor — use the tool.")},
     {"name": "guitar-tutor",
      "description": "Use when the user wants to read guitar tablature, chords, fingering, or set a practice tempo.",
      "body": _body("guitar-tutor", "Read tablature and set a practice tempo.",
-                   "Explain the tab/chord plainly. For tempo, call `metronome_bpm bpm=<n>` and report "
-                   "the ms-per-beat so they can set a metronome. Ground tempo in the tool's number.")},
+                   "Explain the tab/chord plainly. For tempo, use the BPM the user named (e.g. "
+                   "'120 bpm' -> bpm=120) and call `metronome_bpm bpm=<n>` right away — don't ask for "
+                   "a number they gave. Report the ms-per-beat so they can set a metronome. Ground "
+                   "tempo in the tool's number.")},
     {"name": "breathing-coach",
      "description": "Use when the user wants to relax, de-stress, or be guided through a breathing exercise.",
      "body": _body("breathing-coach", "Guide a short breathing exercise.",
-                   "Reassure briefly, then call `breathing_timer seconds=<n>` (default 60) and walk "
-                   "them through slow 4-7-8 breaths for that duration.")},
+                   "Reassure briefly, then call `breathing_timer seconds=<n>` — use the duration the "
+                   "user gave if any, otherwise default to 60 (don't ask for a number they already "
+                   "provided). Then walk them through slow 4-7-8 breaths for that duration.")},
     {"name": "tax-filing-helper",
      "description": "Use when the user asks about filing taxes, deductions, tax forms, brackets, or filing deadlines.",
      "body": _body("tax-filing-helper", "General tax-filing guidance (not advice).",
