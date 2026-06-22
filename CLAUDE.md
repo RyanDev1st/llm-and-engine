@@ -41,7 +41,7 @@ The product is a **general agentic HARNESS operator** = an LLM that **chooses am
 | `.claude/scheduled_tasks.lock` | Scheduler lock — **gitignored**, ephemeral |
 | `.claude/worktrees/` | Agent worktrees — **gitignored**; do not edit unless task names a path |
 
-**Root policy:** only `CLAUDE.md`, `.gitignore`, the three plan files above, and documented config at repo root. Everything else lives under `src/`, `data/`, `docs/`, or `legacy [ignore]/`.
+**Root policy:** only `README.md`, `CLAUDE.md`, `.gitignore`, the three plan files above, and documented config at repo root. Everything else lives under `src/`, `data/`, `docs/`, or `legacy [ignore]/`.
 
 ## Product principles
 
