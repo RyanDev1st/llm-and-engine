@@ -71,8 +71,39 @@ diagnosis/retraining — only the live loop becomes robust. The completion eval 
   verify-first / direct-answer over the gold plan verb. Plausibly still COMPLETES — the completion
   eval (`recovered`/`completed`) will decide; not a clear harness bug, so left for the data.
 
+## COMPLETION EVAL — the harness validated end-to-end (latest HEAD, OOD STRESS, n=40)
+The metric both peer reviews said was missing. Runs the FULL CoachLoop per row on the held-out
+life-skills (unseen-domain) suite. **This is the number that proves the harness, not raw routing.**
+
+| metric | rate | reading |
+|---|---|---|
+| first_ok | 35/40 (87.5%) | model's raw first action correct |
+| **completed** | **39/40 (97.5%)** | every expected tool fired — the harness finishes the task |
+| exec_ok | 28/40 (70.0%) | every expected tool's last result non-error — the one soft spot |
+| args_ok | 40/40 (100%) | no missing-required / bad-enum calls |
+| **grounded** | **40/40 (100%)** | every final answer cited the tool's result (Consumer C) |
+| **recovered** | **4/40 (10%)** | wrong first route the loop self-corrected to a grounded answer |
+
+**The headline:** the harness lifts first-action routing **87.5% → 97.5% task completion (+10pp)** on
+UNSEEN domains, 100% grounded. The math is exact: 35 first_ok + 4 recovered = 39 completed — the
+recovery layer (corrective + verb-coercion + grounding) accounts for the entire lift. This is the
+product claim, measured end to end.
+
+**Caveat — this run PREDATES `9dabe183` (verb-coercion) + `9402b59d` (skill-body extract-first).** So
+it's the BASELINE; the final flight measures those.
+
+**exec_ok 70% (12 rows) is the open item — and was UNDIAGNOSABLE** because the eval only aggregated.
+Fixed (`c47d951a`): `run_completion` now logs each failing row (slice, gold, first action, failed
+metric, the erroring results) and `_report` prints a "failing rows" table. The next flight will EXPLAIN
+exec_ok instead of guessing. Hypothesis to confirm there (not asserted): some are tool-as-skill rows
+whose corrective-error result counts against exec_ok pre-coercion, and/or decline rows where the model
+over-acted into an erroring call — both addressed by the post-baseline fixes; the per-row log decides.
+
+## Measured version trend (latest, supersedes the earlier partial numbers above)
+v2 verb 10.7% / exact 9.9% (n=121) · v3 97.9% / 47.5% (n=141) · v4 **98.6% / 68.8%** (n=141). Same
+diagnose→fix→measure story; v4 exact-name 68.8% is the best yet.
+
 ## Next
-- Completion-eval rerun (Cell 6.7, latest HEAD) → record `completed/grounded/recovered`; expect the
-  tool-as-skill cluster to show as completed/recovered now.
-- Verify the e2b base pairing before any E4B-vs-E2B claim in the report.
-- Final benchmark flight after these fixes (per the plan).
+- **Final flight after the two post-baseline fixes:** re-run Cell 6.7 → read the new exec_ok + the
+  failing-rows table; expect exec_ok up (tool-as-skill now coerced) and recipe-scaler over-ask gone.
+- e2b: dropped from scope (not shipping) — do NOT spend cycles on it.
