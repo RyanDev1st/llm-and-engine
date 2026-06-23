@@ -146,7 +146,10 @@ class HFModel:
             prefix = input_ids[:, :start]
             gkw["input_ids"] = input_ids[:, start:]           # prefill only the new tail
             gkw["past_key_values"] = past
-            gkw["cache_position"] = torch.arange(start, input_ids.shape[1], device=input_ids.device)
+            # NB: do NOT pass cache_position — transformers 5.x rejects it ("model_kwargs not used:
+            # ['cache_position']") and derives positions from the cache length itself. Passing it was
+            # the live Colab failure that disabled reuse every session. The A/B self-check still
+            # guards correctness if 5.x ever derives positions differently.
             if attn is not None:
                 gkw["attention_mask"] = attn                  # full-length mask (past + new)
         else:
@@ -160,11 +163,13 @@ class HFModel:
         try:
             go = self.model.generate(**gkw, **kw, stop_strings=stops, tokenizer=self.tok)
         except (TypeError, ValueError) as _exc:
-            # FALLBACK = NO early-stop -> every step decodes to max_new_tokens (the latency knot).
-            # Warn ONCE so a transformers version that can't take stop_strings is OBVIOUS, not silent.
+            # Retry WITHOUT stop_strings. If THIS succeeds, stop_strings was the culprit -> warn
+            # (early-stop off = the latency knot, every step decodes to the cap). If it ALSO raises
+            # (e.g. a reuse-cache kwarg), let it propagate to the caller's cache fallback — blaming
+            # early-stop here would be a FALSE diagnosis (it was, on the cache_position error).
+            go = self.model.generate(**gkw, **kw)
             _warn_no_earlystop_once(_exc)
             _path = "fallback(no-stop)"
-            go = self.model.generate(**gkw, **kw)
         seq = go.sequences[0]
         if prefix is not None:                                # rebuild the full sequence
             seq = torch.cat([prefix[0], seq], dim=0)
@@ -185,24 +190,35 @@ class HFModel:
         Any error falls back to a full prefill. So output is never wrong — worst case = slow."""
         cache = self._kv
         ids = enc["input_ids"][0]
-        try:
-            ln = cache.reusable(ids)
-            if not cache.verified:
-                full_seq, full_kv = self._run_generate(enc, max_new_tokens, stop)   # the truth
-                if ln > 0:                                    # first reuse opportunity -> A/B check
+        if not cache.verified:
+            # Compute the TRUSTED full prefill first. A reuse-attempt failure below must NOT discard
+            # it (the old code did -> _run_plain decoded the whole turn a SECOND time, ~doubling the
+            # first multi-step turn's latency). On the first reuse opportunity, A/B-check reuse
+            # against this truth; any failure just disables reuse and returns the truth we already have.
+            full_seq, full_kv = self._run_generate(enc, max_new_tokens, stop)
+            try:
+                ln = cache.reusable(ids)
+            except Exception:
+                ln = 0
+            if ln > 0:                                        # first reuse opportunity -> A/B check
+                try:
                     reuse_seq, _ = self._run_generate(enc, max_new_tokens, stop, past=cache.kv, start=ln)
-                    p = enc["input_ids"].shape[1]
-                    if _gen_equal(full_seq, reuse_seq, p):
+                    if _gen_equal(full_seq, reuse_seq, enc["input_ids"].shape[1]):
                         cache.verified = True
                     else:
                         cache.disable("A/B self-check mismatch")
-                cache.store(full_seq, full_kv)
-                return full_seq
+                except Exception as exc:                      # keep full_seq — never recompute it
+                    cache.disable(f"reuse error: {type(exc).__name__}: {exc}")
+            cache.store(full_seq, full_kv)
+            return full_seq
+        # verified -> trust reuse; any failure falls back to ONE full prefill
+        try:
+            ln = cache.reusable(ids)
             seq, kv = self._run_generate(enc, max_new_tokens, stop,
                                          past=cache.kv if ln > 0 else None, start=ln)
             cache.store(seq, kv)
             return seq
-        except Exception as exc:                              # any cache mechanic failure -> safe path
+        except Exception as exc:
             cache.disable(f"reuse error: {type(exc).__name__}: {exc}")
             return self._run_plain(enc, max_new_tokens, stop)
 
