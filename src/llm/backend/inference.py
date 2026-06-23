@@ -199,6 +199,20 @@ def _is_deflection(reply: str) -> bool:
     return bool(_DEFLECTION.search(reply or ""))
 
 
+# A BARE ASK-BACK: a short, question-led sentence that asks the user what to do INSTEAD of using the
+# results just gathered ("What aspect of the position interests you most?"). Distinct from a real
+# synthesis that ends with an optional offer ("You're better; want the attacking plan?") — that leads
+# with a grounded statement, so it doesn't start with a question word. Phrase-agnostic (no per-
+# deflection regex), so it generalizes; gated on facts-already-gathered before it forces an answer.
+_ASK_BACK = _re.compile(r"^(?:what|which|would you|do you|how (?:can|may)|where|want me|shall|should i|"
+                        r"is there|are there|anything else)\b", _re.I)
+
+
+def _is_ask_back(reply: str) -> bool:
+    r = (reply or "").strip()
+    return bool(r) and r.endswith("?") and len(r) <= 160 and bool(_ASK_BACK.match(r))
+
+
 # A leading sentence that ANNOUNCES a skill/tool action ("Loading the chess-coach
 # skill. <real answer>"). Training never puts skill/tool narration in the final reply
 # (finals.py: "skill loads / tool calls never appear here"), so strip a single such
@@ -676,6 +690,25 @@ class CoachLoop:
         return extract_call(verdict)  # next tool to continue with, or None (DONE/fulfilled)
 
     @staticmethod
+    def _force_synthesis(convo: list[dict], gen_quiet, user_message: str) -> str:
+        """PLAN mode: every result the plan called for is gathered, but the terminal box is a
+        'synthesize/answer' step (no tool) and the model tried to deflect ("what would you like to
+        look at?") instead of answering. Force the synthesis directly from the gathered results so
+        the plan actually completes. Generalizes via the model's OWN results — no keyword map.
+        Scaffolding nudge is never persisted. Returns the answer, or '' if it re-whiffs."""
+        convo.append({"role": "user", "content":
+            f'You have gathered every result your plan called for. Now WRITE your final answer to '
+            f'"{user_message}", synthesizing those results into direct, specific guidance. Do NOT '
+            "ask the user what they want or what to look at, and do NOT call another tool — answer now."})
+        try:
+            out = gen_quiet(REPLY_TOKENS, ACTION_STOP)
+        finally:
+            convo.pop()  # scaffolding; never persisted
+        if not out or contains_tool_call(out) or _is_leadin_only(out) or _is_deflection(out) or _is_ask_back(out):
+            return ""
+        return out
+
+    @staticmethod
     def _next_plan_action(convo: list[dict], gen_quiet, pending_box: str) -> str | None:
         """PLAN-box backstop (Stage 1 anti-early-stop). When the model tries to finalize
         but a plan box is still unfilled, ask it for the ONE next action that fills it.
@@ -869,6 +902,16 @@ class CoachLoop:
                             reply = self._force_answer(convo, gen_quiet, tool_calls) \
                                 or _fallback_reply(tool_calls, tool_results)
                         reply = _strip_announce_leadin(reply)
+                        # Gathered facts, then ASKED BACK instead of answering: the live "plan emits a
+                        # plan but doesn't follow it" / auto deflect-after-gathering failure. In plan
+                        # mode the model committed to "synthesize across all results"; force that
+                        # synthesis from the results it has, rather than accept the ask-back. Fires
+                        # only when a FACT tool ran (skill-only deflections are the verify path below).
+                        if bool(tool_calls) and not _only_context(tool_calls) and _is_ask_back(reply):
+                            synth = self._force_synthesis(convo, gen_quiet, user_message)
+                            if synth:
+                                return self._finalize(synth, required, tool_calls, tool_results,
+                                                      new_turns, ctx_stats, on_event)
                         # Design B — self-verification after a context-only (skill-load) turn:
                         # the reply may be a fluent DEFLECTION that ignores the request. Ask the
                         # model to self-check; if not fulfilled it returns the next tool to run.

@@ -34,6 +34,24 @@ def _warn_no_earlystop_once(exc: Exception) -> None:
               flush=True)
 
 
+def _stop_token_ids(tok) -> list[int]:
+    """Token ids that must END a generation: <eos>, the chat TURN-ENDER (<end_of_turn> / <turn|>),
+    and <pad>. Gemma's generation_config sometimes omits the turn-ender from eos, so after a complete
+    reply the model keeps decoding and floods <pad> until the token cap — the 'NUL' run in the log and
+    the dozens-of-seconds latency on EVERY reply. Stopping on the turn-ender halts at the real end;
+    <pad> is included so a degenerate pad run stops immediately instead of running to the cap."""
+    ids: set[int] = set()
+    for v in (getattr(tok, "eos_token_id", None), getattr(tok, "pad_token_id", None)):
+        if v is not None:
+            ids.add(int(v))
+    unk = getattr(tok, "unk_token_id", None)
+    for name in ("<end_of_turn>", "<turn|>"):
+        i = tok.convert_tokens_to_ids(name)
+        if isinstance(i, int) and i >= 0 and i != unk:
+            ids.add(i)
+    return sorted(ids)
+
+
 class HFModel:
     def __init__(self, base: str | Path = BASE, adapter: str | Path | None = None,
                  temperature: float = 0.6) -> None:
@@ -81,6 +99,13 @@ class HFModel:
                     "[adapter] NOT applied — 0 lora_B weights took (key mismatch). The server "
                     "would be running raw base Gemma. Fix the adapter load before trusting output.")
         self.model.eval()
+        # Stop set = the model's configured eos UNION the turn-ender + pad, so a finished reply ends
+        # instead of flooding <pad> to the cap (the NUL run = the real latency knot, all modes).
+        gc_eos = getattr(self.model.generation_config, "eos_token_id", None)
+        eos = set(gc_eos) if isinstance(gc_eos, (list, tuple)) else ({gc_eos} if gc_eos is not None else set())
+        eos |= set(_stop_token_ids(self.tok))
+        self._eos_ids = sorted(int(i) for i in eos if i is not None)
+        print(f"[gen] stop ids = {self._eos_ids} (turn-ender + pad included)", flush=True)
         from . import kv_cache
         self._kv = kv_cache.PrefixCache()   # prefix KV reuse across loop steps (self-guarding)
 
@@ -122,12 +147,19 @@ class HFModel:
         # repetition_penalty/no_repeat_ngram were the soup-era loop fix; they corrupt name
         # COPYING (a correct skill name reuses prompt words), so default 1.0/0 (clean) now that
         # the format is trained — set CHESS_REP_PENALTY=1.2 / CHESS_NO_REPEAT_NGRAM to restore.
-        return dict(
+        kw = dict(
             max_new_tokens=max_new_tokens,
-            do_sample=self.temperature > 0, temperature=max(self.temperature, 1e-3),
-            top_p=0.9, repetition_penalty=float(os.environ.get("CHESS_REP_PENALTY", "1.0")),
+            repetition_penalty=float(os.environ.get("CHESS_REP_PENALTY", "1.0")),
             no_repeat_ngram_size=int(os.environ.get("CHESS_NO_REPEAT_NGRAM", "0")),
-            pad_token_id=self.tok.pad_token_id)
+            pad_token_id=self.tok.pad_token_id,
+            eos_token_id=self._eos_ids)   # stop at the turn-ender + pad, not just <eos>
+        # Only pass sampling params when actually sampling — at temp 0 (greedy) transformers 5.x
+        # warns "generation flags not valid: ['temperature','top_p']" and ignores them.
+        if self.temperature > 0:
+            kw.update(do_sample=True, temperature=max(self.temperature, 1e-3), top_p=0.9)
+        else:
+            kw["do_sample"] = False
+        return kw
 
     def _run_generate(self, enc: dict, max_new_tokens: int, stop: list[str],
                       past=None, start: int = 0):
