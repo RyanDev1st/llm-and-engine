@@ -24,6 +24,11 @@ MAX_TOOL_CALLS = 8  # headroom for the coverage "Wait" nudges (each can cost a s
 # bounds a genuine final reply. 96 was truncating longer answers mid-sentence; 320
 # (~240 words) lets a coaching reply finish while still capping runaway generation.
 REPLY_TOKENS = 320
+# Fast mode acts immediately and narrates tool results concisely, so its replies are short and stop
+# at EOS well under this — a tighter fast-mode STEP cap bounds a runaway generation without truncating
+# real answers (the truncation-regen guard in respond() restores the full budget if a fast reply ever
+# does hit it). think/auto/plan keep the full REPLY_TOKENS so a <think>/<plan> preamble is never cut.
+FAST_STEP_TOKENS = 224
 DEFAULT_N_CTX = 4096  # used only if a backend can't report its own context limit
 # One action per generation step (the contract). A tool call closes at </tool>
 # (Gemma-native </tool_code>) and a skill load at </skill>; stopping at the FIRST
@@ -792,9 +797,22 @@ class CoachLoop:
             # must NOT leak into the user's chat bubble.
             return self.model.generate(convo, mx, stop).strip()
 
+        # Per-step decode budget: fast mode replies are concise -> a tighter cap bounds runaways
+        # (with the regen guard below as the no-truncation safety net); reasoning modes keep the
+        # full budget so a <think>/<plan> preamble + its action is never cut mid-thought.
+        step_cap = FAST_STEP_TOKENS if reasoning_mode in ("", "fast") else REPLY_TOKENS
+
+        def _truncated(text: str) -> bool:
+            # True if `text` likely hit step_cap (a longer final got cut). count_tokens is cheap on
+            # HF (local); on the remote backend it's one localhost call, paid only here when finalizing.
+            try:
+                return self.model.count_tokens(text) >= step_cap - 8
+            except Exception:
+                return len(text) >= step_cap * 3   # ~chars/token fallback if count_tokens is unavailable
+
         verified = False   # the self-verify step (Design B) runs at most once per turn
         for _ in range(MAX_TOOL_CALLS):
-            raw = gen(REPLY_TOKENS, ACTION_STOP)
+            raw = gen(step_cap, ACTION_STOP)
             if on_event and not goal_shown[0]:  # surface the objective to the goal panel early
                 gm = _GOAL_TAG.search(raw)
                 if gm and gm.group(1).strip():
@@ -830,6 +848,11 @@ class CoachLoop:
                         whiffed = (not raw) or bool(tool_calls and _is_leadin_only(raw))
                         if not whiffed:
                             reply = raw
+                            # No-truncation guard: if a fast-mode step capped a longer-than-usual final
+                            # mid-sentence, regenerate it ONCE at the full REPLY_TOKENS so the user's
+                            # answer is never cut. Rare (fast replies are short); a no-op for other modes.
+                            if step_cap < REPLY_TOKENS and _truncated(raw):
+                                reply = gen_quiet(REPLY_TOKENS, ACTION_STOP) or raw
                         else:
                             # Whiffed: if it ONLY loaded context (skills), retry once with an
                             # explicit "answer now" nudge before the generic fallback.
