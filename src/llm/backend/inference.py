@@ -19,6 +19,7 @@ from .toolfmt import parse_call
 from .tools import ToolExecutor
 
 MAX_TOOL_CALLS = 8  # headroom for the coverage "Wait" nudges (each can cost a step)
+MAX_RELOAD_NUDGES = 2  # times we steer "you already loaded that skill — use it" before giving up
 # Per-generation token budget. The same call detects a tool decision OR produces the
 # final reply: tool calls stop early at </tool> (the stop seq), so this cap only ever
 # bounds a genuine final reply. 96 was truncating longer answers mid-sentence; 320
@@ -526,6 +527,12 @@ def _to_skill_verb(call: str) -> str:
 # treat it as the final reply. A box is satisfied when its bound skill/tool runs.
 _PLAN_TAG = _re.compile(r"<plan>(.*?)</plan>", _re.DOTALL)
 _GOAL_TAG = _re.compile(r"<goal>(.*?)</goal>", _re.DOTALL)
+# Tolerant goal capture: the model sometimes omits the closing </goal> and runs straight into
+# <think>/<skill>/<tool>. Match the goal content up to </goal> OR the next control tag OR end —
+# so the objective still PINS to the goal panel (and is stripped from the chat bubble) instead of
+# just flashing past in the token stream ("only got air of it"). Strict _GOAL_TAG stays for the
+# compaction miner, which wants a fully-closed block.
+_GOAL_OPEN = _re.compile(r"<goal>\s*(.*?)\s*(?:</goal>|(?=<think>|<plan>|<skill>|<tool>)|$)", _re.DOTALL)
 _THINK_TAG = _re.compile(r"<think>(.*?)</think>", _re.DOTALL)
 _PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
 _SKILL_ARG = _re.compile(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)")
@@ -540,9 +547,11 @@ def _split_reasoning(reply: str) -> tuple[str, list[str], str | None]:
     only the tag blocks, leaves all other prose intact."""
     text = reply or ""
     thinks = [m.group(1).strip() for m in _THINK_TAG.finditer(text) if m.group(1).strip()]
-    gm = _GOAL_TAG.search(text)
+    gm = _GOAL_OPEN.search(text)
     goal = gm.group(1).strip() if gm and gm.group(1).strip() else None
-    visible = _GOAL_TAG.sub("", _THINK_TAG.sub("", text))
+    # Strip the goal FIRST: an unclosed <goal> is bounded by the following <think>/<skill> tag, so
+    # removing <think> first would delete that boundary and let the goal strip run to end-of-text.
+    visible = _THINK_TAG.sub("", _GOAL_OPEN.sub("", text))
     visible = _re.sub(r"\n{3,}", "\n\n", visible).strip()
     return visible, thinks, goal
 
@@ -777,6 +786,7 @@ class CoachLoop:
         plan_boxes: list[str] = []     # outstanding <plan> box bindings (Stage 1 plan mode)
         plan_fired: set[str] = set()   # bindings satisfied by an executed skill/tool
         plan_nudges = 0                # plan-box steers used this turn (cap = number of boxes)
+        reload_nudges = 0              # "you already loaded that skill — use it" steers used this turn
         goal_shown = [False]           # emit the <goal> to its panel once, when first seen
 
         # True token streaming: when the caller wants events AND the backend supports it,
@@ -814,7 +824,7 @@ class CoachLoop:
         for _ in range(MAX_TOOL_CALLS):
             raw = gen(step_cap, ACTION_STOP)
             if on_event and not goal_shown[0]:  # surface the objective to the goal panel early
-                gm = _GOAL_TAG.search(raw)
+                gm = _GOAL_OPEN.search(raw)      # tolerant: pins even an unclosed <goal>
                 if gm and gm.group(1).strip():
                     on_event({"type": "goal", "content": gm.group(1).strip()})
                     goal_shown[0] = True
@@ -899,9 +909,25 @@ class CoachLoop:
             # in training) — a cause of skill re-loading. hist keeps train==serve.
             i0 = decision.find("<tool>")
             key = decision[i0:] if i0 >= 0 else decision
-            tool_result = "error: duplicate_tool_call" if key in seen_calls else self.executor.execute(decision)
-            seen_calls.add(key)
             name = parse_call(decision)[0] or ""
+            if key in seen_calls:
+                # The model repeated a call it already made. A re-loaded SKILL means it is STUCK
+                # loading instead of USING what it loaded (the live "load the skill twice then
+                # deflect" failure — the puzzle never got generated). Steer it to act and CONTINUE
+                # rather than record a duplicate + break to a generic answer. We do NOT re-display
+                # the load, re-execute it, or pollute history. A repeated FACT tool yields the same
+                # result, so there we stop and answer with what we have.
+                if name == "load_skill" and reload_nudges < MAX_RELOAD_NUDGES:
+                    reload_nudges += 1
+                    sk = parse_call(decision)[1].get("name", "that skill")
+                    convo.append({"role": "user", "content":
+                        f"You already loaded '{sk}'; its instructions are in the context above. Do "
+                        "NOT load it again — take the NEXT action (call a tool it described, or write "
+                        "your answer) that actually fulfils the request now."})
+                    continue
+                break
+            tool_result = self.executor.execute(decision)
+            seen_calls.add(key)
             if name:
                 seen_names.add(name)
             plan_fired.add(fired_binding(decision))   # mark the plan box this call satisfies
@@ -915,8 +941,6 @@ class CoachLoop:
                       {"role": "tool", "content": tool_result}]
             new_turns += [{"role": "assistant", "content": hist},
                           {"role": "tool", "content": tool_result}]
-            if tool_result == "error: duplicate_tool_call":
-                break
 
         # Budget forcing (s1): out of tool steps, the user is waiting — answer now.
         convo.append({"role": "user", "content":
