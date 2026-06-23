@@ -21,8 +21,10 @@ def test_common_prefix_len():
     assert K.common_prefix_len([1, 2], [9, 2]) == 0
 
 
-def test_env_flag_toggles_default_on(monkeypatch):
-    assert _fresh(monkeypatch, None).enabled() is True       # default ON
+def test_env_flag_toggles_default_off(monkeypatch):
+    # Default OFF: reuse diverges from a full prefill on transformers 5.x (A/B mismatch) and only
+    # ever saved prefill, so it's opt-in. CHESS_KV_REUSE=1 re-enables it where proven to match.
+    assert _fresh(monkeypatch, None).enabled() is False      # default OFF
     assert _fresh(monkeypatch, "1").enabled() is True
     assert _fresh(monkeypatch, "0").enabled() is False
     assert _fresh(monkeypatch, "false").enabled() is False

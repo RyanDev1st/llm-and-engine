@@ -22,8 +22,11 @@ MIN_REUSE = 64    # don't bother reusing a prefix shorter than this (overhead > 
 
 
 def enabled() -> bool:
-    """Reuse on by default; CHESS_KV_REUSE=0 forces the plain full-prefill path."""
-    return os.environ.get("CHESS_KV_REUSE", "1") not in ("0", "false", "False", "")
+    """Reuse OFF by default: on transformers 5.x the reuse path's positions diverge from a full
+    prefill (the 'A/B self-check mismatch' in the serve log), so it never verifies AND the one-time
+    A/B probe wastes a full decode. It only ever saved prefill (~tenths of a second) anyway, never
+    decode (the real cost). Set CHESS_KV_REUSE=1 to re-enable where it's been proven to match."""
+    return os.environ.get("CHESS_KV_REUSE", "0") in ("1", "true", "True")
 
 
 def common_prefix_len(a, b) -> int:
