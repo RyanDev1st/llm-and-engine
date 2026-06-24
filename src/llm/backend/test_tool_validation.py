@@ -20,7 +20,7 @@ def test_load_skill_returns_condensed_body():
     assert "name: chess-coach" not in body              # the yaml keys are gone
     assert len(body) < len(full)                        # smaller than the raw file
     # the rules the model actually needs survive the condense
-    assert "board_state" in body and "best_move" in body and "MUST continue" in body
+    assert "board_state" in body and "best_move" in body and "MUST call" in body
 
 
 def test_condense_caps_a_pathological_body():
@@ -42,7 +42,8 @@ def test_unknown_tool_name_is_named_not_generic_syntax():
 
 def test_move_without_san_names_the_missing_arg():
     out = _ex().execute("<tool>move</tool>")
-    assert "needs 'san=...'" in out and out.startswith("error: tool 'move'")
+    # a REAL example move (san=Nf3), not the literal `san=...` placeholder a small model copies
+    assert out.startswith("error: tool 'move'") and "san=Nf3" in out and "san=..." not in out
 
 
 def test_bad_enum_value_is_rejected_with_the_allowed_set():
