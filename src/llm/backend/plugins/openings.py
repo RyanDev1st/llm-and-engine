@@ -47,9 +47,10 @@ SKILLS = [{
     "name": "opening-advisor",
     "description": "Use when the user asks what opening this is, or for opening plans, theory, or a repertoire.",
     "body": ("---\nname: opening-advisor\ndescription: Opening identification and plans.\n---\n\n"
-             "# opening-advisor\n\nWhen the user asks about the opening: call `name_opening` to identify it, "
-             "then `opening_ideas` for the typical plans, and explain in one or two plain sentences. "
-             "Never invent an opening name the tool did not return."),
+             "# opening-advisor\n\nWhen the user asks about the opening, act this turn — don't ask which "
+             "opening they mean. Call `name_opening` to identify it, then `opening_ideas` for the typical "
+             "plans, and explain in one or two plain sentences. Never invent an opening name the tool did "
+             "not return."),
 }]
 
 

@@ -19,9 +19,10 @@ SKILLS = [{
     "name": "game-reviewer",
     "description": "Use when the user asks how they played overall, their accuracy, or to find blunders across the game.",
     "body": ("---\nname: game-reviewer\ndescription: Whole-game review.\n---\n\n"
-             "# game-reviewer\n\nFor 'how did I play', 'my accuracy', 'where did I go wrong': call "
-             "`accuracy_report` for the per-side accuracy, and `find_blunders` to point out the worst "
-             "moves with the better option. Summarise plainly; only state numbers the tools returned."),
+             "# game-reviewer\n\nFor 'how did I play', 'my accuracy', 'where did I go wrong', act this "
+             "turn — don't ask first. Call `accuracy_report` for the per-side accuracy, and `find_blunders` "
+             "to point out the worst moves with the better option. Summarise plainly; only state numbers "
+             "the tools returned."),
 }]
 
 _BLUNDER_CP = 200   # an eval drop of ≥2 pawns (vs the best move) is a blunder
