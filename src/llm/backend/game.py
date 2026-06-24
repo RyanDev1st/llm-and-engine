@@ -44,6 +44,12 @@ class Game:
         self.san_stack = []
         return True
 
+    def new_game(self) -> str:
+        """Reset to the starting position for a fresh game (history cleared)."""
+        self.board = chess.Board()
+        self.san_stack = []
+        return "success: new game — board reset to the starting position"
+
     # ---- move -------------------------------------------------------------
     def move(self, san: str) -> str:
         try:

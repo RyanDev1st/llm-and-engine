@@ -61,7 +61,9 @@ def _arg_hint(schema: dict | None) -> str:
 # executor truly constrains: a required arg whose absence yields a cryptic downstream error,
 # and enum args the executor SILENTLY DEFAULTS on a bad value (so a typo would otherwise
 # return wrong-but-plausible data instead of an error the model can self-correct from).
-_REQUIRED_ARGS = {"move": "san"}                       # move("") -> cryptic; name the gap
+# (arg, concrete example) — the corrective error shows a REAL example, not a literal "..."
+# placeholder, because a small model copies "san=..." verbatim (seen live) instead of filling it.
+_REQUIRED_ARGS = {"move": ("san", "Nf3")}              # move("") -> cryptic; name the gap + show a real move
 _ENUM_ARGS = {                                         # silent-default enums (wrong -> wrong data)
     "list_pieces": ("color", ("white", "black", "mine")),
     "random_position": ("kind", ("puzzle", "scramble", "open")),
@@ -73,8 +75,11 @@ def validate_call(name: str, args: dict[str, str]) -> str | None:
     truly-required arg or passes an out-of-range value to a silent-default enum; else None.
     Unknown tools and harmless extra/defaulted args are left to dispatch — never over-reject."""
     req = _REQUIRED_ARGS.get(name)
-    if req and not args.get(req):
-        return f"error: tool '{name}' needs '{req}=...' — e.g. <tool>{name} {req}=...</tool>"
+    if req:
+        arg, example = req
+        if not args.get(arg):
+            return (f"error: tool '{name}' needs '{arg}' set to a move in standard notation — "
+                    f"e.g. <tool>{name} {arg}={example}</tool>; replace {example} with the move you want.")
     enum = _ENUM_ARGS.get(name)
     if enum:
         arg, allowed = enum
@@ -143,11 +148,19 @@ class ToolExecutor:
             return self._board_state(args.get("fields", "basic"))
         if name == "move":
             return self.game.move(args.get("san", ""))
+        if name == "new_game":
+            return self.game.new_game()
         if name == "load_fen":
             fen = args.get("fen", "")
             if self.game.load_fen(fen):
                 return self._board_state("all")
-            return "error: invalid_fen"
+            # Actionable error: name what a FEN needs + give the start position so the model can
+            # recover (a bare "invalid_fen" left it re-trying malformed FENs). To RESET, new_game
+            # is the right tool — no need to hand-type a FEN at all.
+            return ("error: invalid_fen — a FEN needs 6 space-separated fields "
+                    "'<pieces> <turn> <castling> <ep> <halfmove> <fullmove>'. The starting "
+                    "position is 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'. "
+                    "To start over, call new_game instead.")
         if name == "random_position":
             from .positions import random_position
             return random_position(self.game, args.get("kind", "puzzle"), engine=self.engine)

@@ -47,6 +47,7 @@ def compute_tools() -> list[dict[str, Any]]:
 OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "move", "description": "Play a SAN move on the live board.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
     {"name": "load_fen", "description": "Set the board to a position from a FEN string (e.g. to set up a puzzle).", "args": {"fen": "required"}, "applies_when": "always"},
+    {"name": "new_game", "description": "Reset the board to the starting position for a new game.", "args": {}, "applies_when": "always"},
     {"name": "random_position", "description": "Set up a fresh position for a skill to work on: a tactical puzzle, a random scramble, or a random opening.", "args": {"kind": ["puzzle", "scramble", "open"]}, "applies_when": "always"},
     {"name": "fetch_puzzle", "description": "Fetch a real, rated tactical puzzle from Lichess (online) with verified themes and solution, and set it on the board.", "args": {}, "applies_when": "always"},
     {"name": "eval", "description": "Evaluate the current chess position.", "args": {"depth": "required"}, "applies_when": "game_in_progress"},
