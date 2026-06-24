@@ -41,6 +41,46 @@ VERSIONS = [
 ]
 
 
+# --- ALL models for the cross-model performance line chart (report). Ordered earliest -> latest
+# along the x-axis. SEED values are MEASURED where we have them (the 2026-06-21 routing benchmark,
+# val verb accuracy); completion/grounded/tok_s + the GGUF quants + E2B are filled at run time by the
+# Kaggle completion + GGUF A/B (eval_completion --gguf / --e2b-adapter) via merge_measured. ---
+MODELS = [
+    {"key": "e2b-adapter", "label": "E2B adapter\n(prior prod)"},
+    {"key": "e4b-base",    "label": "E4B base\n+harness", "verb": 0.829},
+    {"key": "e4b-nf4",     "label": "E4B v4 nf4\n(current)", "verb": 0.964},
+    {"key": "e4b-q5",      "label": "E4B Q5_K_M\nGGUF"},
+    {"key": "e4b-q6",      "label": "E4B Q6_K\nGGUF"},
+]
+
+
+def merge_measured(models: list, measured: dict) -> list:
+    """Overlay a {key: {metric: value}} dict of measured numbers onto a COPY of `models` (pure;
+    unit-tested). Unknown keys are ignored; a None value never clobbers an existing seed."""
+    out = [dict(m) for m in models]
+    by = {m["key"]: m for m in out}
+    for key, vals in (measured or {}).items():
+        m = by.get(key)
+        if not m:
+            continue
+        for k, v in (vals or {}).items():
+            if v is not None:
+                m[k] = v
+    return out
+
+
+def model_table_md(models: list) -> str:
+    """A markdown table of the cross-model numbers (the report's text mirror of model_lines)."""
+    L = ["| model | routing verb | completion | grounded | tok/s |", "|---|---|---|---|---|"]
+    for m in models:
+        def c(k, pct=True):
+            v = m.get(k)
+            return "—" if v is None else (f"{v:.0%}" if pct else f"{v:.0f}")
+        L.append(f"| {m['label'].replace(chr(10), ' ')} | {c('verb')} | {c('completed')} | "
+                 f"{c('grounded')} | {c('tok_s', pct=False)} |")
+    return "\n".join(L)
+
+
 def corpus_stats(train_gz: Path | None = None, val_gz: Path | None = None) -> dict:
     """Measured corpus composition (reasoning-mode mix, per-slice sizes, train/val totals). The
     general/chess DESIGN target is ~75/25; we do not assert a measured domain split because chess

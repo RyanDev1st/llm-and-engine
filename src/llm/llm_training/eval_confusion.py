@@ -127,29 +127,35 @@ def _metrics(cm: dict) -> dict:
     return out
 
 
-def _png(cm: dict, path: Path) -> None:
+def confusion_caption(cm: dict, name_hits: int | None = None, name_tot: int | None = None) -> str:
+    """Plain-English description baked UNDER the matrix in the PNG (pure — unit-tested). Explains the
+    3-class verb routing + the diagonal, then the headline numbers computed from the matrix itself.
+    When the exact-NAME tally is passed (the standalone run has it), add that line too."""
+    met = _metrics(cm)
+    total = sum(cm[g][p] for g in CLASSES for p in CLASSES) or 1
+    acc = sum(cm[c][c] for c in CLASSES) / total
+    macro_p = sum(met[c]["precision"] for c in CLASSES) / len(CLASSES)
+    lines = [
+        "Routing = the model's FIRST action on each held-out request, scored as one of three",
+        "verbs: skill (load a skill body) · tool (call a function) · none (answer directly).",
+        "Rows = the correct (gold) verb, columns = what the model chose; the diagonal is correct.",
+        "",
+        f"Verb accuracy {acc:.1%}  ·  macro-precision {macro_p:.1%}  ·  n={total} val rows.",
+    ]
+    if name_tot:
+        lines.append(f"Exact tool/skill NAME match (on skill/tool rows): "
+                     f"{name_hits}/{name_tot} = {name_hits / name_tot:.1%}.")
+    return "\n".join(lines)
+
+
+def _png(cm: dict, path: Path, caption: str | None = None) -> None:
+    """Render the matrix WITH its description baked into the image (one copy-paste for a slide). The
+    per-condition matrices in bench_report flow through here too, so each carries its own legend."""
+    from llm_training.report.ppt_charts import confusion_matrix
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
+        confusion_matrix(cm, CLASSES, path, caption or confusion_caption(cm))
     except Exception as exc:                       # text report still stands without the plot
         print(f"(matplotlib unavailable: {exc}; skipping PNG)", flush=True)
-        return
-    mat = [[cm[g][p] for p in CLASSES] for g in CLASSES]
-    fig, ax = plt.subplots(figsize=(4.2, 3.8))
-    im = ax.imshow(mat, cmap="Blues")
-    ax.set_xticks(range(3), [f"pred\n{c}" for c in CLASSES])
-    ax.set_yticks(range(3), [f"gold {c}" for c in CLASSES])
-    thr = max(max(r) for r in mat) / 2 or 1
-    for g in range(3):
-        for p in range(3):
-            ax.text(p, g, mat[g][p], ha="center", va="center",
-                    color="white" if mat[g][p] > thr else "black", fontsize=12)
-    ax.set_title("Routing verb confusion (val)")
-    fig.colorbar(im, fraction=0.046)
-    fig.tight_layout()
-    fig.savefig(path, dpi=150)
-    print(f"wrote {path}", flush=True)
 
 
 def main() -> None:
@@ -161,6 +167,8 @@ def main() -> None:
     ap.add_argument("--max-new-tokens", type=int, default=24, help="gen cap per row (fast mode acts early)")
     ap.add_argument("--time-budget", type=float, default=0, help="seconds; 0 = no budget. Stops "
                     "early + writes the matrix from completed rows (survives a Colab disconnect)")
+    ap.add_argument("--tag", default=None, help="model KEY (e.g. e4b-nf4/e4b-q5/e2b-adapter): writes "
+                    "the verb accuracy to report_assets/measured-<tag>.json for the cross-model chart")
     args = ap.parse_args()
 
     from llm_dataset.v1.jsonl_io import read_rows
@@ -198,7 +206,11 @@ def main() -> None:
     out = REPO / "docs" / "findings" / f"{date.today():%Y-%m-%d}-routing-confusion.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(L) + "\n", encoding="utf-8")
-    _png(cm, out.with_suffix(".png"))
+    _png(cm, out.with_suffix(".png"), confusion_caption(cm, nh, nt))
+    if args.tag:                                        # feed the cross-model line chart (verb only)
+        from llm_training.report.measured import update
+        update(REPO / "docs" / "findings" / "report_assets", args.tag,
+               verb=acc, exact=(nh / nt if nt else None))
     print("\n".join(L[3:]), flush=True)
     print(f"\nwrote {out}", flush=True)
 

@@ -181,6 +181,8 @@ def main() -> None:
     ap.add_argument("--stress", action="store_true", help="grade the held-out STRESS suite (OOD)")
     ap.add_argument("--no-coverage", dest="coverage", action="store_false")
     ap.add_argument("--time-budget", type=float, default=None)
+    ap.add_argument("--tag", default=None, help="model KEY (e.g. e4b-nf4/e4b-q5): writes completion + "
+                    "grounded rates to report_assets/measured-<tag>.json for the cross-model chart")
     args = ap.parse_args()
     if args.stress:
         from llm_training.bench_suites import stress_rows
@@ -194,6 +196,12 @@ def main() -> None:
     res = run_completion(model, rows, engine=engine, coverage=args.coverage,
                          time_budget_s=args.time_budget)
     print("\n" + _report(res, label), flush=True)
+    if args.tag and res["n"]:                          # feed the cross-model line chart
+        from pathlib import Path as _P
+        from llm_training.report.measured import update
+        n = res["n"]
+        update(_P(__file__).resolve().parents[3] / "docs" / "findings" / "report_assets", args.tag,
+               completed=res["totals"]["completed"] / n, grounded=res["totals"]["grounded"] / n)
 
 
 if __name__ == "__main__":
