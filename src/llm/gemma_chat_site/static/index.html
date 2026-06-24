@@ -1805,8 +1805,8 @@ const Backend = {
   },
   addSkill(s) { return this.post('/api/skill', { name: s.name, description: s.desc || s.name, body: s.content || '' }); },
   delSkill(name) { return this.post('/api/skill/delete', { name }); },
-  setPlugins(names) { const csv = names.join(', ');
-    return this.post('/api/plugin', { installed: csv, enabled: csv, marketplace: '' }); },
+  // (setPlugins removed — the Plugins tab no longer pushes a plugin set to the backend; apply_plugin
+  // REPLACES installed/enabled, so syncing the demo names disabled the real plugins. Tab is read-only now.)
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1956,46 +1956,53 @@ const DnD = (() => {
    Skills UI
    ═══════════════════════════════════════════════════════════════ */
 const SkillsUI = (() => {
-  let skills = Storage.get('skills') || [], editingIdx = -1;
-  const sampleSkills = [
-    { name: 'chess-opening-advisor', desc: 'Recommends opening moves and explains opening theory for the current position.', content: '# chess-opening-advisor\n\n## Description\nRecommends opening moves and explains opening theory.\n\n## Instructions\nAnalyze the board FEN. If in the opening phase (moves < 10), suggest 2-3 principled opening moves with explanations. Reference named openings when applicable.' },
-    { name: 'tactical-puzzle-generator', desc: 'Creates tactical puzzles from the current board position for training.', content: '# tactical-puzzle-generator\n\n## Description\nGenerates tactical puzzles from live positions.\n\n## Instructions\nScan the board for tactical motifs (forks, pins, skewers, discoveries). Present the best tactical sequence in puzzle format with difficulty rating.' },
-  ];
+  // `builtins` = the REAL backend catalog (read-only display); `userSkills` = drag-dropped / +New (persisted).
+  // We NO LONGER seed demo skills. The old hardcoded stubs (chess-opening-advisor, tactical-puzzle-generator)
+  // were INJECTED into the model's catalog on every load with thin/WRONG bodies (the puzzle stub said "scan
+  // the current board" instead of fetching a puzzle), shadowing the maintained backend skills (chess-coach,
+  // opening-advisor, game-reviewer, tactical-puzzles) and making the coach flaky. The tab now SHOWS the real
+  // catalog (fetched from /api/skills) and only adds a skill on a genuine drag-drop / +New.
+  let builtins = [], userSkills = Storage.get('skills_v2') || [], editingIdx = -1;
+
+  async function refresh() {
+    try { const j = await (await fetch('/api/skills')).json(); builtins = j.skills || []; } catch (e) {}
+    render();
+  }
 
   function init() {
-    if (skills.length === 0) { skills = sampleSkills.map(s => ({...s, id: Date.now() + Math.random()})); save(); }
     DnD.setup('skillsDropZone', 'skill', async (imported) => {
       for (const item of imported) {
         let content = item.content || '';
         if (item._file) content = await item._file.text();
-        const existing = skills.find(s => s.name === item.name);
-        if (existing) { existing.content = content; existing.desc = item.desc || existing.desc; }
-        else skills.push({ name: item.name, desc: item.desc || 'Imported from ' + (item.path || item.name), content, id: Date.now() });
-        await Backend.addSkill(skills.find(s => s.name === item.name));  // model sees it
+        const ex = userSkills.find(s => s.name === item.name);
+        if (ex) { ex.content = content; ex.desc = item.desc || ex.desc; }
+        else userSkills.push({ name: item.name, desc: item.desc || ('Imported from ' + (item.path || item.name)), content, id: Date.now() });
+        await Backend.addSkill(userSkills.find(s => s.name === item.name));   // a REAL user import the model sees
       }
-      save(); render();
+      save(); refresh();
     });
-    skills.forEach(s => Backend.addSkill(s));   // mirror what's shown into the model's catalog
-    render();
+    userSkills.forEach(s => Backend.addSkill(s));   // re-add the user's OWN imports (server wipes runtime on restart) — NOT demo stubs
+    refresh();
   }
 
-  function save() { Storage.set('skills', skills); }
+  function save() { Storage.set('skills_v2', userSkills); }
 
   function render() {
     const list = document.getElementById('skillsList');
-    if (skills.length === 0) {
-      list.innerHTML = '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No skills installed.<br>Drop a <code>/skills/</code> folder above or click "+ New Skill".</p></div>';
-      return;
-    }
-    list.innerHTML = skills.map((s, i) => `<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="SkillsUI.select(${i})">
+    // Built-in (model) skills first — read-only, no onclick; then the user's editable imports.
+    const cards = builtins.map(s => `<div class="skl-card builtin">
+      <h4>${esc(s.name)}</h4><p>${esc(s.description || '')}</p>
+      <div class="skl-meta"><span>${esc(s.plugin || s.source || 'built-in')}</span><span>active</span></div></div>`);
+    userSkills.forEach((s, i) => cards.push(`<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="SkillsUI.select(${i})">
       <h4>${esc(s.name)}</h4><p>${esc(s.desc)}</p>
-      <div class="skl-meta"><span>${s.content.split('\n').length} lines</span><span>SKILL.md</span></div>
-    </div>`).join('');
+      <div class="skl-meta"><span>${s.content.split('\n').length} lines</span><span>SKILL.md</span></div></div>`));
+    list.innerHTML = cards.length ? cards.join('') :
+      '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No skills loaded.<br>Drop a <code>/skills/</code> folder above or click "+ New Skill".</p></div>';
   }
 
   function select(i) {
     editingIdx = i;
-    const s = skills[i];
+    const s = userSkills[i];
     document.getElementById('skillName').value = s.name;
     document.getElementById('skillDesc').value = s.desc;
     document.getElementById('skillContent').value = s.content;
@@ -2026,16 +2033,16 @@ const SkillsUI = (() => {
     const name = document.getElementById('skillName').value.trim();
     if (!name) return;
     const obj = { name, desc: document.getElementById('skillDesc').value.trim(), content: document.getElementById('skillContent').value.trim(), id: Date.now() };
-    if (editingIdx >= 0) { obj.id = skills[editingIdx].id; skills[editingIdx] = obj; }
-    else skills.push(obj);
+    if (editingIdx >= 0) { obj.id = userSkills[editingIdx].id; userSkills[editingIdx] = obj; }
+    else userSkills.push(obj);
     Backend.addSkill(obj);
     save(); hideEditor();
   }
 
   function deleteSkill() {
     if (editingIdx < 0) return;
-    const removed = skills[editingIdx];
-    skills.splice(editingIdx, 1);
+    const removed = userSkills[editingIdx];
+    userSkills.splice(editingIdx, 1);
     if (removed) Backend.delSkill(removed.name);
     save(); hideEditor();
   }
@@ -2047,14 +2054,20 @@ const SkillsUI = (() => {
    Plugins UI
    ═══════════════════════════════════════════════════════════════ */
 const PluginsUI = (() => {
-  let plugins = Storage.get('plugins') || [], editingIdx = -1;
-  const samplePlugins = [
-    { name: 'stockfish-engine', desc: 'Local Stockfish 16 engine for position analysis and eval bar.', content: '{"entry": "./stockfish.js", "type": "engine", "depth": 18, "threads": 2}' },
-    { name: 'opening-book', desc: 'Standard opening book (ECO codes) for move suggestions in the opening phase.', content: '{"entry": "./openings.db", "type": "database", "format": "polyglot"}' },
-  ];
+  // Read-only view of the REAL backend plugin bundles. We REMOVED the demo seeding + the load-time
+  // sync: the old init() pushed bogus plugin names (stockfish-engine/opening-book) to /api/plugin on
+  // EVERY load, and apply_plugin REPLACES installed/enabled — which disabled the real plugins
+  // (chess-official/openings/analysis/puzzles), stripping chess-coach/opening-advisor/game-reviewer/
+  // tactical-puzzles from the model's catalog. That was THE cause of the flaky coach. The tab now just
+  // shows what's actually installed (never mutates the context on load).
+  let builtins = [], context = {}, editingIdx = -1, plugins = Storage.get('plugins_v2') || [];
+
+  async function refresh() {
+    try { const j = await (await fetch('/api/skills')).json(); builtins = j.plugins || []; context = j.plugin_context || {}; } catch (e) {}
+    render();
+  }
 
   function init() {
-    if (plugins.length === 0) { plugins = samplePlugins.map(p => ({...p, id: Date.now() + Math.random()})); save(); }
     DnD.setup('pluginsDropZone', 'plugin', async (imported) => {
       for (const item of imported) {
         let content = item.content || '';
@@ -2063,26 +2076,24 @@ const PluginsUI = (() => {
         if (existing) { existing.content = content; existing.desc = item.desc || existing.desc; }
         else plugins.push({ name: item.name, desc: item.desc || 'Imported from ' + (item.path || item.name), content, id: Date.now() });
       }
-      save(); render(); syncPlugins();
+      save(); render();   // display only — do NOT sync (apply_plugin REPLACES the context and would disable the real plugins)
     });
-    render(); syncPlugins();
+    refresh();            // NO syncPlugins on load — that was the clobber
   }
 
-  function save() { Storage.set('plugins', plugins); }
-  // Installing a plugin here = its name appears in the installed/enabled context
-  // the model is told about. (Plugin file bodies stay client-side.)
-  function syncPlugins() { Backend.setPlugins(plugins.map(p => p.name)); }
+  function save() { Storage.set('plugins_v2', plugins); }
 
   function render() {
     const list = document.getElementById('pluginsList');
-    if (plugins.length === 0) {
-      list.innerHTML = '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No plugins installed.<br>Drop a <code>/plugins/</code> folder above or click "+ New Plugin".</p></div>';
-      return;
-    }
-    list.innerHTML = plugins.map((p, i) => `<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="PluginsUI.select(${i})">
+    const enabled = new Set(context.enabled || []);
+    const cards = builtins.map(p => `<div class="skl-card builtin">
+      <h4>${esc(p.name)}</h4><p>${esc(p.description || p.desc || '')}</p>
+      <div class="skl-meta"><span>plugin</span><span>${enabled.has(p.name) ? 'enabled' : 'installed'}</span></div></div>`);
+    plugins.forEach((p, i) => cards.push(`<div class="skl-card ${editingIdx === i ? 'selected' : ''}" onclick="PluginsUI.select(${i})">
       <h4>${esc(p.name)}</h4><p>${esc(p.desc)}</p>
-      <div class="skl-meta"><span>plugin</span><span>${p.content.length} chars</span></div>
-    </div>`).join('');
+      <div class="skl-meta"><span>plugin</span><span>${(p.content || '').length} chars</span></div></div>`));
+    list.innerHTML = cards.length ? cards.join('') :
+      '<div class="empty-state"><span class="empty-icon">&#9881;</span><p>No plugins.<br>Drop a <code>/plugins/</code> folder above or click "+ New Plugin".</p></div>';
   }
 
   function select(i) {
@@ -2120,13 +2131,13 @@ const PluginsUI = (() => {
     const obj = { name, desc: document.getElementById('pluginDesc').value.trim(), content: document.getElementById('pluginContent').value.trim(), id: Date.now() };
     if (editingIdx >= 0) { obj.id = plugins[editingIdx].id; plugins[editingIdx] = obj; }
     else plugins.push(obj);
-    save(); hideEditor(); syncPlugins();
+    save(); hideEditor();   // display only — never push the local plugin set to the backend (apply_plugin REPLACES the context)
   }
 
   function deletePlugin() {
     if (editingIdx < 0) return;
     plugins.splice(editingIdx, 1);
-    save(); hideEditor(); syncPlugins();
+    save(); hideEditor();
   }
 
   return { init, select, showEditor, hideEditor, save: savePlugin, delete: deletePlugin };
