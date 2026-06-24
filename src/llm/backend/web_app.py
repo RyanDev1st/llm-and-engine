@@ -22,10 +22,51 @@ def agent_overlay() -> str:
     return os.environ.get("CHESS_AGENT_OVERLAY", "")
 
 
+def load_shared_model(adapter: str | None) -> tuple[object | None, bool, str | None]:
+    """Build the heavy MODEL once (no loops): returns (model, has_adapter, error). Tries, in order,
+    the persistent model service (CHESS_MODEL_SERVER, weightless), then an in-process HF adapter,
+    then GGUF. The multi-user server calls this ONCE and shares the result across every client's
+    App.bind_model(); a single-process App.load_model() calls it for itself. error!=None means the
+    board/eval still work but chat is unavailable."""
+    if os.environ.get("CHESS_MODEL_SERVER"):
+        try:
+            from .model_remote import RemoteModel, server_has_adapter, server_url
+            has = server_has_adapter()
+            print(f"connected to model service at {server_url()} (adapter={has})", flush=True)
+            return RemoteModel(has_adapter=has), has, None
+        except Exception as exc:  # service down -> fall through to an in-process load
+            print(f"model service unreachable ({exc}); loading in-process", flush=True)
+    adapter = adapter or os.environ.get("CHESS_HF_ADAPTER", "")
+    if adapter:
+        try:
+            from .model_hf import HFModel
+            # greedy (temp 0) — faithful to the tool number and reproducible for the demo.
+            model = HFModel(adapter=adapter, temperature=0.0)
+            print(f"model loaded (HF base + adapter {adapter}; compare ready)", flush=True)
+            return model, True, None
+        except Exception as exc:
+            print(f"HF adapter load failed ({exc}); falling back to GGUF", flush=True)
+    from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
+    try:
+        gguf = default_gguf_path()
+        if gguf.exists():
+            n_ctx, n_gpu_layers = gguf_runtime_config()
+            print(f"model loaded (GGUF {gguf.name})", flush=True)
+            return GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers), False, None
+        raise FileNotFoundError(f"no GGUF at {gguf}; set CHESS_GGUF_PATH")
+    except Exception as exc:  # board + eval still work without the model
+        print(f"model unavailable ({exc}); board/eval still work", flush=True)
+        return None, False, str(exc)
+
+
 class App:
-    def __init__(self, adapter: str | None) -> None:
+    def __init__(self, adapter: str | None, *, engine: "Engine | None" = None,
+                 store: "SessionStore | None" = None) -> None:
+        # engine + store may be INJECTED so a multi-user server gives each client its own engine
+        # (per-client Stockfish) and its own session namespace (data/sessions/<cid>/), while the
+        # heavy MODEL is shared via bind_model(). Defaults preserve the single-process behavior.
         self.game = Game()
-        self.engine = Engine()
+        self.engine = engine or Engine()
         self.executor = ToolExecutor(self.game, self.engine)
         # The base (untrained) loop runs on its OWN board so a base move/undo/
         # load_fen can never mutate the real, displayed game. It is mirrored from
@@ -47,67 +88,29 @@ class App:
         self.session: dict = {}
         # Persistent CONVERSATION sessions (board + chat), disk-keyed so a reload / restart restores
         # them and the user can switch between games. `session_id` = the active one (None until set).
-        self.store = SessionStore()
+        self.store = store or SessionStore()
         self.session_id: str | None = None
 
     def load_model(self) -> None:
-        # Dev mode: a persistent model service holds the weights, so this server is
-        # weightless and restarts in ~1s. Set CHESS_MODEL_SERVER to its URL.
-        if os.environ.get("CHESS_MODEL_SERVER"):
-            try:
-                self._connect_model_service()
-                return
-            except Exception as exc:  # service down -> fall through to in-process load
-                self.model_error = str(exc)
-                print(f"model service unreachable ({exc}); loading in-process", flush=True)
-        adapter = self._adapter or os.environ.get("CHESS_HF_ADAPTER", "")
-        if adapter:
-            try:
-                from .model_hf import HFModel
-                # greedy (temp 0) — faithful to the tool number and reproducible
-                # for the demo; sampling let it drift off the engine's eval.
-                model = HFModel(adapter=adapter, temperature=0.0)
-                ov, pc = agent_overlay(), self.plugin_context
-                self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
-                self.loop_base = CoachLoop(AdapterView(model, False), self.base_executor, ov, pc)
-                # adapter ON, on the isolated board — runs the coverage-OFF side of the ablation
-                self.loop_mirror = CoachLoop(AdapterView(model, True), self.base_executor, ov, pc)
-                print(f"model loaded (HF base + adapter {adapter}; compare ready)", flush=True)
-                return
-            except Exception as exc:
-                self.model_error = str(exc)
-                print(f"HF adapter load failed ({exc}); falling back to GGUF", flush=True)
-        from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
-        try:
-            gguf = default_gguf_path()
-            if gguf.exists():
-                n_ctx, n_gpu_layers = gguf_runtime_config()
-                model = GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers)
-                self.loop = CoachLoop(model, self.executor, agent_overlay(), self.plugin_context)
-                print(f"model loaded (GGUF {gguf.name})", flush=True)
-                return
-            raise FileNotFoundError(f"no GGUF at {gguf}; set CHESS_GGUF_PATH")
-        except Exception as exc:  # board + eval still work without the model
-            self.model_error = str(exc)
-            print(f"model unavailable ({exc}); board/eval still work", flush=True)
+        """Single-process load: build the model AND wire this App's loops to it. A multi-user
+        server instead calls load_shared_model() ONCE and bind_model() per client (shared weights)."""
+        model, has_adapter, error = load_shared_model(self._adapter)
+        self.bind_model(model, has_adapter, error)
 
-    def _connect_model_service(self) -> None:
-        """Build the loops against the remote model service (no weights here). Same
-        loop wiring as the HF path: adapter on (SFT) + adapter off (base) + the
-        isolated coverage-off mirror, all proxied to the one persistent service."""
-        from .model_remote import RemoteModel, server_has_adapter, server_url
-        has = server_has_adapter()
+    def bind_model(self, model, has_adapter: bool, error: str | None) -> None:
+        """Wire THIS App's loops to a (possibly shared) model. The model holds the heavy weights;
+        the loops are cheap and bind this App's OWN executor/board, so many clients share one model
+        while keeping isolated boards. has_adapter -> the AdapterView on/off + mirror demo loops."""
+        self.model_error = error
+        if model is None:
+            return
         ov, pc = agent_overlay(), self.plugin_context
-        if has:
-            model = RemoteModel(has_adapter=True)
+        if has_adapter:
             self.loop = CoachLoop(AdapterView(model, True), self.executor, ov, pc)
             self.loop_base = CoachLoop(AdapterView(model, False), self.base_executor, ov, pc)
             self.loop_mirror = CoachLoop(AdapterView(model, True), self.base_executor, ov, pc)
         else:
-            model = RemoteModel(has_adapter=False)
             self.loop = CoachLoop(model, self.executor, ov, pc)
-        self.model_error = None
-        print(f"connected to model service at {server_url()} (adapter={has})", flush=True)
 
     def load_base(self) -> dict:
         """Lazy-load the UNTRAINED HF base Gemma (demo-only — the 'base' side of the dual
