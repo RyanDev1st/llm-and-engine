@@ -344,6 +344,10 @@ html, body {
   white-space: pre-wrap; word-break: break-word; }
 .think-step:last-child { border-bottom: none; }
 .think-step.note { color: var(--fg); font-style: italic; }
+/* the generation streaming RIGHT NOW — pinned at the panel bottom, gently pulsing so it reads as
+   "working" vs the settled steps above it. */
+.think-step.live { color: var(--muted); border-left: 2px solid var(--accent); animation: thinkpulse 1.2s ease-in-out infinite; }
+@keyframes thinkpulse { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
 
 /* Goal card — THIS turn's objective (the <goal> the model emits). Rendered INLINE with the turn
    (not a global sticky banner — that left turn-1's "greet the user" stuck at the top forever), and
@@ -1353,82 +1357,78 @@ const ChatUI = (() => {
     };
   }
 
-  // SSE stream of the single (product) chat via XHR.onprogress — XHR delivers
-  // responseText incrementally in EVERY browser (Edge/Chrome's fetch().getReader()
-  // can buffer the body and hand it over in one read at the end, which made the reply
-  // "wait then snap"). `tool` events fill the THINKING panel; `token`/`reply_chunk`
-  // feed the CHAT typewriter. Resolves after the reply finishes typing.
+  // SSE stream of the single (product) chat via XHR.onprogress (XHR delivers responseText
+  // incrementally in every browser; fetch().getReader() can buffer the whole body to the end).
+  //
+  // RENDER MODEL — append-only and in-order, so nothing is ever shown-then-deleted:
+  //   • ONE thinking panel holds the turn's steps IN THE ORDER they happen (skill loads, tool
+  //     calls, reasoning notes), with a single LIVE row at its bottom showing the generation that
+  //     is streaming right now. Each token appends to that live row.
+  //   • When a step resolves (a `tool`/`think` event), the live row is frozen as an ordered step
+  //     and a fresh live row begins — the panel only ever grows downward.
+  //   • The chat bubble is created ONCE, at `done`, from the backend's authoritative reply. We do
+  //     NOT stream intermediate text into a bubble (that caused the "reply appears then vanishes
+  //     when a tool runs next" flicker). The thinking streams live; the answer types out at the end.
   function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
-    let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
-    let liveTok = 0, liveEl = null, thinkLive = null, goalEl = null, planEl = null;
-    // Keep reasoning out of the chat bubble while streaming: drop any closed <think>/<goal>
-    // block, then cut at an unclosed '<' (a tag still being generated). The backend also
-    // strips them from the authoritative done.reply, so the bubble is clean either way.
-    const clean = (txt) => {
-      let t = txt.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<goal>[\s\S]*?<\/goal>/g, '');
-      const cut = t.search(/<\|?/); return (cut >= 0 ? t.slice(0, cut) : t).replace(/^\s+/, '');
-    };
-    const bubble = () => { if (!replyEl) { replyEl = appendMsg(container, '', 'ai', 'ft-msg'); tw = makeTypewriter(replyEl, container); } };
-    // The model's reasoning (<think>…</think>) streams to a LIVE thinking preview, never the
-    // chat bubble. Pulls every closed think block plus an unclosed trailing one (mid-generation).
-    const extractThink = (txt) => {
-      let out = '', re = /<think>([\s\S]*?)<\/think>/g, m;
-      while ((m = re.exec(txt))) out += (out ? ' ' : '') + m[1];
-      const open = txt.lastIndexOf('<think>'), close = txt.lastIndexOf('</think>');
-      if (open > close) out += (out ? ' ' : '') + txt.slice(open + 7);   // think still being written
-      return out.replace(/\s+/g, ' ').trim();
-    };
-    const showLiveThink = (txt) => {
-      if (!txt) return;
-      if (!thinkLive) {
-        thinkLive = document.createElement('details');
-        thinkLive.className = 'thinking'; thinkLive.open = true;
-        thinkLive.innerHTML = '<summary>🧠 thinking…</summary><div class="think-step note"></div>';
-        container.appendChild(thinkLive);
+    let cursor = 0, calls = [], results = [], done = null, streamed = '';
+    let thinkEl = null, liveRow = null, liveTok = 0, liveEl = null, goalEl = null, planEl = null;
+
+    const ensureThink = () => {
+      if (!thinkEl) {
+        thinkEl = document.createElement('details');
+        thinkEl.className = 'thinking'; thinkEl.open = true;
+        thinkEl.innerHTML = '<summary></summary>';
+        container.appendChild(thinkEl);
       }
-      thinkLive.querySelector('.think-step').textContent = '💭 ' + txt;
+      return thinkEl;
+    };
+    // Goal/plan cards sit ABOVE the thinking panel; re-append thinkEl after rendering one so the
+    // panel (and its growing steps) always stays last, just above the eventual reply.
+    const keepThinkLast = () => { if (thinkEl) container.appendChild(thinkEl); };
+    // Rebuild the finalized step rows (from calls/results) and keep the live row pinned at the bottom.
+    const renderSteps = () => {
+      ensureThink();
+      thinkEl.querySelectorAll('.think-step').forEach(n => n.remove());
+      fillSteps(thinkEl, calls, results);
+      if (liveRow) thinkEl.appendChild(liveRow);
+      const n = calls.length;
+      thinkEl.querySelector('summary').textContent = '🧠 thinking · ' + n + ' step' + (n === 1 ? '' : 's');
       container.scrollTop = container.scrollHeight;
     };
-    const dropLiveThink = () => { if (thinkLive && thinkLive.parentNode) thinkLive.remove(); thinkLive = null; };
-    // Live token meter: count generated tokens AS THEY STREAM (every token/tool-decision
-    // token), shown ticking up; replaced by the authoritative context meter on done.
+    // The generation currently streaming, shown live at the bottom of the panel.
+    const showLive = () => {
+      ensureThink();
+      if (!liveRow) { liveRow = document.createElement('div'); liveRow.className = 'think-step note live'; thinkEl.appendChild(liveRow); }
+      const t = streamed.replace(/\s+/g, ' ').trim();
+      liveRow.textContent = '💭 ' + (t || '…');
+      container.scrollTop = container.scrollHeight;
+    };
+    const clearLive = () => { if (liveRow && liveRow.parentNode) liveRow.remove(); liveRow = null; streamed = ''; };
     const liveMeter = () => {
       if (!liveEl) { liveEl = document.createElement('div'); liveEl.className = 'live-tok'; container.appendChild(liveEl); }
       liveEl.textContent = '⚡ generating · ' + liveTok + ' tokens';
-      container.scrollTop = container.scrollHeight;
     };
 
     function handle(ev) {
-      if (ev.type === 'token') {
+      if (ev.type === 'token' || ev.type === 'reply_chunk') {
         if (waitFT && waitFT.parentNode) waitFT.remove();
         liveTok++; liveMeter();
-        streamed += ev.text; showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
-      } else if (ev.type === 'reply_chunk') {
-        if (waitFT && waitFT.parentNode) waitFT.remove();
-        streamed += (streamed ? ' ' : '') + ev.text;
-        showLiveThink(extractThink(streamed)); bubble(); tw.set(clean(streamed));
+        streamed += (ev.type === 'reply_chunk' && streamed ? ' ' : '') + ev.text;
+        showLive();
       } else if (ev.type === 'tool') {
-        // the tokens just streamed were this tool's DECISION -> belong in the thinking
-        // panel, not chat. Drop the provisional bubble + typewriter + live-think preview.
-        if (replyEl && replyEl.parentNode) replyEl.remove();
-        replyEl = null; tw = null; streamed = ''; dropLiveThink();
-        calls.push(ev.call); results.push(ev.result);
+        // the gen that just streamed was THIS tool's decision -> freeze it as an ordered step.
         if (waitFT && waitFT.parentNode) waitFT.remove();
-        thinkEl = renderLiveThinking(container, calls, results, thinkEl);
-      } else if (ev.type === 'goal') {           // THIS turn's objective -> inline goal card
-        goalEl = showGoal(container, ev.content, goalEl);
+        calls.push(ev.call); results.push(ev.result); clearLive(); renderSteps();
+      } else if (ev.type === 'goal') {           // THIS turn's objective -> inline goal card (above)
+        goalEl = showGoal(container, ev.content, goalEl); keepThinkLast();
       } else if (ev.type === 'plan') {           // THIS turn's checklist -> inline plan/todo panel
-        planEl = renderPlan(container, ev.content, planEl);
-      } else if (ev.type === 'think') {          // final reasoning note -> recorded in the panel
-        if (waitFT && waitFT.parentNode) waitFT.remove();
-        dropLiveThink();                          // the transient preview is now recorded below
-        calls.push('💭 ' + ev.content); results.push('');
-        thinkEl = renderLiveThinking(container, calls, results, thinkEl);
+        planEl = renderPlan(container, ev.content, planEl); keepThinkLast();
+      } else if (ev.type === 'think') {          // a finalized reasoning note -> an ordered step
+        calls.push('💭 ' + ev.content); results.push(''); clearLive(); renderSteps();
       } else if (ev.type === 'done') {
-        done = ev;
-        dropLiveThink();
-        if (liveEl && liveEl.parentNode) liveEl.remove();   // authoritative context meter replaces it
+        done = ev; clearLive();
+        if (liveEl && liveEl.parentNode) liveEl.remove();
       } else if (ev.type === 'error') {
         throw new Error(ev.error || 'stream error');
       }
@@ -1451,29 +1451,17 @@ const ChatUI = (() => {
       xhr.onprogress = () => { try { drain(xhr.responseText); } catch (e) { /* keep going */ } };
       xhr.onload = () => {
         try { drain(xhr.responseText); } catch (e) {}
-        const finalText = (done && done.reply) || streamed || '(no reply)';
-        if (!replyEl) { if (waitFT && waitFT.parentNode) waitFT.remove(); bubble(); }
-        tw.finish(finalText, () => resolve({ done: done, replyEl: replyEl }));   // type the rest, then resolve
+        clearLive();
+        if (waitFT && waitFT.parentNode) waitFT.remove();
+        // The reply bubble is created ONCE here, from the authoritative (think/goal-stripped) reply.
+        const finalText = (done && done.reply) || '(no reply)';
+        const replyEl = appendMsg(container, '', 'ai', 'ft-msg');
+        const tw = makeTypewriter(replyEl, container);
+        tw.finish(finalText, () => resolve({ done: done, replyEl: replyEl }));
       };
       xhr.onerror = () => reject(new Error('stream transport error'));
       xhr.send(JSON.stringify({ message: text, variant: 'sft', coverage: true, stream: true, mode: currentMode() }));
     });
-  }
-
-  // Maintain a single live "thinking" panel that grows as tool steps stream in.
-  function renderLiveThinking(container, calls, results, el) {
-    if (!el) {
-      el = document.createElement('details');
-      el.className = 'thinking'; el.open = true;
-      el.innerHTML = '<summary></summary>';
-      container.appendChild(el);
-    }
-    el.querySelector('summary').textContent = '🧠 thinking · ' + calls.length +
-      ' step' + (calls.length > 1 ? 's' : '');
-    el.querySelectorAll('.think-step').forEach(n => n.remove());
-    fillSteps(el, calls, results);
-    container.scrollTop = container.scrollHeight;
-    return el;
   }
 
   // One thinking-step's display text + css class. A SKILL load shows ONLY the name
