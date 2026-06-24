@@ -175,6 +175,7 @@ def _report(res: dict, label: str) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel); else --server")
+    ap.add_argument("--gguf", default=None, help="GGUF path (loads GGUFModel) — for the quant A/B")
     ap.add_argument("--server", default="http://127.0.0.1:7861")
     ap.add_argument("--per-slice", type=int, default=0, help="cap rows per slice (0 = all)")
     ap.add_argument("--stress", action="store_true", help="grade the held-out STRESS suite (OOD)")

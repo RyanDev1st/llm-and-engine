@@ -37,14 +37,18 @@ def load_shared_model(adapter: str | None) -> tuple[object | None, bool, str | N
         except Exception as exc:  # service down -> fall through to an in-process load
             print(f"model service unreachable ({exc}); loading in-process", flush=True)
     adapter = adapter or os.environ.get("CHESS_HF_ADAPTER", "")
-    if adapter:
+    from .model_gguf import pick_backend
+    explicit = (os.environ.get("CHESS_BACKEND") or "").strip().lower() in ("hf", "gguf")
+    if pick_backend(os.environ.get("CHESS_BACKEND"), adapter) == "hf":
         try:
             from .model_hf import HFModel
             # greedy (temp 0) — faithful to the tool number and reproducible for the demo.
-            model = HFModel(adapter=adapter, temperature=0.0)
+            model = HFModel(adapter=adapter or None, temperature=0.0)
             print(f"model loaded (HF base + adapter {adapter}; compare ready)", flush=True)
-            return model, True, None
+            return model, bool(adapter), None
         except Exception as exc:
+            if explicit:
+                raise   # CHESS_BACKEND=hf -> fail loud, don't mask by serving GGUF
             print(f"HF adapter load failed ({exc}); falling back to GGUF", flush=True)
     from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
     try:
