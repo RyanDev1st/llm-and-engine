@@ -47,7 +47,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/generate":
             kw = {"use_adapter": bool(body.get("use_adapter", True))} if HAS_ADAPTER else {}
             msgs, mx, stop = body["messages"], int(body.get("max_new_tokens", 128)), list(body.get("stop", []))
-            if body.get("stream") and hasattr(MODEL, "generate_stream"):
+            import inspect
+            can_stream = "on_token" in inspect.signature(MODEL.generate).parameters
+            if body.get("stream") and can_stream:
                 # SSE: emit each token as it's produced, then a final {text} event.
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")

@@ -345,14 +345,18 @@ html, body {
 .think-step:last-child { border-bottom: none; }
 .think-step.note { color: var(--fg); font-style: italic; }
 
-/* Goal + plan panels — the objective and its checklist, pinned at the top of the thread
-   (the <goal>/<plan> the model emits go here, NEVER into the chat bubble). */
-.goalpanel { position: sticky; top: 0; z-index: 3; align-self: stretch; display: flex;
-  gap: 8px; align-items: flex-start; padding: 8px 11px; margin-bottom: 4px;
-  background: var(--surface-raised); border: 1px solid var(--accent);
+/* Goal card — THIS turn's objective (the <goal> the model emits). Rendered INLINE with the turn
+   (not a global sticky banner — that left turn-1's "greet the user" stuck at the top forever), and
+   styled distinctly from the grey thinking panel: gold accent bar + GOAL label. Never the chat bubble. */
+.goalcard { align-self: stretch; display: flex; gap: 10px; align-items: flex-start;
+  padding: 9px 12px; margin: 2px 0 6px; background: var(--surface-raised);
+  border: 1px solid var(--accent); border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm); box-shadow: 0 1px 6px rgba(0,0,0,.18); }
-.goalpanel .goal-ico { flex-shrink: 0; }
-.goalpanel .goal-txt { font: 600 12px/1.4 var(--font-body); color: var(--fg); }
+.goalcard .goal-ico { flex-shrink: 0; font-size: 15px; line-height: 1.3; }
+.goalcard .goal-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.goalcard .goal-label { font: 700 9px/1 var(--font-mono); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--accent); }
+.goalcard .goal-txt { font: 600 12.5px/1.45 var(--font-body); color: var(--fg); }
 .planpanel { align-self: stretch; padding: 8px 11px; margin-bottom: 6px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-sm); font: 400 12px/1.5 var(--font-mono); }
 .planpanel .plan-h { color: var(--muted); font-weight: 600; margin-bottom: 4px; }
@@ -1357,7 +1361,7 @@ const ChatUI = (() => {
   function streamChat(text, waitFT) {
     const container = document.getElementById('msgs-ft');
     let cursor = 0, calls = [], results = [], thinkEl = null, done = null, replyEl = null, tw = null, streamed = '';
-    let liveTok = 0, liveEl = null, thinkLive = null;
+    let liveTok = 0, liveEl = null, thinkLive = null, goalEl = null, planEl = null;
     // Keep reasoning out of the chat bubble while streaming: drop any closed <think>/<goal>
     // block, then cut at an unclosed '<' (a tag still being generated). The backend also
     // strips them from the authoritative done.reply, so the bubble is clean either way.
@@ -1412,10 +1416,10 @@ const ChatUI = (() => {
         calls.push(ev.call); results.push(ev.result);
         if (waitFT && waitFT.parentNode) waitFT.remove();
         thinkEl = renderLiveThinking(container, calls, results, thinkEl);
-      } else if (ev.type === 'goal') {           // the objective -> pinned goal panel
-        pinGoal(container, ev.content);
-      } else if (ev.type === 'plan') {           // the checklist -> plan/todo panel
-        renderPlan(container, ev.content);
+      } else if (ev.type === 'goal') {           // THIS turn's objective -> inline goal card
+        goalEl = showGoal(container, ev.content, goalEl);
+      } else if (ev.type === 'plan') {           // THIS turn's checklist -> inline plan/todo panel
+        planEl = renderPlan(container, ev.content, planEl);
       } else if (ev.type === 'think') {          // final reasoning note -> recorded in the panel
         if (waitFT && waitFT.parentNode) waitFT.remove();
         dropLiveThink();                          // the transient preview is now recorded below
@@ -1494,30 +1498,36 @@ const ChatUI = (() => {
   }
 
   // The objective (<goal>) the model committed, pinned at the top of the chat thread.
-  function pinGoal(container, text) {
-    if (!text) return;
-    let el = container.querySelector('.goalpanel');
+  // THIS turn's goal card — rendered inline in the turn's flow (NOT a global banner), so each turn
+  // shows its own objective and turns with no goal show none. `existing` is the per-turn element so
+  // a second goal event in the same turn updates rather than duplicates. Returns the element.
+  function showGoal(container, text, existing) {
+    if (!text) return existing;
+    let el = existing;
     if (!el) {
-      el = document.createElement('div'); el.className = 'goalpanel';
-      el.innerHTML = '<span class="goal-ico">🎯</span><span class="goal-txt"></span>';
-      container.insertBefore(el, container.firstChild);   // pin at the top of the thread
+      el = document.createElement('div'); el.className = 'goalcard';
+      el.innerHTML = '<span class="goal-ico">🎯</span><div class="goal-body">' +
+        '<span class="goal-label">Goal</span><span class="goal-txt"></span></div>';
+      container.appendChild(el);                  // inline, in turn order
     }
     el.querySelector('.goal-txt').textContent = text;
+    container.scrollTop = container.scrollHeight;
+    return el;
   }
 
-  // The <plan> checklist, rendered as a todo panel under the goal.
-  function renderPlan(container, content) {
+  // THIS turn's <plan> checklist, rendered inline as a todo panel (per-turn, like the goal card —
+  // `existing` updates rather than duplicates within a turn). Returns the element.
+  function renderPlan(container, content, existing) {
     const boxes = [];
     (content || '').split('\n').forEach(line => {
       const m = line.match(/-\s*\[([ xX])\]\s*(.+)/);
       if (m) boxes.push({ done: m[1].toLowerCase() === 'x', text: m[2].replace(/\s*\([^)]*\)\s*$/, '').trim() });
     });
-    if (!boxes.length) return;
-    let el = container.querySelector('.planpanel');
+    if (!boxes.length) return existing;
+    let el = existing;
     if (!el) {
       el = document.createElement('div'); el.className = 'planpanel';
-      const g = container.querySelector('.goalpanel');
-      container.insertBefore(el, g ? g.nextSibling : container.firstChild);
+      container.appendChild(el);                   // inline, in turn order
     }
     el.innerHTML = '<div class="plan-h">📋 Plan</div>';
     boxes.forEach(b => {
@@ -1525,6 +1535,8 @@ const ChatUI = (() => {
       d.textContent = (b.done ? '☑ ' : '☐ ') + b.text;   // textContent escapes the model's text
       el.appendChild(d);
     });
+    container.scrollTop = container.scrollHeight;
+    return el;
   }
 
   function currentMode() { const s = document.getElementById('modeSel'); return s ? s.value : ''; }

@@ -63,8 +63,12 @@ class AdapterView:
         self.model = model
         self.use_adapter = use_adapter
 
-    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str]) -> str:
-        return self.model.generate(messages, max_new_tokens, stop, use_adapter=self.use_adapter)
+    def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str], on_token=None) -> str:
+        # Forward on_token so the loop's streaming (CoachLoop.can_stream) reaches the model — without
+        # this, AdapterView (the wrapper used in the service path) hid on_token and streaming silently
+        # never happened, so the whole reply landed at once after the long decode.
+        return self.model.generate(messages, max_new_tokens, stop,
+                                   use_adapter=self.use_adapter, on_token=on_token)
 
     def count_tokens(self, text: str) -> int:
         return self.model.count_tokens(text)
