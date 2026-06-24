@@ -16,22 +16,28 @@ LLM_DIR = Path(__file__).resolve().parents[1]
 # An E4B LoRA on an E2B base = shape mismatch, so this MUST match the training base.
 BASE = Path(os.environ.get("CHESS_HF_BASE") or (LLM_DIR / "models" / "gemma4_e2b"))
 
-# CHESS_GEN_TRACE=1 prints per-generate decode cost (tokens + wall-time + tok/s + stop path) so a
-# latency regression is measurable from the server log without a profiler. Off by default.
-_GEN_TRACE = os.environ.get("CHESS_GEN_TRACE", "") not in ("", "0", "false", "False")
-_warned_no_earlystop = False
+# Per-generate decode cost (tokens + wall-time + tok/s) printed to the server log so latency is
+# measurable without a profiler. Default ON (one line per call, cheap) — set CHESS_GEN_TRACE=0 to mute.
+_GEN_TRACE = os.environ.get("CHESS_GEN_TRACE", "1") not in ("0", "false", "False")
+_ACTION_STOPS = ("</skill>", "</tool>", "</tool_code>")   # one-action-per-step close tags
 
 
-def _warn_no_earlystop_once(exc: Exception) -> None:
-    """Loud one-time warning when generate() can't accept stop_strings, so the run falls back to
-    NO early-stop — i.e. every step decodes to max_new_tokens. That silent fallback is the prime
-    suspect for the 'each step takes dozens of seconds' regression; make it impossible to miss."""
-    global _warned_no_earlystop
-    if not _warned_no_earlystop:
-        _warned_no_earlystop = True
-        print(f"[gen] WARNING: stop_strings unsupported here ({exc!r}) — early-stop OFF, every step "
-              f"decodes to max_new_tokens. Latency will be high. Check the transformers version.",
-              flush=True)
+def _build_stopper(tok, stops):
+    """Version-robust early-stop: a StoppingCriteria that halts the moment any stop string appears in
+    the freshly generated tail. Replaces transformers' `stop_strings=` kwarg, which silently no-ops on
+    some transformers versions — THE Colab latency knot (every step ran to max_new_tokens, ~24s, even
+    though eos already stopped the <pad> flood). Decodes only the last few tokens, so it's O(1)/step."""
+    from transformers import StoppingCriteria, StoppingCriteriaList
+    stops = [s for s in stops if s]
+    if not stops:
+        return None
+
+    class _Stop(StoppingCriteria):
+        def __call__(self, input_ids, scores=None, **kw) -> bool:
+            tail = tok.decode(input_ids[0][-24:], skip_special_tokens=True)
+            return any(s in tail for s in stops)
+
+    return StoppingCriteriaList([_Stop()])
 
 
 def _stop_token_ids(tok) -> list[int]:
@@ -111,7 +117,7 @@ class HFModel:
 
     @torch.inference_mode()
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
-                 use_adapter: bool = True) -> str:
+                 use_adapter: bool = True, on_token=None) -> str:
         # use_adapter=False runs the SAME base weights with the LoRA turned OFF
         # (PEFT disable_adapter) — lets one loaded model serve both the untrained
         # base and our SFT side by side for the comparison demo.
@@ -124,6 +130,14 @@ class HFModel:
         enc = {k: v.to(self.model.device) for k, v in enc.items()}
         prompt_len = enc["input_ids"].shape[1]
         can_toggle = hasattr(self.model, "disable_adapter")
+        # Streaming path: emit each token via on_token AS it's generated (the UI fills live during the
+        # long T4 decode — thinking + reply both stream). Used for the primary loop; base/coverage
+        # runs pass no on_token. Runs the same disable_adapter toggle for the base side.
+        if on_token is not None:
+            if not use_adapter and can_toggle:
+                with self.model.disable_adapter():
+                    return self._gen_stream(enc, max_new_tokens, stop, on_token)
+            return self._gen_stream(enc, max_new_tokens, stop, on_token)
         # Prefix KV reuse only on the trusted greedy adapter-on path (the base/sampling paths
         # bypass it — different weights / non-deterministic, so the A/B self-check can't hold).
         reuse_ok = use_adapter and self.temperature <= 0
@@ -166,8 +180,9 @@ class HFModel:
         """One model.generate. Returns (full 1-D token sequence, kv-cache-or-None). With
         `past` (a KV cache covering `start` exact prefix tokens) it prefills only the new tail
         — the reuse fast path. Early-stops at the first action close tag (one action/step)."""
-        stops = [s for s in (list(stop) + ["</skill>", "</tool>", "</tool_code>"]) if s]
+        stops = [s for s in (list(stop) + list(_ACTION_STOPS)) if s]
         kw = self._gen_kwargs(max_new_tokens)
+        crit = _build_stopper(self.tok, stops)        # version-robust early-stop (replaces stop_strings)
         input_ids, attn = enc["input_ids"], enc.get("attention_mask")
         gkw: dict = {"return_dict_in_generate": True, "use_cache": True}
         prefix = None
@@ -188,29 +203,65 @@ class HFModel:
             gkw["input_ids"] = input_ids
             if attn is not None:
                 gkw["attention_mask"] = attn
+        if crit is not None:
+            gkw["stopping_criteria"] = crit
         import time as _time
         _t0 = _time.time()
         _in_len = gkw["input_ids"].shape[1]
-        _path = "stop_strings"
-        try:
-            go = self.model.generate(**gkw, **kw, stop_strings=stops, tokenizer=self.tok)
-        except (TypeError, ValueError) as _exc:
-            # Retry WITHOUT stop_strings. If THIS succeeds, stop_strings was the culprit -> warn
-            # (early-stop off = the latency knot, every step decodes to the cap). If it ALSO raises
-            # (e.g. a reuse-cache kwarg), let it propagate to the caller's cache fallback — blaming
-            # early-stop here would be a FALSE diagnosis (it was, on the cache_position error).
-            go = self.model.generate(**gkw, **kw)
-            _warn_no_earlystop_once(_exc)
-            _path = "fallback(no-stop)"
+        go = self.model.generate(**gkw, **kw)
         seq = go.sequences[0]
         if prefix is not None:                                # rebuild the full sequence
             seq = torch.cat([prefix[0], seq], dim=0)
-        if _GEN_TRACE:                                        # CHESS_GEN_TRACE=1: per-call decode cost
+        if _GEN_TRACE:                                        # per-call decode cost (server log)
             _gen = int(seq.shape[0]) - (_in_len + (start if prefix is not None else 0))
             _dt = _time.time() - _t0
             print(f"[gen] in={_in_len} cap={max_new_tokens} out={_gen} tok "
-                  f"{_dt:.1f}s ({_gen / max(_dt, 1e-3):.1f} tok/s) stop={_path}", flush=True)
+                  f"{_dt:.1f}s ({_gen / max(_dt, 1e-3):.1f} tok/s)", flush=True)
         return seq, getattr(go, "past_key_values", None)
+
+    def _gen_stream(self, enc: dict, max_new_tokens: int, stop: list[str], on_token) -> str:
+        """Stream tokens live via on_token while generating (the UI fills during the long T4 decode).
+        Uses the SAME version-robust StoppingCriteria as _run_generate (so streamed steps early-stop
+        at </tool>/</skill> too, not run to the cap), with generate() on a worker thread feeding a
+        TextIteratorStreamer. Returns the truncated full text, same contract as the non-stream path."""
+        from threading import Thread
+        from transformers import TextIteratorStreamer
+        import time as _time
+        stops = [s for s in (list(stop) + list(_ACTION_STOPS)) if s]
+        crit = _build_stopper(self.tok, stops)
+        streamer = TextIteratorStreamer(self.tok, skip_prompt=True, skip_special_tokens=True)
+        gkw: dict = {"input_ids": enc["input_ids"], "use_cache": True, "streamer": streamer,
+                     **self._gen_kwargs(max_new_tokens)}
+        if enc.get("attention_mask") is not None:
+            gkw["attention_mask"] = enc["attention_mask"]
+        if crit is not None:
+            gkw["stopping_criteria"] = crit
+        box: dict = {}
+
+        def _run() -> None:
+            try:
+                with torch.inference_mode():
+                    self.model.generate(**gkw)
+            except Exception as exc:                          # surface to the main thread below
+                box["err"] = exc
+
+        _t0 = _time.time()
+        Thread(target=_run, daemon=True).start()
+        text, n = "", 0
+        for piece in streamer:                               # blocks until each new token is ready
+            text += piece
+            n += 1
+            try:
+                on_token(piece)
+            except Exception:
+                pass                                         # a client disconnect must not kill the gen
+        if "err" in box:
+            raise box["err"]
+        if _GEN_TRACE:
+            _dt = _time.time() - _t0
+            print(f"[gen] stream cap={max_new_tokens} out~{n} tok {_dt:.1f}s "
+                  f"({n / max(_dt, 1e-3):.1f} tok/s)", flush=True)
+        return _truncate(text, stop)
 
     def _run_plain(self, enc: dict, max_new_tokens: int, stop: list[str]):
         return self._run_generate(enc, max_new_tokens, stop)[0]
