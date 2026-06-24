@@ -20,18 +20,26 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 def build_model() -> tuple[object, bool]:
-    """Return (model, has_adapter). HF adapter path first (live runtime + the
-    adapter-on/off compare), GGUF fallback. Mirrors web_app.load_model."""
+    """Return (model, has_adapter). CHESS_BACKEND picks the runtime: 'hf' (nf4 base + adapter,
+    enables the adapter-on/off compare), 'gguf' (llama.cpp Q5_K_M/Q6_K — faster decode), or 'auto'
+    (default: HF if an adapter is given, else GGUF). An EXPLICIT backend fails loud rather than
+    silently serving the other one (so an A/B measures what you asked for)."""
+    from .model_gguf import pick_backend
     adapter = (sys.argv[1] if len(sys.argv) > 1 else "") or os.environ.get("CHESS_HF_ADAPTER", "")
-    if adapter:
+    explicit = (os.environ.get("CHESS_BACKEND") or "").strip().lower() in ("hf", "gguf")
+    backend = pick_backend(os.environ.get("CHESS_BACKEND"), adapter)
+    if backend == "hf":
         try:
             from .model_hf import HFModel
-            return HFModel(adapter=adapter, temperature=0.0), True
+            return HFModel(adapter=adapter or None, temperature=0.0), bool(adapter)
         except Exception as exc:  # noqa: BLE001
+            if explicit:
+                raise   # CHESS_BACKEND=hf -> don't mask the failure by serving GGUF
             print(f"HF adapter load failed ({exc}); falling back to GGUF", flush=True)
     from .model_gguf import GGUFModel, default_gguf_path, gguf_runtime_config
     gguf = default_gguf_path()
     n_ctx, n_gpu_layers = gguf_runtime_config()
+    print(f"model service: GGUF {gguf.name}", flush=True)
     return GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu_layers), False
 
 

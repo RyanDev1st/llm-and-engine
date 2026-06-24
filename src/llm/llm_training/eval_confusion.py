@@ -50,6 +50,12 @@ def _system(row: dict, force_fast: bool = True) -> str:
 
 
 def _load_model(args):
+    gguf = getattr(args, "gguf", None)
+    if gguf:
+        from backend.model_gguf import GGUFModel, gguf_runtime_config
+        n_ctx, n_gpu = gguf_runtime_config()
+        print(f"loading GGUF {gguf} (one-time)...", flush=True)
+        return GGUFModel(gguf=gguf, n_ctx=n_ctx, n_gpu_layers=n_gpu, temperature=0.0)
     if args.adapter:
         from backend.model_hf import HFModel
         print(f"loading adapter {args.adapter} (one-time)...", flush=True)
@@ -149,6 +155,7 @@ def _png(cm: dict, path: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--adapter", default=None, help="adapter dir (loads HFModel)")
+    ap.add_argument("--gguf", default=None, help="GGUF path (loads GGUFModel) — for the quant A/B")
     ap.add_argument("--server", default="http://127.0.0.1:7861", help="model service URL")
     ap.add_argument("--per-slice", type=int, default=8, help="rows/slice (0 = all; default 8 = light)")
     ap.add_argument("--max-new-tokens", type=int, default=24, help="gen cap per row (fast mode acts early)")

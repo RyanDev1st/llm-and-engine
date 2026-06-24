@@ -10,14 +10,38 @@ Run from repo root (after training):
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 LLM_DIR = Path(__file__).resolve().parents[1]
 REPO = Path(__file__).resolve().parents[3]
-BASE = LLM_DIR / "models" / "gemma4_e2b"
+# Base the adapter was trained on. Default E2B (back-compat); CHESS_HF_BASE points at the E4B
+# base dir for an E4B adapter — the merge MUST use the same base or shapes mismatch.
+BASE = Path(os.environ.get("CHESS_HF_BASE") or (LLM_DIR / "models" / "gemma4_e2b"))
 RUNTIME = LLM_DIR / "runtime" / "llamacpp"
+
+
+def model_tag(base: Path = BASE) -> str:
+    """E4B / E2B label for the output GGUF name, derived from the base dir (or CHESS_GGUF_TAG)."""
+    env = os.environ.get("CHESS_GGUF_TAG")
+    if env:
+        return env
+    low = str(base).lower()
+    return "E4B" if "e4b" in low else "E2B"
+
+
+def out_names(repo: Path, base: Path, quant: str) -> dict[str, Path]:
+    """The merge/f16/quantized/mmproj output paths for this base+quant (pure — unit-tested)."""
+    tag = model_tag(base)
+    runs = repo / "runs"
+    return {
+        "merged": runs / f"gemma4_{tag.lower()}_chess_merged",
+        "f16": runs / f"gemma4-{tag}-chesscoach-f16.gguf",
+        "quant": runs / f"gemma4-{tag}-chesscoach-{quant}.gguf",
+        "mmproj": runs / f"mmproj-gemma4-{tag.lower()}-vision-f16.gguf",
+    }
 
 
 def merge(adapter: Path, out: Path) -> Path:
@@ -75,9 +99,13 @@ def to_mmproj(base: Path, mmproj_out: Path) -> bool:
 
 
 def quantize(gguf_f16: Path, gguf_out: Path, quant_type: str = "Q4_0") -> bool:
-    qbin = find_tool("llama-quantize.exe") or find_tool("quantize.exe")
+    # Linux (Colab/Kaggle) ships the binary as `llama-quantize`; Windows as `.exe`. CHESS_QUANTIZE_BIN
+    # lets a notebook point at a freshly-built binary (e.g. a cloned+built llama.cpp on Kaggle).
+    qbin = (os.environ.get("CHESS_QUANTIZE_BIN") or find_tool("llama-quantize")
+            or find_tool("llama-quantize.exe") or find_tool("quantize.exe"))
     if not qbin:
-        print("llama-quantize not found under runtime/llamacpp. Skipping quantize.", flush=True)
+        print("llama-quantize not found (set CHESS_QUANTIZE_BIN or place a llama.cpp build under "
+              "runtime/llamacpp). Skipping quantize.", flush=True)
         return False
     cmd = [str(qbin), str(gguf_f16), str(gguf_out), quant_type]
     print(" ".join(cmd), flush=True)
@@ -85,15 +113,15 @@ def quantize(gguf_f16: Path, gguf_out: Path, quant_type: str = "Q4_0") -> bool:
 
 
 def main() -> None:
-    import os
     adapter = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "runs" / "gemma4_chess"
-    # Quant target: Q4_0 default; CHESS_GGUF_QUANT=Q5_K_M for better number fidelity.
+    # Quant target: Q4_0 default; CHESS_GGUF_QUANT=Q5_K_M / Q6_K for better number fidelity. Base
+    # (E2B/E4B) comes from CHESS_HF_BASE; output names are derived per (base, quant) so multiple
+    # quants of the same adapter coexist (Q5_K_M and Q6_K side by side for the A/B).
     quant = os.environ.get("CHESS_GGUF_QUANT", "Q4_0")
-    merged = REPO / "runs" / "gemma4_chess_merged"
-    gguf_f16 = REPO / "runs" / "gemma4-E2B-chesscoach-f16.gguf"
-    gguf_out = REPO / "runs" / f"gemma4-E2B-chesscoach-{quant}.gguf"
-    mmproj = REPO / "runs" / "mmproj-gemma4-vision-f16.gguf"
-    # Reuse an existing f16 GGUF if present (skip the costly merge + convert).
+    p = out_names(REPO, BASE, quant)
+    merged, gguf_f16, gguf_out, mmproj = p["merged"], p["f16"], p["quant"], p["mmproj"]
+    # Reuse an existing f16 GGUF if present (skip the costly merge + convert — so a second quant of
+    # the same adapter only re-runs llama-quantize, not the multi-GB merge).
     if not gguf_f16.exists():
         merge(adapter, merged)
         if not to_gguf(merged, gguf_f16):

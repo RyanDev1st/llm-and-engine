@@ -22,6 +22,16 @@ def default_gguf_path() -> Path:
     return Path(os.environ.get("CHESS_GGUF_PATH", DEFAULT_GGUF))
 
 
+def pick_backend(backend: str | None, adapter: str | None) -> str:
+    """Resolve the serve backend -> 'hf' or 'gguf' (pure; unit-tested).
+    - explicit CHESS_BACKEND=hf|gguf wins (a deliberate A/B; the caller fails loud if it can't load);
+    - 'auto'/unset (default): HF when an adapter is given, else GGUF — the original behavior."""
+    b = (backend or "auto").strip().lower()
+    if b in ("hf", "gguf"):
+        return b
+    return "hf" if adapter else "gguf"
+
+
 def gguf_runtime_config() -> tuple[int, int]:
     return int(os.environ.get("CHESS_N_CTX", "4096")), int(os.environ.get("CHESS_N_GPU_LAYERS", "-1"))
 
