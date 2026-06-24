@@ -217,3 +217,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    from llm_training.clean_exit import flush_and_exit
+    flush_and_exit()   # benign torch/CUDA exit-time SIGABRT must not fail the notebook run
