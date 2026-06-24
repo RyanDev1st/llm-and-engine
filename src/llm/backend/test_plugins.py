@@ -39,3 +39,15 @@ def test_build_system_prompt_injects_board_not_skill_body():
     assert "AVAILABLE SKILLS" in sys          # catalog (name+desc) for the model to choose
     assert "LIVE BOARD" in sys and "fen=" in sys
     assert "ACTIVE SKILL" not in sys          # but no hard-coded skill body
+
+
+def test_board_hook_flag_restores_trained_prompt_shape(monkeypatch):
+    # Train/serve parity: CHESS_BOARD_HOOK=0 drops the off-distribution LIVE BOARD line so the
+    # served prompt matches what the model trained on (no board state in the system prompt).
+    g = Game()
+    monkeypatch.setattr("backend.inference._BOARD_HOOK", False)
+    sys_off = build_system_prompt(game=g)
+    assert "LIVE BOARD" not in sys_off        # restored to the trained shape
+    assert "AVAILABLE TOOLS" in sys_off       # the rest of the contract is untouched
+    monkeypatch.setattr("backend.inference._BOARD_HOOK", True)
+    assert "LIVE BOARD" in build_system_prompt(game=g)   # default behavior preserved

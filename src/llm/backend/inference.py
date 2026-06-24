@@ -26,6 +26,15 @@ _PROMPT_HINTS = _os.environ.get("CHESS_PROMPT_HINTS", "0") in ("1", "true", "Tru
 # cleanup) stay ON in both modes. See docs/findings/2026-06-24-harness-vs-claude-code-codex.md.
 _THIN_HARNESS = _os.environ.get("CHESS_THIN_HARNESS", "0") in ("1", "true", "True")
 
+# Board-state prompt injection (train/serve parity). The serve prompt appends a "LIVE BOARD
+# (current position): turn=…, fen=…" line via the chess plugin's prompt_start hook — but TRAINING
+# NEVER had it (0/2731 corpus rows; the loader uses bare build_system, and the model was trained to
+# treat the board as HIDDEN and call board_state). This off-distribution line is a prime suspect for
+# "live != the 96% routing benchmark". ON by default (current behavior preserved); CHESS_BOARD_HOOK=0
+# restores the trained prompt shape so the model fetches the board exactly as trained.
+# See docs/findings/2026-06-24-harness-live-vs-benchmark-gap.md.
+_BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "1") not in ("0", "false", "False")
+
 from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
@@ -651,7 +660,8 @@ def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = N
     base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
                         reasoning_mode=reasoning_mode)
     from . import plugins  # prompt-start hooks: pre-load always-on plugin context
-    hook = plugins.prompt_start({"game": game}, pc)
+    # Gated for train/serve parity: training never had a board-state line in the system prompt.
+    hook = plugins.prompt_start({"game": game}, pc) if _BOARD_HOOK else ""
     return base + (("\n\n" + hook) if hook else "")
 
 
