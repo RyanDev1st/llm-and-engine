@@ -5,8 +5,17 @@ the same system prompt across phases. A `ModelBackend` just needs generate()."""
 from __future__ import annotations
 
 import functools as _functools
+import os as _os
 import re as _re
 from typing import Protocol
+
+# Serve-only deterministic prompt nudges (ROUTING HINT / SKILL HINT blocks appended to the system
+# prompt). The model NEVER saw these in training, so they are OFF-DISTRIBUTION: the bare training
+# prompt routes at ~96% in the benchmark, but the live serve appended these blocks and routed worse
+# ("loaded the wrong skill despite the hint" — they were added to rescue the weaker E2B; the E4B is
+# confused by them). DEFAULT OFF so live == the trained distribution; CHESS_PROMPT_HINTS=1 restores
+# them. (Lesson: a serve regression is usually a deterministic add-on too extreme — dial down, not up.)
+_PROMPT_HINTS = _os.environ.get("CHESS_PROMPT_HINTS", "0") in ("1", "true", "True")
 
 from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
@@ -796,9 +805,11 @@ class CoachLoop:
         chess_domain = not (live_names - set(_TOOL_NAMES))     # any non-chess tool callable -> False
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode)
-        if chess_domain:
+        # Off-distribution serve-only nudges — OFF by default so the live prompt matches the bare
+        # contract the model trained on and benchmarks at ~96% (see _PROMPT_HINTS note up top).
+        if _PROMPT_HINTS and chess_domain:
             system += routing_hints(user_message, game_over)
-        if not game_over:  # on a finished game, state the result — don't spin up a skill
+        if _PROMPT_HINTS and not game_over:  # on a finished game, state the result — don't spin up a skill
             system += skill_hints(user_message, serving_skills_index(self.plugin_context))
         # Persistent memory: the per-user profile block (rating / weaknesses / prefs) rides the
         # system prompt every turn (CLAUDE.md pattern), so the frozen model tailors to the user
