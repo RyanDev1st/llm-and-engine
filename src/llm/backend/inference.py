@@ -17,6 +17,24 @@ from typing import Protocol
 # them. (Lesson: a serve regression is usually a deterministic add-on too extreme — dial down, not up.)
 _PROMPT_HINTS = _os.environ.get("CHESS_PROMPT_HINTS", "0") in ("1", "true", "True")
 
+# Thin-harness mode (S1): drop the deterministic RESCUE layer that was built to prop up the weak
+# E2B — coverage force-routing, the per-turn self-verify probe, and the ask-back re-gen. The E4B's
+# bare contract routes ~96% in the benchmark; these off-distribution add-ons mostly FIGHT it and
+# add a hidden generation per turn (latency). OFF by default (current behavior preserved);
+# CHESS_THIN_HARNESS=1 trusts the model like a top harness (Claude Code / Codex). The narrow
+# genuine-4B guards (number-fabrication correction, reload-loop nudge, format recovery, display
+# cleanup) stay ON in both modes. See docs/findings/2026-06-24-harness-vs-claude-code-codex.md.
+_THIN_HARNESS = _os.environ.get("CHESS_THIN_HARNESS", "0") in ("1", "true", "True")
+
+# Board-state prompt injection (train/serve parity). The serve prompt appends a "LIVE BOARD
+# (current position): turn=…, fen=…" line via the chess plugin's prompt_start hook — but TRAINING
+# NEVER had it (0/2731 corpus rows; the loader uses bare build_system, and the model was trained to
+# treat the board as HIDDEN and call board_state). This off-distribution line is a prime suspect for
+# "live != the 96% routing benchmark". ON by default (current behavior preserved); CHESS_BOARD_HOOK=0
+# restores the trained prompt shape so the model fetches the board exactly as trained.
+# See docs/findings/2026-06-24-harness-live-vs-benchmark-gap.md.
+_BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "1") not in ("0", "false", "False")
+
 from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
@@ -642,7 +660,8 @@ def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = N
     base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
                         reasoning_mode=reasoning_mode)
     from . import plugins  # prompt-start hooks: pre-load always-on plugin context
-    hook = plugins.prompt_start({"game": game}, pc)
+    # Gated for train/serve parity: training never had a board-state line in the system prompt.
+    hook = plugins.prompt_start({"game": game}, pc) if _BOARD_HOOK else ""
     return base + (("\n\n" + hook) if hook else "")
 
 
@@ -818,7 +837,8 @@ class CoachLoop:
             system += "\n\n" + memory_block
         # Coverage set: tool -> canonical call for each detected intent. Empty on a finished game,
         # when coverage is off, or outside the chess domain (the triggers are chess-specific).
-        required = {} if (game_over or not coverage or not chess_domain) else matched_calls(user_message)
+        required = ({} if (game_over or not coverage or not chess_domain or _THIN_HARNESS)
+                    else matched_calls(user_message))
         kept_history, ctx_stats = self.window.fit(system, history, user_message, compress=True)
         # Clever compaction: when old turns are evicted, their distilled note (goal/plan
         # anchor + what's already done) rides the system prompt so the model keeps the
@@ -922,7 +942,8 @@ class CoachLoop:
                         # mode the model committed to "synthesize across all results"; force that
                         # synthesis from the results it has, rather than accept the ask-back. Fires
                         # only when a FACT tool ran (skill-only deflections are the verify path below).
-                        if bool(tool_calls) and not _only_context(tool_calls) and _is_ask_back(reply):
+                        if (not _THIN_HARNESS and bool(tool_calls)
+                                and not _only_context(tool_calls) and _is_ask_back(reply)):
                             synth = self._force_synthesis(convo, gen_quiet, user_message)
                             if synth:
                                 return self._finalize(synth, required, tool_calls, tool_results,
@@ -931,7 +952,7 @@ class CoachLoop:
                         # the reply may be a fluent DEFLECTION that ignores the request. Ask the
                         # model to self-check; if not fulfilled it returns the next tool to run.
                         loaded_skill_only = bool(tool_calls) and _only_context(tool_calls)
-                        if coverage and not verified and loaded_skill_only:
+                        if not _THIN_HARNESS and coverage and not verified and loaded_skill_only:
                             verified = True
                             nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
                             if nxt is not None:
