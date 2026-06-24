@@ -6,7 +6,44 @@ architecture we're considering next, and candid notes. Written 2026-06-14, branc
 
 ---
 
-## ⚡ SESSION UPDATE 2026-06-15 (supersedes everything below — read FIRST)
+## ⚡ SESSION UPDATE 2026-06-24 (SERVE-HARNESS HARDENING — read FIRST; supersedes everything below for the SERVE phase)
+
+**Phase shift:** the 2026-06-15 block below is about the CORPUS/TRAINING (still valid for that task). THIS arc was **serving-harness hardening on the live web demo** — a different phase. **ALL of it is MERGED TO MASTER** (PRs #3–#13, master HEAD `c340f030`). Local tree clean, no open branches. We were debugging the live Colab serve with the user (Ryan) iterating on the deployed site.
+
+### How we work / hard constraints (carry forward)
+- **master is branch-protected.** Every change = new branch → PR → `gh pr merge <n> --merge --admin --delete-branch` (admin bypass, user has authorized this flow). Always `git checkout -- '*.pyc'` before checkout/merge — tracked `.pyc` files dirty the tree and broke a merge once (consider `git rm --cached` them someday).
+- **Always give Ryan the Colab serve link** when serving comes up: `https://colab.research.google.com/github/RyanDev1st/llm-and-engine/blob/master/src/llm/llm_training/colab_serve_e4b.ipynb` (notebook now clones `master`).
+- **Fix INTENTIONALLY, never sacrifice features.** Ryan rejected defaulting to fast mode to hide latency — `<think>`/`<goal>` IS the product. Find root cause, keep the feature. (memory: `fix-intentionally-not-by-sacrificing-features`.)
+- Serve env: Colab **T4**, `pip install -U transformers` → **transformers 5.x**, model = E4B nf4 served via a **subprocess model service** (`model_server.py`, `RemoteModel` client) + weightless app (`CHESS_MODEL_SERVER` set). Adapter = HF `RyanDev1st/gemma4-chesscoach-ckpt-v4` `best/`. The app wraps the model in `AdapterView`.
+
+### What shipped this arc (all on master)
+1. **Chat sessions (PR #4):** `backend/sessions.py` `SessionStore` — per-game board(uci/fen)+chat persisted to `data/sessions/` (gitignored); `/api/sessions`,`/api/session/new|switch|delete`, `/api/sync` persists; frontend sidebar restores board+chat on reload. (memory: `chat-site-single-global`.)
+2. **Neural opponent (PR #7):** `backend/opponent.py` `/api/opponent` → `NeuralMoveSelector` (`src/chess_engine/weights/nee_latest.pt`, depth 3). **Was 100% RANDOM** — wrong `_CKPT` (`parents[1]` vs `parents[2]`); fallback was silent + tests all-mocked. Fixed + loud fallback + real non-mocked test. (memory: `silent-fallback-mocked-tests-hid-bug`.)
+3. **README (PR #5)** at root; **serve notebook → master branch + test cells stripped** (PRs #6, #1497f985).
+4. **THE LATENCY SAGA (PRs #8–#13)** — every reply was 16–200s, all modes. Two stacked root causes, both fixed:
+   - **(a) `<pad>` flood (PR #12):** Gemma `generation_config` omits the **turn-ender `<turn|>` (id 106)** from eos, so after the reply the model floods `<pad>` to the cap (the `NUL` run in `model_server.log`). Fix: `model_hf._stop_token_ids` → `eos_token_id = gen_config.eos ∪ turn-ender ∪ pad`. **This killed the NUL flood (confirmed in log).**
+   - **(b) `stop_strings` no-op (PR #13):** even after (a), still ~24s/step because transformers' `stop_strings=` kwarg **silently does nothing on Colab's tf version** → action steps (`<tool>…`) never stop at `</tool>`, decode to cap (~300 tok). Fix: version-robust **`StoppingCriteria` (`_build_stopper`)** that halts when a close tag is in the last ~24 decoded tokens. (memory: `gemma-serve-pad-flood-latency` — has the full story + the two-early-stops lesson.)
+   - **Live token streaming (PR #13):** was wired but DEAD in 3 places (HFModel had none; `model_server` gated on a missing `generate_stream`; `AdapterView` dropped `on_token`). All 3 fixed → `_gen_stream` (TextIteratorStreamer on a worker thread) streams thinking+reply live.
+   - **Per-turn goal/plan UI (PR #13):** `<goal>` was a GLOBAL sticky banner (turn-1 "greet the user" stuck forever) → now a per-turn inline **goal CARD** (gold accent + GOAL label) + per-turn plan panel. `showGoal`/`renderPlan` in index.html.
+   - Also: KV reuse default OFF (PR #9 — A/B mismatch on tf 5.x, only saved prefill); skill-reload steer-forward not deflect (PR #11); tolerant unclosed-`<goal>` capture `_GOAL_OPEN` (PR #11); plan-mode `_force_synthesis` when facts gathered but model asks back (PR #12); `CHESS_GEN_TRACE` defaults **ON** (per-call `[gen] out=N tok X.Xs` in the server log).
+
+### 🔴 TOP PRIORITY NEXT SESSION — VERIFY latency on the real T4 (not yet confirmed)
+The StoppingCriteria fix is correct **IF** the cause is `stop_strings` not firing (evidence: uniform ~24s/step + no NUL flood strongly indicates it). **NOT yet verified on GPU** — I can't run the T4. Next session:
+1. Have Ryan re-run the serve notebook (pulls master), chat, and read `/content/model_server.log` for the `[gen]` lines (trace is on by default now).
+2. **Decision tree on the `out=` token count per step:**
+   - `out` small (~40–60 on a tool step) → **fixed**, latency is now genuine tok/s; done.
+   - `out ≈ cap (224/320)` → the `StoppingCriteria` ALSO isn't firing in this tf build → go deeper: implement a manual stop INSIDE the streamer loop (break when a close tag appears in accumulated text — fully version-independent), and/or pin a known-good `transformers==` in the notebook deps cell. This is the fallback plan if the criteria doesn't take.
+3. Streaming should make it FEEL live regardless; confirm thinking tokens actually stream in the UI.
+
+### Other open / candid notes
+- **Model is FROZEN** — some failures (deflecting, asking back, loading a skill twice) are model behavior; we add serve-side backstops (steer-forward, force-synthesis) but can't retrain here. Don't over-add per-phrase regex (memory: `deterministic-routing-restraint`); keep backstops phrase-agnostic.
+- **GGUF path** still fabricates eval numbers (memory: `gguf-q4-fabricates-eval`); the serve uses HF nf4 for fidelity. Q5_K_M re-export is the speed-vs-quality middle if nf4 stays too slow after the stop fix.
+- Verify any serve change: `python -m pytest src/llm/backend -q` (currently **241 passing**) + `node --check` on the page script (extract `<script>` blocks). Use `-p no:cacheprovider`; the `test_model_hf.py` tokenizer-load test makes the suite ~45s.
+- Key serve files: `backend/model_hf.py` (gen + stop + stream), `backend/model_server.py` (service), `backend/inference.py` (CoachLoop + AdapterView + loop backstops), `backend/sessions.py`, `backend/opponent.py`, `gemma_chat_site/static/index.html` (single-file UI), `llm_training/colab_serve_e4b.ipynb`.
+
+---
+
+## ⚡ SESSION UPDATE 2026-06-15 (corpus/training — read for the TRAINING task)
 
 **ALL THREE STAGES BUILT + REGEN DONE + GATE PASS + CORPUS COMMITTED. TRAINING-READY.**
 
