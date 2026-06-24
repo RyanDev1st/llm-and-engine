@@ -952,7 +952,15 @@ class CoachLoop:
                         # the reply may be a fluent DEFLECTION that ignores the request. Ask the
                         # model to self-check; if not fulfilled it returns the next tool to run.
                         loaded_skill_only = bool(tool_calls) and _only_context(tool_calls)
-                        if not _THIN_HARNESS and coverage and not verified and loaded_skill_only:
+                        # LATENCY: the verify probe is a FULL extra generation. Only spend it when the
+                        # draft LOOKS like a non-answer (a deflection blurb, an ask-back, or suspiciously
+                        # short). A confident substantive answer is trusted as-is, removing one decode from
+                        # every well-behaved coach/puzzle turn. The bad cases still route through the same
+                        # probe + deflection handling below, so behavior on them is unchanged.
+                        suspicious = (_is_deflection(reply) or _is_ask_back(reply)
+                                      or len(reply.strip()) < 40)
+                        if (not _THIN_HARNESS and coverage and not verified
+                                and loaded_skill_only and suspicious):
                             verified = True
                             nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
                             if nxt is not None:
