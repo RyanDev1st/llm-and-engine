@@ -22,6 +22,7 @@
   --accent-hover:       #e08a6e;
   --danger:             #e05555;
   --success:            #4ade80;
+  --dbg:                #a78bfa;   /* Violet — DEV-only DEBUG (tool logs); hidden in production */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -348,6 +349,22 @@ html, body {
    "working" vs the settled steps above it. */
 .think-step.live { color: var(--muted); border-left: 2px solid var(--accent); animation: thinkpulse 1.2s ease-in-out infinite; }
 @keyframes thinkpulse { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
+
+/* ── think vs tools, discerned ──
+   Reasoning notes (💭 think, 📚 skill-load) keep the grey italic `.note` look (model's inner
+   monologue). Executed TOOLS become a developer LOG — violet left-rail + a <DEBUG> tag — so it's
+   unmistakable they are dev-only telemetry that does NOT appear in the production UI. */
+.think-step.tool-step { color: var(--muted); border-left: 2px solid var(--dbg);
+  background: rgba(167,139,250,.06); }
+.dbg-tag { display: inline-block; font: 700 9px/1 var(--font-mono); letter-spacing: .1em;
+  color: var(--dbg); border: 1px solid var(--dbg); border-radius: 3px; padding: 2px 4px;
+  margin-right: 8px; vertical-align: 1px; }
+/* "DEV" pill in the panel header + a one-line note that tools are dev-only */
+.dev-badge { display: inline-block; font: 700 8.5px/1 var(--font-mono); letter-spacing: .14em;
+  color: var(--dbg); border: 1px solid var(--dbg); border-radius: 3px; padding: 2px 5px;
+  margin-left: 8px; vertical-align: 1px; text-transform: uppercase; }
+.think-devnote { padding: 5px 10px; color: var(--dbg); font: 400 10px/1.4 var(--font-mono);
+  border-bottom: 1px solid var(--border); opacity: .85; }
 
 /* Goal card — THIS turn's objective (the <goal> the model emits). Rendered INLINE with the turn
    (not a global sticky banner — that left turn-1's "greet the user" stuck at the top forever), and
@@ -1378,7 +1395,11 @@ const ChatUI = (() => {
       if (!thinkEl) {
         thinkEl = document.createElement('details');
         thinkEl.className = 'thinking'; thinkEl.open = true;
-        thinkEl.innerHTML = '<summary></summary>';
+        // A dev-only note pinned under the summary: the DEBUG tool rows are telemetry for THIS
+        // development build and never render in the production UI. (.think-devnote survives the
+        // step re-render in renderSteps because it isn't a .think-step.)
+        thinkEl.innerHTML = '<summary></summary>' +
+          '<div class="think-devnote">🛠 DEBUG view — tool calls are dev telemetry, hidden in production.</div>';
         container.appendChild(thinkEl);
       }
       return thinkEl;
@@ -1393,7 +1414,9 @@ const ChatUI = (() => {
       fillSteps(thinkEl, calls, results);
       if (liveRow) thinkEl.appendChild(liveRow);
       const n = calls.length;
-      thinkEl.querySelector('summary').textContent = '🧠 thinking · ' + n + ' step' + (n === 1 ? '' : 's');
+      // Summary carries a violet DEV pill so it's clear this whole panel is a development view.
+      thinkEl.querySelector('summary').innerHTML = '🧠 thinking · ' + n + ' step' + (n === 1 ? '' : 's') +
+        '<span class="dev-badge">DEV</span>';
       container.scrollTop = container.scrollHeight;
     };
     // The generation currently streaming, shown live at the bottom of the panel.
@@ -1470,17 +1493,24 @@ const ChatUI = (() => {
   function stepRender(c, r) {
     const s = (typeof c === 'string' ? c : JSON.stringify(c)).replace(/\s+/g, ' ').trim();
     const sk = s.match(/<skill>\s*([\w./-]+)\s*<\/skill>/);
-    if (sk) return { text: '📚 Loaded ' + sk[1], cls: ' note' };   // name only, body hidden
-    if (s.startsWith('💭')) return { text: s, cls: ' note' };
-    return { text: s + (r ? '  →  ' + r : ''), cls: '' };
+    if (sk) return { text: '📚 Loaded ' + sk[1], cls: ' note', kind: 'think' };  // name only, body hidden
+    if (s.startsWith('💭')) return { text: s, cls: ' note', kind: 'think' };
+    return { text: s + (r ? '  →  ' + r : ''), cls: ' tool-step', kind: 'tool' };  // executed tool = DEBUG log
   }
 
   function fillSteps(parent, calls, results) {
     calls.forEach((c, i) => {
-      const { text, cls } = stepRender(c, (results && results[i]) || '');
+      const { text, cls, kind } = stepRender(c, (results && results[i]) || '');
       const step = document.createElement('div');
       step.className = 'think-step' + cls;
-      step.textContent = text;
+      if (kind === 'tool') {   // executed tool → prepend the violet <DEBUG> tag (dev-only telemetry)
+        const tag = document.createElement('span');
+        tag.className = 'dbg-tag'; tag.textContent = 'DEBUG';
+        step.appendChild(tag);
+        step.appendChild(document.createTextNode(text));
+      } else {
+        step.textContent = text;   // reasoning note — plain
+      }
       parent.appendChild(step);
     });
   }

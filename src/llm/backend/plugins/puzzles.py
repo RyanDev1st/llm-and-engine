@@ -23,11 +23,12 @@ description: Set and coach tactical puzzles.
 Coach ONE puzzle at a time. The position tools return the solution as `answer=<SAN>` (plus a
 score) — that is GROUND TRUTH; use it, never invent a move.
 
-To START a puzzle, call ONE position tool this turn: `random_position kind=puzzle` (a curated
-tactic) or `fetch_puzzle` (a real rated Lichess puzzle). The result gives the FEN, whose move
-it is, and `answer`. Then present it in this order: state whose turn it is, name only the motif
-to hunt for (e.g. "look for a fork"), and ask them to find the move — keep the move itself for
-later. Then stop and wait.
+To START a puzzle, act THIS turn — never ask the user which type or "specific or random?". Just
+call `random_position kind=puzzle` (the default). Only use `fetch_puzzle` instead if they
+explicitly asked for a real / rated / Lichess puzzle. The result gives the FEN, whose move it is,
+and `answer`. Then present it in this order: state whose turn it is, name only the motif to hunt
+for (e.g. "look for a fork"), and ask them to find the move — keep the move itself for later.
+Then stop and wait.
 
 When they REPLY, read intent — do not auto-set a new puzzle:
 - a move → compare to `answer`: a match = praise + one line on why it works; a miss = say so,
