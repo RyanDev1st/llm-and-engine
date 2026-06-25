@@ -45,6 +45,19 @@ def test_empty_envelope_falls_back_to_base_only():
     assert "AVAILABLE TOOLS" not in s
 
 
+def test_precedence_hierarchy_is_stated_and_ordered():
+    # The harness states the instruction hierarchy explicitly: harness > customization > skills > data.
+    s = build_system(SK, TM, PC)
+    assert "Precedence" in s
+    # the four tiers appear in the stated order within the precedence line
+    line = next(l for l in s.splitlines() if l.startswith("- Precedence"))
+    assert (line.index("harness rules") < line.index("customization")
+            < line.index("skill guidance") < line.index("tool results"))
+    assert "never overrides these rules" in line
+    # lowercase here so the uppercase CUSTOMIZATION token stays unique to the overlay block header
+    assert "CUSTOMIZATION" not in s
+
+
 def test_customization_overlay_renders_when_present():
     s = build_system(SK, TM, PC, agent_overlay="Be terse and end with a fact.")
     assert "CUSTOMIZATION" in s
