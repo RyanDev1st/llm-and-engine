@@ -1,26 +1,22 @@
-"""Presentation-deck slide builders (GPU-free) — the three the report charts lacked: the training+
-serving PIPELINE, a DATA-anatomy concept card (the two-verb harness contract), and the base->adapter
-RECALIBRATION before/after bars. Plus a `main()` that renders the WHOLE curated deck (these three +
-the real confusion matrix + cross-model lines + corpus + timeline) into report_assets in one call, so
-a 4-minute talk's images come from one command. Every number traces to the 2026-06-24 Kaggle run
-(see docs/report/README.md §3); nothing here is fabricated.
+"""Presentation-deck slide builders (GPU-free). The CONCEPT slides (pipeline, two-verb idea) live
+here; the big-number STAT slides live in deck_stats. `main()` renders the whole curated 4-minute set
+in one call. Every number traces to docs/report/README.md §3 (the 2026-06-24 Kaggle run) — nothing
+fabricated. Design rule: ONE idea per slide, few words, the number does the talking.
   python -m llm_training.report.deck [--out docs/findings/report_assets]"""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-# Measured base->adapter recalibration (docs/report/README.md §3a, native n=142).
-RECAL = {"routing verb": (0.496, 0.887), "tool F1": (0.42, 0.81), "skill F1": (0.56, 0.94)}
-# Real adapter routing confusion (gold rows -> predicted cols), native fair test, n=142.
+NAVY = "#1a2a4f"
+GOLD = "#c8a24a"
+# Real adapter routing confusion (gold rows -> predicted cols), native fair test, n=142 (README §3a).
 ADAPTER_CM = {"skill": {"skill": 104, "tool": 7, "none": 6},
               "tool": {"skill": 0, "tool": 22, "none": 3},
               "none": {"skill": 0, "tool": 0, "none": 0}}
-CM_CAPTION = (
-    "Held-out val, n=142 — fair native-mode test (each row scored in its trained reasoning mode).\n"
-    "Rows = the correct verb; columns = what the model chose. 126/142 = 88.7% on the diagonal,\n"
-    "vs 49.6% for the un-tuned base. The fine-tune taught it to LOAD A SKILL before acting and only\n"
-    "call a TOOL when one is needed. Tool F1 0.81 (was 0.42), skill F1 0.94 (was 0.56).")
+CM_CAPTION = ("Held-out val, n=142. Rows = the right call, columns = what it chose. The diagonal is "
+              "126/142 = 88.7% correct\n(vs 49.6% for the un-tuned base). It rarely confuses "
+              "“load a skill” with “call a tool.”")
 
 
 def _plt():
@@ -30,115 +26,91 @@ def _plt():
     return plt
 
 
-def _box(ax, x, y, w, h, lines, fc, ec):
+def _stage(ax, x, y, w, h, head, phrase, fc, ec):
     from matplotlib.patches import FancyBboxPatch
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.012",
-                                fc=fc, ec=ec, lw=1.6))
-    head, *body = lines
-    ax.text(x + w / 2, y + h - 0.05, head, ha="center", va="top", fontsize=10.5,
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.012", fc=fc, ec=ec, lw=2.0))
+    ax.text(x + w / 2, y + h * 0.66, head, ha="center", va="center", fontsize=13,
             fontweight="bold", color=ec)
-    ax.text(x + w / 2, y + h - 0.16, "\n".join(body), ha="center", va="top",
-            fontsize=8.2, color="#222")
+    ax.text(x + w / 2, y + h * 0.32, phrase, ha="center", va="center", fontsize=9.5, color="#333")
 
 
 def pipeline(out: Path) -> Path:
-    """Left->right flow: SFT data -> QLoRA train (Kaggle T4) -> LoRA adapter -> local GGUF serve."""
+    """Four stages, one phrase each. Hook: free GPU to train, your own GPU to run."""
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(11.5, 3.3))
+    fig, ax = plt.subplots(figsize=(11.5, 3.0)); fig.patch.set_facecolor("white")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    stages = [
-        (["1 · DATA", "v1.2 SFT corpus", "~73k rows · 2 verbs", "75% general / 25% chess"], "#fdf3d0", "#b7950b"),
-        (["2 · TRAIN", "QLoRA · Unsloth", "Gemma-4 E4B (nf4 4-bit)", "Kaggle T4 · seq 1664"], "#d6eaf8", "#2471a3"),
-        (["3 · ADAPTER", "LoRA (all-linear)", "base frozen", "merge -> bf16"], "#d5f5e3", "#1e8449"),
-        (["4 · SERVE", "GGUF q4/q5/q6", "local RTX 4060", "+ vision mmproj"], "#fadbd8", "#a93226"),
-    ]
-    w, gap, y, h = 0.215, 0.047, 0.30, 0.50
-    for i, (lines, fc, ec) in enumerate(stages):
+    stages = [("DATA", "72K examples", "#fdf3d0", GOLD),
+              ("TRAIN", "free Kaggle T4", "#dbe7f5", "#2471a3"),
+              ("ADAPTER", "tiny, base frozen", "#d5f5e3", "#1e8449"),
+              ("SERVE", "your own GPU", "#fadbd8", "#a93226")]
+    w, gap, y, h = 0.215, 0.047, 0.30, 0.46
+    for i, (head, phrase, fc, ec) in enumerate(stages):
         x = 0.01 + i * (w + gap)
-        _box(ax, x, y, w, h, lines, fc, ec)
+        _stage(ax, x, y, w, h, head, phrase, fc, ec)
         if i < len(stages) - 1:
             ax.annotate("", (x + w + gap, y + h / 2), (x + w, y + h / 2),
-                        arrowprops=dict(arrowstyle="-|>", lw=2.2, color="#555"))
-    ax.text(0.5, 0.94, "Pipeline — train once on a free T4, serve locally",
-            ha="center", fontsize=13, fontweight="bold")
-    ax.text(0.5, 0.06, "A general agentic harness: the model picks among the skills + tools in its "
-            "prompt and reasons to a goal — chess is one demo domain of many.",
-            ha="center", fontsize=8.6, color="#555")
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+                        arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#888"))
+    ax.text(0.5, 0.95, "How it's built", ha="center", fontsize=16, fontweight="bold", color=NAVY)
+    ax.text(0.5, 0.07, "Fine-tune a 4B model on a free GPU → run it locally.",
+            ha="center", fontsize=10.5, color="#555")
+    fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
 
 
-def data_anatomy(out: Path) -> Path:
-    """Concept card: the two-verb contract every row teaches (skill = load guidance, tool = act)."""
+def two_verbs(out: Path) -> Path:
+    """The whole idea on one slide: a SKILL loads knowledge, a TOOL takes action. Few words."""
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(11.0, 4.2))
+    fig, ax = plt.subplots(figsize=(11.0, 3.8)); fig.patch.set_facecolor("white")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.95, "What every training row teaches: two verbs, one action per step",
-            ha="center", fontsize=13, fontweight="bold")
-    _box(ax, 0.04, 0.40, 0.43, 0.40,
-         ["<skill> NAME </skill>", "loads a listed skill's guidance", "into context (progressive",
-          "disclosure) — it does NOT act"], "#d5f5e3", "#1e8449")
-    _box(ax, 0.53, 0.40, 0.43, 0.40,
-         ["<tool> NAME args </tool>", "calls a real function and gets",
-          "a result the model must narrate", "(never computes it itself)"], "#d6eaf8", "#2471a3")
-    ax.text(0.5, 0.30, "Reasoning modes:  fast  (no <think>)   ·   think  (every step)   ·   "
-            "auto  (only on hard decisions)", ha="center", fontsize=9.5, color="#333")
-    ax.text(0.5, 0.18, "user → <think> plan → <skill> load → <tool> act → grounded answer",
-            ha="center", fontsize=10.5, family="DejaVu Sans Mono",
-            bbox=dict(boxstyle="round", fc="#fef9e7", ec="#d4ac0d"))
-    ax.text(0.5, 0.05, "The skills + tools are LISTED in the prompt and vary per row — so the model "
-            "learns to operate ANY catalog, not memorize chess.", ha="center", fontsize=8.6, color="#555")
-    fig.savefig(out, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"wrote {out}", flush=True)
-    return out
-
-
-def recalibration(cond: dict, out: Path) -> Path:
-    """Grouped before/after bars: base vs v4 adapter on verb / tool F1 / skill F1 (the fine-tune win)."""
-    plt = _plt()
-    labels = list(cond)
-    fig, ax = plt.subplots(figsize=(8.4, 4.6))
-    w = 0.34
-    xs = list(range(len(labels)))
-    base = [cond[l][0] for l in labels]
-    adpt = [cond[l][1] for l in labels]
-    b1 = ax.bar([x - w / 2 for x in xs], base, w, label="E4B base + harness", color="#c0392b")
-    b2 = ax.bar([x + w / 2 for x in xs], adpt, w, label="E4B v4 adapter (ours)", color="#1e8449")
-    for bars in (b1, b2):
-        for bar in bars:
-            ax.text(bar.get_x() + w / 2, bar.get_height() + 0.01, f"{bar.get_height():.0%}",
-                    ha="center", va="bottom", fontsize=9, fontweight="bold")
-    ax.set_xticks(xs, labels, fontsize=10)
-    ax.set_ylim(0, 1.08)
-    ax.set_ylabel("score (held-out val, n=142)")
-    ax.set_title("The fine-tuning win — base over-fires tools; the adapter routes correctly")
-    ax.legend(fontsize=9, loc="upper left")
-    fig.text(0.5, 0.005, "Tool false-positives 55 → 7 · the base fired a tool when it should have "
-             "loaded a skill; the adapter learned the difference.", ha="center", fontsize=8.4, color="#555")
-    fig.subplots_adjust(bottom=0.17)
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
+    ax.text(0.5, 0.93, "The idea: it picks the right move — two verbs",
+            ha="center", fontsize=16, fontweight="bold", color=NAVY)
+    from matplotlib.patches import FancyBboxPatch
+    ax.add_patch(FancyBboxPatch((0.05, 0.34), 0.42, 0.42, boxstyle="round,pad=0.014",
+                                fc="#d5f5e3", ec="#1e8449", lw=2.2))
+    ax.add_patch(FancyBboxPatch((0.53, 0.34), 0.42, 0.42, boxstyle="round,pad=0.014",
+                                fc="#dbe7f5", ec="#2471a3", lw=2.2))
+    ax.text(0.26, 0.66, "SKILL", ha="center", fontsize=18, fontweight="bold", color="#1e8449")
+    ax.text(0.26, 0.50, "loads know-how\ninto its head", ha="center", va="center",
+            fontsize=11.5, color="#222")
+    ax.text(0.74, 0.66, "TOOL", ha="center", fontsize=18, fontweight="bold", color="#2471a3")
+    ax.text(0.74, 0.50, "runs a real function,\nthen explains the result", ha="center", va="center",
+            fontsize=11.5, color="#222")
+    ax.text(0.5, 0.16, "The skills + tools are listed in the prompt and change every time —",
+            ha="center", fontsize=10.5, color="#555")
+    ax.text(0.5, 0.07, "so it learns to operate ANY toolset, not memorize chess.",
+            ha="center", fontsize=10.5, color="#555", fontweight="bold")
+    fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
 
 
 def main() -> None:
-    from llm_training.report import chart_data as D, charts, ppt_charts
+    from llm_training.report import chart_data as D, charts, deck_stats as S, ppt_charts
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(D.REPO / "docs" / "findings" / "report_assets"))
     args = ap.parse_args()
     o = Path(args.out); o.mkdir(parents=True, exist_ok=True)
+    st = D.corpus_stats()
+    # Pipeline + idea (concept)
     pipeline(o / "slide-pipeline.png")
-    data_anatomy(o / "slide-data-anatomy.png")
-    recalibration(RECAL, o / "slide-recalibration.png")
-    ppt_charts.confusion_matrix(ADAPTER_CM, ["skill", "tool", "none"],
-                                o / "slide-confusion-adapter.png", CM_CAPTION,
-                                title="Routing verb confusion — E4B v4 adapter (held-out val)")
-    ppt_charts.model_lines(D.MODELS, o / "slide-model-lines.png")
-    charts.corpus_composition(D.corpus_stats(), o / "chart-corpus-composition.png")
+    two_verbs(o / "slide-two-verbs.png")
+    # Data scale (measured)
+    S.scale(st["n_train"], st["modes"], o / "slide-scale.png")
+    # Benchmark hero stats (README §3)
+    S.big_compare("50%", "89%", "base model", "after fine-tuning", "Does the training help? Routing accuracy",
+                  "Held-out tests it never saw (n=142). The core win.", o / "slide-win-routing.png")
+    S.big_compare("55", "7", "base model", "ours", "It learned restraint — tool over-fires",
+                  "Times it grabbed a tool when it should have just loaded a skill. Lower is better.",
+                  o / "slide-win-restraint.png")
+    S.big_single("92%", "It generalizes to domains it never trained on",
+                 "of tasks completed on real cooking / music / wellness / tax prompts (n=60, 95% grounded).",
+                 ["cooking", "music", "wellness", "tax"], o / "slide-generalizes.png")
+    # Proof (technical / backup)
+    ppt_charts.confusion_matrix(ADAPTER_CM, ["skill", "tool", "none"], o / "slide-confusion-adapter.png",
+                                CM_CAPTION, title="Where it routes right — E4B v4 adapter (val)")
+    # Supporting design charts
+    charts.corpus_composition(st, o / "chart-corpus-composition.png")
     charts.training_timeline(D.VERSIONS, o / "chart-training-timeline.png")
     print(f"\nDeck rendered into {o}", flush=True)
 
