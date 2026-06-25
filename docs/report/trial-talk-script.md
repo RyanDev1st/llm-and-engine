@@ -60,9 +60,14 @@ trainable on free hardware."
 
 **④–⑤ Showcase — slides 4 & 5 (1:50–2:35)**
 > "Here it is talking. Casual, vague prompts —" *(slide 4)* "— 'hows my position', 'whats a fork' — it
-> answers like a coach, ~3 seconds a reply."
+> answers like a coach."
 > *(slide 5)* "And in the web sandbox it's *grounded* — it calls the engine, gets +1.8, and explains
 > *why*. It doesn't invent the evaluation; it reads it from the tool."
+
+> *(on speed, if it comes up — own it):* "On a free T4 it's about **3 tokens a second** — a reply takes
+> ~15–20 seconds. It's compute-bound on free hardware. That's exactly why the last pipeline step is
+> quantizing it — the GGUF quants decode ~2× faster on the local GPU." **Don't apologize for it; it's
+> the setup for the serve story.**
 
 *(If asked: these are sample interactions; live capture is running.)*
 
