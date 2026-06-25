@@ -64,8 +64,14 @@ def run_section(model: _Timed, scenarios: list[dict], *, board_hook: bool, engin
     the board hook to mirror the surface being shown (bare harness vs web sandbox)."""
     from backend import inference
     from backend.game import Game
-    from backend.inference import CoachLoop
+    from backend.inference import CoachLoop, PLUGIN_CONTEXT
     from backend.tools import ToolExecutor
+    # AUTHENTIC = web-app parity: the live serve enables chess-official + openings + analysis +
+    # puzzles (web_app.App.__init__), so opening-advisor / tactical-puzzles / game-reviewer are REAL
+    # loadable skills. Passing None gave a chess-coach-only catalog, so the model's correct attempts
+    # to load those skills returned unknown_skill — the harness looked broken when it was just
+    # mis-wired. Use the SAME context the website serves.
+    pc = {k: list(v) for k, v in PLUGIN_CONTEXT.items()}
     prev = inference._BOARD_HOOK
     inference._BOARD_HOOK = board_hook
     turns: list[dict] = []
@@ -74,7 +80,7 @@ def run_section(model: _Timed, scenarios: list[dict], *, board_hook: bool, engin
             game = Game()
             if sc.get("fen"):
                 game.load_fen(sc["fen"])
-            loop = CoachLoop(model, ToolExecutor(game, engine, None), plugin_context=None)
+            loop = CoachLoop(model, ToolExecutor(game, engine, pc), plugin_context=pc)
             history: list[dict] = []
             for text, mode in sc["turns"]:
                 model.reset()
