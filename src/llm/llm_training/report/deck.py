@@ -8,6 +8,7 @@ from pathlib import Path
 
 NAVY = "#1a2a4f"
 GOLD = "#c8a24a"
+GREEN = "#1e8449"
 # Real adapter routing confusion (gold rows -> predicted cols), native fair test, n=142 (README §3a).
 ADAPTER_CM = {"skill": {"skill": 104, "tool": 7, "none": 6},
               "tool": {"skill": 0, "tool": 22, "none": 3},
@@ -68,76 +69,79 @@ def pipeline(out: Path) -> Path:
 
 
 def thinks(out: Path) -> Path:
-    """CALL-FLOW diagram: the TWO-VERB loop. One real think-mode trace (slice A).
-    Minimal text per node — the visual IS the explanation."""
+    """THE ACTION LOOP — a clean 5-step horizontal call flow with a loop-back arc.
+    Label-only nodes, no paragraphs. Real trace from training."""
     plt = _plt()
-    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
-    fig, ax = plt.subplots(figsize=(10.8, 5.2)); fig.patch.set_facecolor("white")
+    from matplotlib.patches import FancyBboxPatch
+    fig, ax = plt.subplots(figsize=(11.5, 4.2)); fig.patch.set_facecolor("white")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.96, "The call flow — one action at a time",
-            ha="center", fontsize=17, fontweight="bold", color=NAVY)
-    # 6 nodes in a Z-pattern: user → <skill> → result → <tool> → result → answer
-    nodes = [
-        ("user:\n\"play e6\"", 0.08, 0.78, "#f0f0f0", "#666"),
-        ("<goal> what they want\n<think> state; decide\n→ <skill> NAME", 0.08, 0.52, "#d5f5e3", "#1e8449"),
-        ("TOOL:\nskill body", 0.08, 0.26, "#eef2f7", "#999"),
-        ("<think> read it; next\n→ <tool> NAME args", 0.55, 0.52, "#dbe7f5", "#2471a3"),
-        ("TOOL:\nresult data", 0.55, 0.26, "#eef2f7", "#999"),
-        ("<think> done\n→ answer", 0.55, 0.78, GOLD, GOLD),
-    ]
-    w, h = 0.30, 0.15
-    for label, x, y, fc, ec in nodes:
-        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.006", fc=fc, ec=ec, lw=2.2))
-        ax.text(x + w/2, y + h/2, label, ha="center", va="center", fontsize=9.2,
-                color="#222", linespacing=1.3, fontweight="bold")
-    # arrows
-    _ar(ax, 0.23, 0.78, 0.23, 0.67)           # user → <skill>
-    _ar(ax, 0.23, 0.52, 0.23, 0.41)           # <skill> → body
-    _ar(ax, 0.23, 0.26, 0.70, 0.52, 80)       # body → <tool> (cross)
-    _ar(ax, 0.70, 0.52, 0.70, 0.41)           # <tool> → data
-    _ar(ax, 0.70, 0.26, 0.70, 0.78, 80)       # data → answer (cross, close loop)
-    # labels
-    fig.text(0.5, 0.12, "It loops: act → read → decide again → … → grounded answer. "
-             "One turn, real trace from training.", ha="center", fontsize=11, color="#555")
+    ax.text(0.5, 0.92, "The call flow — one action at a time",
+            ha="center", fontsize=18, fontweight="bold", color=NAVY)
+    # 5 wide nodes, left → right, with generous gaps
+    nodes = [("User asks", "#f0f0f0"), ("<skill>\nload guidance", "#d5f5e3"),
+             ("<tool>\ncall function", "#dbe7f5"), ("read\nresult", "#eef2f7"),
+             ("grounded\nanswer", GOLD)]
+    n, w, gap, y, h = len(nodes), 0.148, 0.040, 0.48, 0.28
+    x0 = 0.5 - (n * w + (n - 1) * gap) / 2
+    for i, (label, fc) in enumerate(nodes):
+        x = x0 + i * (w + gap)
+        ec = NAVY if fc != GOLD else GOLD
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.010", fc=fc, ec=ec, lw=2.2))
+        ax.text(x + w/2, y + h/2, label, ha="center", va="center", fontsize=12,
+                fontweight="bold", color=NAVY if fc != GOLD else "white", linespacing=1.2)
+        if i < n - 1:
+            x1 = x + w + gap; yc = y + h/2
+            ax.annotate("", (x1, yc), (x + w, yc),
+                        arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#999"))
+    # loop-back arc
+    import matplotlib.patches as mpatches
+    x4, x1b = x0 + 4*(w + gap) + w/2, x0 + w/2
+    ax.add_patch(mpatches.FancyArrowPatch((x4, y - 0.02), (x1b, y - 0.02),
+                connectionstyle="arc3,rad=-0.28", arrowstyle="-|>", lw=2.2, color=GREEN,
+                mutation_scale=20))
+    ax.text(0.5, y - 0.25, "loop: decide → act → read → decide again",
+            ha="center", fontsize=10.5, color=GREEN, fontweight="bold")
+    # bottom
+    ax.text(0.5, 0.05, "The same verbs, the same contract — only the skills + tools "
+            "LISTED in the prompt, which change every request.",
+            ha="center", fontsize=10, color="#555")
     fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
 
-def _ar(ax, x0, y0, x1, y1, rad=0):
-    from matplotlib.patches import FancyArrowPatch
-    if rad:
-        ax.add_patch(FancyArrowPatch((x0, y0), (x1, y1), connectionstyle=f"arc3,rad={rad/100}",
-                     arrowstyle="-|>", lw=1.8, color="#888"))
-    else:
-        ax.annotate("", (x1, y1), (x0, y0), arrowprops=dict(arrowstyle="-|>", lw=1.8, color="#888"))
-
 def modes(out: Path) -> Path:
-    """The 4 reasoning modes as VISUAL CARDS. Big name. One rule. Example on hover."""
+    """4 clean cards. Big name, one rule, one example. Generous whitespace."""
     plt = _plt()
     from matplotlib.patches import FancyBboxPatch
-    fig, ax = plt.subplots(figsize=(11.2, 4.4)); fig.patch.set_facecolor("white")
+    from matplotlib.lines import Line2D
+    fig, ax = plt.subplots(figsize=(11.5, 4.8)); fig.patch.set_facecolor("white")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.94, "One model — four reasoning modes", ha="center", fontsize=17,
-            fontweight="bold", color=NAVY)
+    ax.text(0.5, 0.95, "One model — four reasoning modes", ha="center",
+            fontsize=18, fontweight="bold", color=NAVY)
     cards = [
-        ("FAST", "#7a8699", "no <goal> · no <think>", "“push Ba6”"),
-        ("THINK", "#2471a3", "<goal> once · <think> every step", "“yo, e6 for me”"),
-        ("AUTO", "#1e8449", "<goal> once · <think> only on hard calls", "“play Qa4+ pls”"),
-        ("PLAN", "#c8a24a", "<goal> all · <plan> checklist", "“debug this; break down that”"),
+        ("FAST", "#7a8699", "no <goal>\nno <think>", "“push Ba6”"),
+        ("THINK", "#2471a3", "<goal> once\n<think> every step", "“yo, e6 for me”"),
+        ("AUTO", "#1e8449", "<goal> once\n<think> only on\nhard choices", "“play Qa4+ pls”"),
+        ("PLAN", "#c8a24a", "<goal> all\n<plan> checklist", "“debug + break down”"),
     ]
-    w, gap, y, h = 0.225, 0.023, 0.32, 0.48
-    x0 = 0.5 - (4 * w + 3 * gap) / 2
+    w, gap, y0, h = 0.225, 0.027, 0.34, 0.55; x0 = 0.5 - (4 * w + 3 * gap) / 2
     for i, (name, ec, rule, ex) in enumerate(cards):
         x = x0 + i * (w + gap)
-        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.014", fc="white", ec=ec, lw=2.6))
-        ax.text(x + w/2, y + h - 0.08, name, ha="center", va="top", fontsize=17, fontweight="bold", color=ec)
-        ax.text(x + w/2, y + h - 0.24, rule, ha="center", va="top", fontsize=9.5, color="#333")
-        ax.text(x + w/2, y + 0.04, ex, ha="center", va="bottom", fontsize=8, color="#888",
-                fontstyle="italic")
-    ax.text(0.5, 0.17, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
-            ha="center", fontsize=11, color="#333")
-    ax.text(0.5, 0.07, "A 4B model that isn't a natural reasoner — we trained the reasoning IN, "
-            "and the restraint to not over-think.", ha="center", fontsize=9.5, color="#555")
+        ax.add_patch(FancyBboxPatch((x, y0), w, h, boxstyle="round,pad=0.014",
+                    fc="white", ec=ec, lw=3.0))
+        ax.text(x + w/2, y0 + h - 0.06, name, ha="center", va="top",
+                fontsize=18, fontweight="bold", color=ec)
+        sep_y = y0 + h - 0.20
+        ax.add_artist(Line2D([x + 0.06, x + w - 0.06], [sep_y, sep_y], color=ec, lw=1.2))
+        ax.text(x + w/2, sep_y - 0.04, rule, ha="center", va="top",
+                fontsize=10, color="#333", linespacing=1.5)
+        ax.text(x + w/2, y0 + 0.05, ex, ha="center", va="bottom",
+                fontsize=8.5, color="#888", fontstyle="italic")
+    # bottom line
+    fig.text(0.5, 0.09, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
+             ha="center", fontsize=11, color="#333")
+    fig.text(0.5, 0.03, "A 4B model — we trained the reasoning IN, and the restraint to not over-think.",
+             ha="center", fontsize=9.5, color="#555")
     fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
