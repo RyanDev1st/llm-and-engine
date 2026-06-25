@@ -59,9 +59,19 @@ class GGUFModel:
         path = Path(gguf) if gguf is not None else default_gguf_path()
         if not path.exists():
             raise FileNotFoundError(f"GGUF not found: {path}")
-        self.llm = Llama(
-            model_path=str(path), n_gpu_layers=n_gpu_layers, n_ctx=n_ctx,
-            n_batch=256, verbose=False, chat_format=None)
+        kw = dict(model_path=str(path), n_gpu_layers=n_gpu_layers, n_ctx=n_ctx,
+                  n_batch=256, verbose=False, chat_format=None)
+        # Flash attention: faster decode + a SMALLER KV cache (decode is VRAM-bandwidth bound, so a
+        # smaller cache = fewer bytes read/token). Free win, default ON; CHESS_GGUF_FLASH=0 disables.
+        # GUARDED: older llama-cpp-python builds lack the kwarg -> retry without it (arg binding fails
+        # before any weights load, so there's no double-load) so a stale build can never break serve.
+        if os.environ.get("CHESS_GGUF_FLASH", "1") != "0":
+            try:
+                self.llm = Llama(**kw, flash_attn=True)
+            except TypeError:
+                self.llm = Llama(**kw)
+        else:
+            self.llm = Llama(**kw)
         # Prefix/KV cache: the agentic loop calls generate() several times per turn
         # with a GROWING prompt that shares a long prefix (system + history + earlier
         # steps). The cache lets llama.cpp reuse the KV for that shared prefix instead
