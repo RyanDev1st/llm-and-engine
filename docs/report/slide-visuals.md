@@ -20,7 +20,8 @@ order. Your slides fill 01-02 and 07.
 |---|---|---|---|
 | 01 | *(yours)* | "gemma 4 e4b, 4-bit, 73k… small, not the superman" | **[GENERATE]** — prompt A below |
 | 02 | *(yours)* | "it's local. Your data never leaves your device. Right tool, no more no less" | **[GENERATE]** — prompt B below |
-| 03 | `03-how-it-thinks.png` | "small, not think-capable, but we trained it through a thinking loop" | **[RENDERED]** the loop. Optional hero: prompt C |
+| 03 | `03-how-it-works.png` | "how it works — two verbs, one action at a time" | **[RENDERED]** the skill/tool contract + the act→read→act loop |
+| 03b | `03b-reasoning-modes.png` | "small, not think-capable, but we trained it to think — fast / think / auto / plan" | **[RENDERED]** the 4 reasoning modes |
 | 04 | `04-how-trained.png` | "here's the pipeline… max seq, ranks, why" | **[RENDERED]** flow + knobs+why |
 | 05 | `05-the-data.png` | "here's the distribution… the slices" | **[RENDERED]** mode mix + slices |
 | 06 | `06-floors-out.png` | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** REAL loss curve |

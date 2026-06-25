@@ -76,29 +76,69 @@ def pipeline(out: Path) -> Path:
 
 
 def thinks(out: Path) -> Path:
-    """Small — but taught to think: the reasoning loop, one clean left-to-right flow."""
+    """The harness contract — the FACTUAL loop (system_prompt.BASE_HARNESS): two verbs, exactly ONE
+    action per step, then read the result and loop. NOT a fixed think→skill→tool chain."""
     plt = _plt()
-    fig, ax = plt.subplots(figsize=(11.0, 4.0)); fig.patch.set_facecolor("white")
+    from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+    fig, ax = plt.subplots(figsize=(11.0, 4.6)); fig.patch.set_facecolor("white")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.93, "Small — but we taught it to think", ha="center", fontsize=16,
+    ax.text(0.5, 0.95, "How it works: two verbs, one action per step", ha="center", fontsize=16,
             fontweight="bold", color=NAVY)
-    steps = [("you ask", "#eef2f7", NAVY), ("THINK", "#fef3d0", GOLD), ("load a SKILL", "#d5f5e3", "#1e8449"),
-             ("call a TOOL", "#dbe7f5", "#2471a3"), ("answer", "#eef2f7", NAVY)]
+    # the two verbs
+    ax.add_patch(FancyBboxPatch((0.06, 0.50), 0.40, 0.26, boxstyle="round,pad=0.012",
+                                fc="#d5f5e3", ec="#1e8449", lw=2.0))
+    ax.text(0.26, 0.69, "<skill> NAME </skill>", ha="center", fontsize=12.5, fontweight="bold",
+            color="#1e8449", family="DejaVu Sans Mono")
+    ax.text(0.26, 0.585, "load a skill's guidance\n(instructions, not a function)", ha="center",
+            va="center", fontsize=9.5, color="#222")
+    ax.add_patch(FancyBboxPatch((0.54, 0.50), 0.40, 0.26, boxstyle="round,pad=0.012",
+                                fc="#dbe7f5", ec="#2471a3", lw=2.0))
+    ax.text(0.74, 0.69, "<tool> NAME args </tool>", ha="center", fontsize=12.5, fontweight="bold",
+            color="#2471a3", family="DejaVu Sans Mono")
+    ax.text(0.74, 0.585, "call a tool → get a result\n(data or a state change)", ha="center",
+            va="center", fontsize=9.5, color="#222")
+    # the loop: act -> read result -> act again (a return arc under the verb boxes)
+    ax.add_patch(FancyArrowPatch((0.74, 0.50), (0.26, 0.50), connectionstyle="arc3,rad=-0.30",
+                                 arrowstyle="-|>", lw=1.8, color="#bbb"))
+    ax.text(0.5, 0.345, "pick ONE action  →  read the result  →  act again  →  …  →  grounded answer",
+            ha="center", fontsize=11.5, color=NAVY, fontweight="bold")
+    ax.text(0.5, 0.105, "It works like a coding agent — only the skills + tools LISTED in the prompt, "
+            "which change every request.", ha="center", fontsize=10, color="#555")
+    ax.text(0.5, 0.02, "Never invents a tool, never states a fact that isn't in a result.",
+            ha="center", fontsize=10, color="#555", fontstyle="italic")
+    fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
+    print(f"wrote {out}", flush=True)
+    return out
+
+
+def modes(out: Path) -> Path:
+    """The four reasoning modes the model was trained to switch between (system_prompt._REASONING_LINE).
+    A small model that 'can't think' — taught to think only as much as the task needs."""
+    plt = _plt()
     from matplotlib.patches import FancyBboxPatch
-    w, gap, y, h = 0.150, 0.038, 0.45, 0.20
-    x = 0.045
-    for i, (label, fc, ec) in enumerate(steps):
-        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.01", fc=fc, ec=ec, lw=1.8))
-        ax.text(x + w / 2, y + h / 2, label, ha="center", va="center", fontsize=10.5,
-                fontweight="bold", color=ec)
-        if i < len(steps) - 1:
-            ax.annotate("", (x + w + gap, y + h / 2), (x + w, y + h / 2),
-                        arrowprops=dict(arrowstyle="-|>", lw=2.0, color="#999"))
-        x += w + gap
-    ax.text(0.5, 0.30, "The base model can't reason step-by-step on its own.",
-            ha="center", fontsize=11.5, color="#333")
-    ax.text(0.5, 0.18, "We trained it through this loop — so it plans before it acts, and "
-            "narrates results instead of inventing them.", ha="center", fontsize=10.5, color="#555")
+    fig, ax = plt.subplots(figsize=(11.2, 5.0)); fig.patch.set_facecolor("white")
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+    ax.text(0.5, 0.95, "Taught to think — only as much as the task needs", ha="center", fontsize=16,
+            fontweight="bold", color=NAVY)
+    cards = [
+        ("FAST", "#aeb8c7", "no thinking —\nanswer directly", "“what's a fork?”"),
+        ("THINK", "#2471a3", "<think> before\nEVERY step", "careful, show-the-work"),
+        ("AUTO", "#1e8449", "<think> ONLY on\nthe hard choices", "the everyday default"),
+        ("PLAN", "#c8a24a", "<goal> + a <plan>\nchecklist, do every box", "multi-step requests"),
+    ]
+    w, gap, y, h = 0.215, 0.025, 0.30, 0.42
+    x0 = 0.5 - (4 * w + 3 * gap) / 2
+    for i, (name, ec, what, ex) in enumerate(cards):
+        x = x0 + i * (w + gap)
+        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.012", fc="white", ec=ec, lw=2.4))
+        ax.text(x + w / 2, y + h - 0.06, name, ha="center", va="top", fontsize=14, fontweight="bold", color=ec)
+        ax.text(x + w / 2, y + h * 0.50, what, ha="center", va="center", fontsize=10, color="#222")
+        ax.text(x + w / 2, y + 0.05, ex, ha="center", va="center", fontsize=8.5,
+                color="#666", fontstyle="italic")
+    ax.text(0.5, 0.165, "Same model — it picks the mode from a signal in the prompt.",
+            ha="center", fontsize=11, color="#333")
+    ax.text(0.5, 0.075, "A 4B model that isn't a natural reasoner — we trained the reasoning IN, "
+            "and the restraint to not over-think.", ha="center", fontsize=10, color="#555")
     fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
@@ -115,8 +155,10 @@ def main() -> None:
     # presentation order and interleave with the presenter's slides: 01-02 = AI-gen brand
     # (meet-the-model, it's-local), 07 = the live chats (presenter supplies). This renders only the
     # FACTUAL / DATA visuals.
-    # 03 · small but thinks (the harness loop)
-    thinks(o / "03-how-it-thinks.png")
+    # 03 · the contract: two verbs, one action per step (the FACTUAL loop)
+    thinks(o / "03-how-it-works.png")
+    # 03b · the four reasoning modes (fast / think / auto / plan)
+    modes(o / "03b-reasoning-modes.png")
     # 04 · how trained + served (real knobs + infra)
     pipeline(o / "04-how-trained.png")
     # 05 · the data (slices + mode mix)

@@ -11,7 +11,8 @@ both):
 
 | File | Talk beat | What it shows |
 |---|---|---|
-| `03-how-it-thinks.png` | the idea | the ask → think → skill → tool → answer loop |
+| `03-how-it-works.png` | the contract | the two verbs (skill/tool) + act → read → act loop, one action per step |
+| `03b-reasoning-modes.png` | "taught to think" | the 4 reasoning modes — fast / think / auto / plan |
 | `04-how-trained.png` | pipeline | train (Kaggle 2× T4) → adapter → serve + the real knobs (seq 1664, rank-16, loss-weight ×8) and why |
 | `05-the-data.png` | the data | reasoning-mode mix + top slices + train/val totals (from `data/sft/v1_2_*.jsonl.gz`) |
 | `06-floors-out.png` | "floors out fast" | the REAL training-loss curve (`runs/full_train.log`) |
@@ -19,7 +20,8 @@ both):
 | `09-result-generalizes.png` | benchmark Q2 | 91.7% task completion on unseen domains (n=60) |
 | `backup-confusion.png` | (backup, if asked) | per-class routing matrix — the same 88.7%, proof |
 
-`SAMPLE-*.png` are CPU-gate fixtures (`report.gate`), not deck slides — ignore them.
+`SAMPLE-*.png` are CPU-gate fixtures (`report.gate`), NOT deck slides — gitignored, regenerated on
+each gate run. Ignore/delete them.
 
 ## Measured Kaggle charts (separate, GPU)
 
