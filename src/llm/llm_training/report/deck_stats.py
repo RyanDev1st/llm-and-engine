@@ -24,6 +24,38 @@ def _plt():
     return plt
 
 
+def comparison(cond: dict, out: Path, title: str = "") -> Path:
+    """Grouped bars: base vs adapter verb accuracy. Shows the FINE-TUNING contribution —
+    base+harness already ~50% (the contract itself guides), adapter pushes to ~89%.
+    Only measured conditions are shown; E2B is pending (labeled)."""
+    plt = _plt()
+    labels = list(cond)
+    fig, ax = plt.subplots(figsize=(7.8, 5.0)); fig.patch.set_facecolor("white")
+    t = title or "Does the fine-tune help?  Verb accuracy on held-out val"
+    _titlebar(fig, t)
+    xs = [0, 1]
+    vals = [cond[l].get("verb", 0) for l in labels]
+    colors = [SLATE, GREEN]
+    bars = ax.bar(xs, vals, width=0.55, color=colors, edgecolor="white", lw=1)
+    for x, v in zip(xs, vals):
+        ax.text(x, v + 0.015, f"{v:.1%}", ha="center", fontsize=22, fontweight="bold",
+                color=colors[x])
+    ax.set_xticks(xs, labels, fontsize=13)
+    ax.set_ylim(0, 1.08)
+    ax.set_ylabel("verb accuracy (native, n=142)")
+    # delta annotation
+    delta = vals[1] - vals[0]
+    ax.annotate(f"+{delta:.1%}", ((xs[0]+xs[1])/2, (vals[0]+vals[1])/2),
+                ha="center", fontsize=16, color=GREEN, fontweight="bold")
+    fig.text(0.5, 0.04, "Both harness the SAME base harness — the adapter learns WHEN to load a skill "
+             f"vs call a tool. Tool false-positives 55→7.",
+             ha="center", fontsize=10, color="#555")
+    fig.subplots_adjust(bottom=0.18)
+    fig.savefig(out, dpi=150); plt.close(fig)
+    print(f"wrote {out}", flush=True)
+    return out
+
+
 def _titlebar(fig, title):
     fig.text(0.5, 0.92, title, ha="center", va="top", fontsize=17, fontweight="bold", color=NAVY)
     fig.add_artist(_line(0.34, 0.66, 0.875))

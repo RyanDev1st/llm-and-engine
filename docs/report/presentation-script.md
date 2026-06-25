@@ -18,19 +18,17 @@ later slide. Timed to ~4:30; **always rehearse with a clock and cut from the mid
 > "But here's the one thing that matters: **it's local.** Your data is safe — it never leaves your
 > device. It's the **right tool for the job**. No more, no less."
 
-### 03 · How it works  →  `03-how-it-works.png`
-> "So how does it work? The whole thing runs on **two verbs, one action at a time.** It can **load a
-> skill** — that pulls in instructions for a task — or **call a tool** — that runs a real function and
-> gives back a result. It picks one, reads what came back, and acts again — like a coding agent. And it
-> only uses the skills and tools **listed in the prompt**, which change every request — so it's not
-> memorizing chess, it's learning to operate *any* toolset."
+### 03 · Call flow  →  `03-how-it-works.png`
+> "So how does it work? Here's the **call flow.** It works on **two verbs, one action at a time:** it
+> can load a **skill** — that pulls in instructions — or call a **tool** — that runs a real function and
+> gives back data. It picks one, reads what came back, decides if it's enough or needs another step, and
+> loops. Like a coding agent. The skills and tools are **listed in the prompt** and change every request
+> — so it's not memorizing chess, it's learning to operate *any* toolset."
 
-### 03b · Taught to think  →  `03b-reasoning-modes.png`
-> "And one small thing — even though it's a small model, **not a natural reasoner**, we trained it to
-> think. Four modes: **fast** answers right away, **think** reasons before every step, **auto** reasons
-> only on the hard choices — that's the everyday default — and **plan** breaks a multi-step request into
-> a checklist and works through it. Same model; it picks the mode from the prompt. We trained the
-> reasoning *in* — and the restraint to **not over-think**."
+### 03b · Four modes  →  `03b-reasoning-modes.png`
+> "And one small thing — even though it's a **4B model**, not a natural reasoner, we trained it to
+> think. **Four modes:** fast, think, auto, plan. **Same model** — the prompt signals which mode to use.
+> We trained the reasoning IN — and the restraint to **not over-think**."
 
 ### 04 · How we trained it  →  `04-how-trained.png`
 > "Here's how it was trained. We fine-tuned a tiny **LoRA adapter** on top — the base model stays
@@ -56,7 +54,7 @@ later slide. Timed to ~4:30; **always rehearse with a clock and cut from the mid
 > "As you can see — it picks the right skill or tool, calls the engine for the real evaluation, and
 > **explains the result instead of inventing it.** Casual, vague prompts, and it still routes correctly."
 
-### 08 · Does the training help?  →  `08-result-routing.png`
+### 08 · Does the training help?  →  `08-result-comparison.png`
 > "Does the fine-tune actually help? On held-out tests it never saw: routing accuracy went from
 > **49.6% to 88.7%.** The base model **over-fires tools** — it grabbed a tool 55 times when it should
 > have just loaded a skill; ours cut that to 7. It learned **when to act** — that's the hard part."

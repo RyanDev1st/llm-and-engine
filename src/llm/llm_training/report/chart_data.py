@@ -18,12 +18,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 
-# --- routing ablation (val), from the committed benchmark report. The e2b condition (prior
-# production model) is filled by the next measured benchmark run; until then the chart shows the two
-# E4B conditions (SFT-weights contribution). base-no-harness was dropped from the design. ---
+# --- routing ablation (val), from the 2026-06-24 NATIVE run (docs/report/README.md §3a, n=142).
+# These replace the 2026-06-21 forced-fast numbers (96%/83%) — use ONLY native where each row's
+# trained reasoning mode is honored, matching the presentation deck's 88.7%/49.6%. The e2b condition
+# (prior production model) is unmeasured — fill after eval_benchmark --e2b-adapter at native parity. ---
 COND_VAL = {
-    "e4b-v4 adapter+harness": {"verb": 0.964, "macro": 0.783, "exact": 0.739},
-    "e4b base+harness": {"verb": 0.829, "macro": 0.462, "exact": 0.176},
+    "e4b base+harness":     {"verb": 0.496},
+    "e4b-v4 adapter+harness": {"verb": 0.887},
     # "e2b adapter+harness": filled after the measured rerun (eval_benchmark --e2b-adapter ...)
 }
 
@@ -37,7 +38,7 @@ VERSIONS = [
      "fix": "up-weight control tags in loss + decode penalties OFF", "verb": None},
     {"label": "v4", "date": "2026-06-19", "repo": "RyanDev1st/gemma4-chesscoach-ckpt-v4",
      "sub": "best", "why": "names still imperfect; extend the loss weight to names + train longer",
-     "fix": "FORMAT_WEIGHT on skill/tool names + 1000 steps + hardened base harness", "verb": 0.964},
+     "fix": "FORMAT_WEIGHT on skill/tool names + 1000 steps + hardened base harness", "verb": 0.887},
 ]
 
 

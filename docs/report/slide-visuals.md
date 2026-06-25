@@ -20,13 +20,13 @@ order. Your slides fill 01-02 and 07.
 |---|---|---|---|
 | 01 | *(yours)* | "gemma 4 e4b, 4-bit, 73k… small, not the superman" | **[GENERATE]** — prompt A below |
 | 02 | *(yours)* | "it's local. Your data never leaves your device. Right tool, no more no less" | **[GENERATE]** — prompt B below |
-| 03 | `03-how-it-works.png` | "how it works — two verbs, one action at a time" | **[RENDERED]** the skill/tool contract + the act→read→act loop |
-| 03b | `03b-reasoning-modes.png` | "small, not think-capable, but we trained it to think — fast / think / auto / plan" | **[RENDERED]** the 4 reasoning modes |
+| 03 | `03-how-it-works.png` | "how it works — the think loop" | **[RENDERED]** REAL trace (think-mode, slice A): user→goal+think+skill→body→think+tool→data→think+answer. 8 steps from one row |
+| 03b | `03b-reasoning-modes.png` | "taught to think — 4 modes" | **[RENDERED]** FAST/THINK/AUTO/PLAN cards with real extracted examples + <goal>/<think> rules |
 | 04 | `04-how-trained.png` | "here's the pipeline… max seq, ranks, why" | **[RENDERED]** flow + knobs+why |
 | 05 | `05-the-data.png` | "here's the distribution… the slices" | **[RENDERED]** mode mix + slices |
 | 06 | `06-floors-out.png` | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** REAL loss curve |
 | 07 | *(yours)* | "how it runs [the chats]" | **YOU** — your Kaggle chat screenshots (real verbatim runs) |
-| 08 | `08-result-routing.png` | "the benchmarks — does it route right?" | **[RENDERED]** Q1, 49.6%→88.7% routing |
+| 08 | `08-result-comparison.png` | "does the fine-tune help?" | **[RENDERED]** grouped bars: E4B base+harness 49.6% vs v4 adapter+harness 88.7%, +39.1% delta. Tool false-positives 55→7 in caption |
 | 09 | `09-result-generalizes.png` | "…and does it generalize?" | **[RENDERED]** Q2, 91.7% unseen-domain |
 | — | `backup-confusion.png` | (only if asked "show the data") | **[RENDERED]** per-class matrix, the same 88.7% |
 

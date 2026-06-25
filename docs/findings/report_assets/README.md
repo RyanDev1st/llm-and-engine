@@ -11,12 +11,12 @@ both):
 
 | File | Talk beat | What it shows |
 |---|---|---|
-| `03-how-it-works.png` | the contract | the two verbs (skill/tool) + act → read → act loop, one action per step |
-| `03b-reasoning-modes.png` | "taught to think" | the 4 reasoning modes — fast / think / auto / plan |
-| `04-how-trained.png` | pipeline | train (Kaggle 2× T4) → adapter → serve + the real knobs (seq 1664, rank-16, loss-weight ×8) and why |
+| `03-how-it-works.png` | call flow | the TWO-VERB loop as a Z-pattern flowchart. User → `<skill>` → body → `<tool>` → data → answer. Real trace from training |
+| `03b-reasoning-modes.png` | 4 modes | FAST/THINK/AUTO/PLAN as visual cards — big name, one rule line, real example |
+| `04-how-trained.png` | pipeline | train (Kaggle 2× T4) → adapter → serve + knobs (seq 1664, rank-16, loss-weight ×8) and why |
 | `05-the-data.png` | the data | reasoning-mode mix + top slices + train/val totals (from `data/sft/v1_2_*.jsonl.gz`) |
-| `06-floors-out.png` | "floors out fast" | the REAL training-loss curve (`runs/full_train.log`) |
-| `08-result-routing.png` | benchmark Q1 | routing 49.6% → 88.7% (held-out val, n=142) |
+| `06-floors-out.png` | "floors out fast" | REAL training-loss curve (`runs/full_train.log`) |
+| `08-result-comparison.png` | benchmark | grouped bars: E4B base+harness 49.6% vs v4 adapter+harness 88.7% (+39.1% delta) |
 | `09-result-generalizes.png` | benchmark Q2 | 91.7% task completion on unseen domains (n=60) |
 | `backup-confusion.png` | (backup, if asked) | per-class routing matrix — the same 88.7%, proof |
 
