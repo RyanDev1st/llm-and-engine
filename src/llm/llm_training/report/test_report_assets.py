@@ -53,15 +53,16 @@ def test_showcase_markdown_has_timing_and_tok_s():
 
 def test_merge_measured_overlays_without_clobbering_seed():
     measured = {"e4b-q5": {"verb": 0.95, "completed": 0.88, "tok_s": 61},
-                "e4b-nf4": {"verb": None, "completed": 0.9},    # None must NOT clobber the 0.964 seed
+                "e4b-nf4": {"verb": None, "completed": 0.9},    # None must NOT clobber the seed
                 "unknown-key": {"verb": 0.5}}                   # ignored
     out = D.merge_measured(D.MODELS, measured)
     by = {m["key"]: m for m in out}
     assert by["e4b-q5"]["verb"] == 0.95 and by["e4b-q5"]["tok_s"] == 61
-    assert by["e4b-nf4"]["verb"] == 0.964                      # seed preserved past a None
-    assert by["e4b-nf4"]["completed"] == 0.9
+    assert by["e4b-nf4"]["verb"] == 0.887                      # 2026-06-24 native seed, preserved past a None
+    assert by["e4b-nf4"]["completed"] == 0.9                    # measured overlays the 0.917 seed in the COPY
     assert "unknown-key" not in by
-    assert D.MODELS[2].get("completed") is None                # original list untouched (pure)
+    assert D.MODELS[2].get("completed") == 0.917               # original list untouched (pure copy, seed intact)
+    assert D.MODELS[3].get("tok_s") is None                    # an unseeded model stays empty in the original
 
 
 def test_model_table_md_marks_missing():

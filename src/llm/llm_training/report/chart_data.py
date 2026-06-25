@@ -41,14 +41,17 @@ VERSIONS = [
 ]
 
 
-# --- ALL models for the cross-model performance line chart (report). Ordered earliest -> latest
-# along the x-axis. SEED values are MEASURED where we have them (the 2026-06-21 routing benchmark,
-# val verb accuracy); completion/grounded/tok_s + the GGUF quants + E2B are filled at run time by the
-# Kaggle completion + GGUF A/B (eval_completion --gguf / --e2b-adapter) via merge_measured. ---
+# --- ALL models for the cross-model performance line chart (report). Ordered earliest -> latest along
+# the x-axis. SEEDS are the MEASURED 2026-06-24 numbers (the FAIR native run + the OOD STRESS completion)
+# so the chart matches the report headline, not the stale 2026-06-21 forced-fast numbers:
+#   verb = eval_benchmark val-NATIVE (base 49.6%, adapter 88.7%); completed/grounded = eval_completion
+#   --stress (adapter 91.7%/95%). tok/s + the GGUF quants + E2B are filled at run time via merge_measured
+#   (chat_showcase --tag for tok/s; eval_completion --gguf for the quants). ---
 MODELS = [
     {"key": "e2b-adapter", "label": "E2B adapter\n(prior prod)"},
-    {"key": "e4b-base",    "label": "E4B base\n+harness", "verb": 0.829},
-    {"key": "e4b-nf4",     "label": "E4B v4 nf4\n(current)", "verb": 0.964},
+    {"key": "e4b-base",    "label": "E4B base\n+harness", "verb": 0.496},
+    {"key": "e4b-nf4",     "label": "E4B v4 nf4\n(current)", "verb": 0.887,
+     "completed": 0.917, "grounded": 0.95},
     {"key": "e4b-q5",      "label": "E4B Q5_K_M\nGGUF"},
     {"key": "e4b-q6",      "label": "E4B Q6_K\nGGUF"},
 ]
