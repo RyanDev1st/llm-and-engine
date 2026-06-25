@@ -70,6 +70,30 @@ def test_valid_and_defaulted_calls_still_pass():
     assert "is a skill, not a tool" in ex.execute("<tool>chess-coach</tool>")
 
 
+def test_arg_keys_are_case_insensitive():
+    # LIVE BUG (the demo screenshot): the model emitted `<tool>move SAN=Rd1#</tool>` (uppercase key)
+    # and the parser kept 'SAN', so args.get('san') missed and it bounced with "needs 'san'".
+    # Every catalog arg key is lowercase, so keys are case-folded; a clean move now runs.
+    ex = _ex()
+    out = ex.execute("<tool>move SAN=e4</tool>")
+    assert out.startswith("success:")                          # not "error: tool 'move' needs 'san'"
+    assert "needs 'san'" not in out
+    # uppercase keys across other tools resolve too (no corrective bounce)
+    assert ex.execute("<tool>list_pieces COLOR=white</tool>").startswith("pieces:")
+    assert "turn=" in ex.execute("<tool>board_state FIELDS=basic</tool>")
+
+
+def test_enum_values_are_case_folded():
+    # The model also CAPITALIZES enum values (color=White, kind=Puzzle). The allowed sets are
+    # lowercase, so a capitalized value would bounce; the executor folds enum values before validate.
+    ex = _ex()
+    assert ex.execute("<tool>list_pieces color=White</tool>").startswith("pieces:")
+    assert ex.execute("<tool>list_pieces color=BLACK</tool>").startswith("pieces:")
+    assert "must be one of" not in ex.execute("<tool>list_pieces color=Mine</tool>")
+    # a genuinely invalid value still bounces (not silently defaulted to wrong data)
+    assert "must be one of" in ex.execute("<tool>list_pieces color=purple</tool>")
+
+
 def test_board_state_never_returns_empty_on_junk_fields():
     # LIVE BUG (2026-06-25 Kaggle run): the model emitted `fields=<['all']>` (schema-placeholder +
     # list junk). The old parser matched the junk literally, found no field, and returned a bare

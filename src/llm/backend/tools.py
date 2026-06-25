@@ -128,6 +128,13 @@ class ToolExecutor:
         name, args = parse_call(tool_call)
         if not name:
             return "error: invalid_syntax"
+        # Case-fold known ENUM values (color=White -> white, kind=Puzzle -> puzzle). The allowed
+        # sets are lowercase, so a capitalized value would otherwise bounce to a corrective error
+        # the model has to recover from — a needless round-trip in a live demo. (Keys are folded in
+        # toolfmt._kv; this folds the VALUE, but ONLY for enum args — never for case-sensitive SAN.)
+        enum = _ENUM_ARGS.get(name)
+        if enum and enum[0] in args:
+            args[enum[0]] = args[enum[0]].lower()
         bad = validate_call(name, args)            # missing required / bad enum -> corrective error
         if bad:
             return bad

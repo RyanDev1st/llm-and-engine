@@ -28,12 +28,15 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
     # One free-text arg per tool captures the rest of the call (it may contain
     # spaces / '='): ask_chessbot's query=, load_fen's fen=. Keyed BY TOOL so a
     # 'fen=' inside a question (or odd chars in a FEN) can't truncate the other.
+    # Case-INSENSITIVE match so QUERY=/Fen=/CODE= slips don't fall through.
     free = {"ask_chessbot": "query=", "load_fen": "fen=", "python": "code="}.get(name)
-    if free and free in rest:
-        head, tail = rest.split(free, 1)
-        args = _kv(head)
-        args[free[:-1]] = tail.strip()
-        return name, args
+    if free:
+        idx = rest.lower().find(free)
+        if idx != -1:
+            head, tail = rest[:idx], rest[idx + len(free):]
+            args = _kv(head)
+            args[free[:-1]] = tail.strip()
+            return name, args
     args = _kv(rest)
     # move arg coercion: `<tool>move e4</tool>` / `<tool>move Nf3</tool>` — the model's single
     # most common slip is omitting `san=`. When move has no san but a bare move-like token sits
@@ -47,11 +50,14 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
 
 
 def _kv(text: str) -> dict[str, str]:
+    # Arg KEYS are case-folded (every catalog arg is lowercase: san, fen, depth, color, …) so a
+    # `move SAN=Rd1#` / `eval DEPTH=12` slip resolves instead of bouncing to a corrective error.
+    # VALUES keep their case (SAN like 'Rd1#'/'Nf3' is case-sensitive: B=bishop vs b=file).
     out: dict[str, str] = {}
     for tok in text.split():
         if "=" in tok:
             k, v = tok.split("=", 1)
-            out[k] = v
+            out[k.strip().lower()] = v
     return out
 
 
