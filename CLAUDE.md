@@ -35,7 +35,7 @@ The product is a **general agentic HARNESS operator** = an LLM that **chooses am
 | `src/llm/gemma_chat_site/` | Web app (board + chat UI) |
 | `src/llm/runtime/llamacpp/` | Bundled llama.cpp for GGUF serving |
 | `src/chess_engine/` | The team's neural chess engine, **slimmed to serve-runtime only** (NN value net `models/nee.py` + alpha-beta `battle/selector.py` + `features`/`move_encoding` + `evaluation/static.py`) + the ONE verified checkpoint `weights/nee_latest.pt` (distilled+RL, ~1400 Elo, verified genuine). The 4.2GB of training bulk / RL checkpoints / duplicate `engine_team` tree were deleted (we don't develop the engine, only serve it). Imported as `chess_engine` (serve adds `src/` to path); pluggable via `backend/eval_engines.py` |
-| `docs/` | Durable docs + dated reports; index = `docs/README.md`. Superseded docs → `docs/legacy/` (tracked archive) |
+| `docs/` | Durable docs + dated reports; index = `docs/README.md`. Superseded docs → `docs/legacy/` (tracked archive). `docs/report/README.md` = the curated presentation reading guide (results + verified-vs-pending + Kaggle gap list) |
 | `legacy [ignore]/` | **Archive bin** for superseded plans/code/data — gitignored, never imported by live code |
 | `.claude/settings.local.json` | Personal permissions — **gitignored**, never commit |
 | `.claude/scheduled_tasks.lock` | Scheduler lock — **gitignored**, ephemeral |
