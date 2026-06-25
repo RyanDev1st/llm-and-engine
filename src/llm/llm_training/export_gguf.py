@@ -48,13 +48,21 @@ def merge(adapter: Path, out: Path) -> Path:
     import torch
     from peft import PeftModel
     from transformers import AutoModelForImageTextToText, AutoTokenizer
-    # CHESS_MERGE_DEVICE: "cpu" (default, low-RAM friendly) or "cuda"/"gpu"/"0" to merge on the GPU. A
-    # 4B bf16 model (~9GB) fits a 16GB T4 and avoids a CPU-RAM OOM on a ~13GB Kaggle box; the saved
-    # weights are byte-identical either way (merge_and_unload is deterministic). Use GPU on Kaggle.
+    # CHESS_MERGE_DEVICE selects where the bf16 base loads for the merge. gemma-4 E4B is MULTIMODAL
+    # (text+vision+audio towers) ~16GB in bf16 — it does NOT fit ONE 16GB T4, so a single-GPU map OOMs
+    # at ~68% load. Options:
+    #   "auto" (USE THIS on Kaggle 2×T4) -> device_map="auto": shards across ALL GPUs + spills to CPU.
+    #   "cpu"  (default) -> loads to CPU RAM (needs ~20GB; fine on a 29GB box, OOMs a 13GB one).
+    #   "cuda"/"0"/"1"   -> a SINGLE GPU (only if the whole model fits one card — it usually won't here).
+    # The saved weights are byte-identical (merge_and_unload is deterministic) regardless of placement.
     dev = os.environ.get("CHESS_MERGE_DEVICE", "cpu").strip().lower()
-    on_gpu = dev in ("cuda", "gpu", "0", "1")
-    device_map = {"": 0} if on_gpu else {"": "cpu"}
-    print(f"merging {adapter} into base ({'gpu' if on_gpu else 'cpu'}, bf16) ...", flush=True)
+    if dev == "auto":
+        device_map = "auto"
+    elif dev in ("cuda", "gpu", "0", "1"):
+        device_map = {"": int(dev) if dev.isdigit() else 0}
+    else:
+        device_map = {"": "cpu"}
+    print(f"merging {adapter} into base (device_map={device_map}, bf16) ...", flush=True)
     tok = AutoTokenizer.from_pretrained(str(BASE), local_files_only=True)
     model = AutoModelForImageTextToText.from_pretrained(
         str(BASE), local_files_only=True, dtype=torch.bfloat16, low_cpu_mem_usage=True, device_map=device_map)
