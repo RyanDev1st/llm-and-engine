@@ -84,6 +84,22 @@ def model_table_md(models: list) -> str:
     return "\n".join(L)
 
 
+def load_train_losses(log_path: Path | None = None) -> list[float]:
+    """The REAL per-update training loss series from runs/full_train.log (lines like
+    'upd 12/164 ep 1 loss=2.47 lr=...'). Used by the 'floors out fast' slide so the curve is
+    measured, not drawn. Returns [] if the log is absent (the slide then skips, never fabricates)."""
+    import re
+    log_path = log_path or REPO / "runs" / "full_train.log"
+    if not log_path.exists():
+        return []
+    out = []
+    for line in log_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = re.search(r"loss=([0-9.]+)", line)
+        if m:
+            out.append(float(m.group(1)))
+    return out
+
+
 def corpus_stats(train_gz: Path | None = None, val_gz: Path | None = None) -> dict:
     """Measured corpus composition (reasoning-mode mix, per-slice sizes, train/val totals). The
     general/chess DESIGN target is ~75/25; we do not assert a measured domain split because chess

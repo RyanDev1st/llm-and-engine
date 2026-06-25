@@ -1,0 +1,75 @@
+# Slide visuals — your script → the image for each beat
+
+You write the talk; this maps each beat of your draft to the **visual** that illustrates it. Two kinds:
+- **[RENDERED]** — a factual/data image I generated from real artifacts (in `docs/findings/report_assets/`).
+  Regenerate any time with `python -m llm_training.report.deck`.
+- **[GENERATE]** — an illustrative/brand image better made on ChatGPT/Gemini. I give you the prompt +
+  the text to overlay in PowerPoint (AI image tools can't spell exact facts — put those in PPT yourself).
+
+All numbers on the rendered images trace to real artifacts (run config, `runs/full_train.log`,
+`docs/report/README.md §3`). Nothing invented.
+
+---
+
+## Beat → visual
+
+| # | Your line (draft) | Visual |
+|---|---|---|
+| 1 | "gemma 4 e4b, 4-bit, 73k… small, not the superman" | **[GENERATE]** — prompt A below |
+| 2 | "it's local. Your data never leaves your device. Right tool, no more no less" | **[GENERATE]** — prompt B below |
+| 3 | "small, not think-capable, but we trained it through a thinking loop" | **[RENDERED]** `slide-thinks.png` (the loop). Optional hero: prompt C |
+| 4 | "here's the pipeline… max seq, ranks, why" | **[RENDERED]** `slide-pipeline.png` (flow + knobs+why) |
+| 5 | "here's the distribution… the slices" | **[RENDERED]** `chart-corpus-composition.png` |
+| 6 | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** `slide-floors-out.png` (REAL loss curve) |
+| 7 | "how it runs [the chats]" | **YOU** — your Kaggle `chat-section1/2.png` (real verbatim runs) |
+| 8 | "the benchmarks" | **[RENDERED]** `slide-win-routing.png`, `slide-win-restraint.png`, `slide-generalizes.png` (+ `slide-confusion-adapter.png` as backup if asked) |
+
+That's ~10 slides: 2 generated + 6 rendered + your chats.
+
+---
+
+## The [GENERATE] prompts (ChatGPT / Gemini)
+
+Aesthetic for all: **dark charcoal background (#11141a), warm gold (#c8a24a) accents, one cool blue
+accent, lots of negative space, flat editorial vector, fine linework, premium keynote feel. No text in
+the image. 16:9. Avoid: neon, glowing-brain clichés, generic cyber-padlocks, clutter, AI slop.**
+
+### Prompt A — "Meet the model" (small, not a superman)
+> Minimalist editorial illustration, 16:9. Near-black charcoal background (#11141a) with warm gold
+> (#c8a24a) accents and one muted blue. A single small, friendly geometric figure (a little robot or a
+> rounded chess pawn with simple eyes), modest and approachable, standing confidently but clearly
+> SMALL — deliberately not a muscular superhero, no cape. Generous negative space around it. Flat
+> vector, fine linework, restrained palette, sophisticated tech-keynote style. No text. Avoid neon,
+> avoid glowing brains, avoid clutter.
+
+**Overlay in PPT:** big — `Gemma 4 · E4B`; small — `4-bit · 73K examples · built for our harness`;
+tagline — `Small. And right for the job.`
+
+### Prompt B — "It's local" (privacy / on-device)
+> Minimalist editorial illustration, 16:9. Near-black charcoal background (#11141a), warm gold
+> (#c8a24a) accents, one muted blue. Concept: on-device privacy — a single laptop or desktop tower with
+> a soft gold ring/shield around it and data flowing in a small CLOSED loop inside the device, nothing
+> escaping outward. Calm, trustworthy, elegant. Lots of negative space, flat vector, fine linework. No
+> text. Avoid clouds, avoid padlock clichés, avoid neon — keep it understated and premium.
+
+**Overlay in PPT:** big — `It's local.`; sub — `Your data never leaves your device.`; tagline —
+`The right tool for the job — no more, no less.`
+
+### Prompt C — OPTIONAL hero for "taught to think" (use only if you'd rather not use the loop diagram)
+> Minimalist editorial illustration, 16:9. Charcoal background (#11141a), gold (#c8a24a) accents. A
+> small robot/figure with a single clean looping arrow tracing a deliberate cycle around its head
+> (plan → act → check), understated and elegant. Negative space, flat vector, fine linework. No text.
+> Avoid glowing-brain clichés, avoid neon.
+
+**Overlay in PPT:** `Small — but we taught it to think.`
+
+---
+
+## Notes
+- If you want any **[GENERATE]** beat as a plain factual card instead (e.g. you don't like the AI
+  image), tell me and I'll render a fallback in the same navy/gold style.
+- The rendered images use a light background (clean for PPT); the generated ones are dark — if you want
+  them to match, either put the rendered charts on a dark PPT slide master, or ask me to render dark.
+- Backups not in the main flow: `slide-confusion-adapter.png` (per-class proof), `chart-training-
+  timeline.png` (v2→v3→v4 history), `chart-layer-contribution.png`, `slide-model-lines.png` (cross-
+  model — sparse until the Q5/Q6/E2B Kaggle runs land).

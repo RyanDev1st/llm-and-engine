@@ -73,33 +73,31 @@ def big_single(value: str, title: str, sub: str, chips: list[str], out: Path) ->
     return out
 
 
-def _callout(fig, x, value, label):
-    fig.text(x, 0.55, value, ha="center", va="center", fontsize=46, fontweight="bold", color=NAVY)
-    fig.text(x, 0.40, label, ha="center", va="center", fontsize=11.5, color="#444")
-
-
-def scale(n_train: int, modes: dict, out: Path) -> Path:
-    """Three callouts (examples / model size / hardware) + a donut of the measured reasoning modes."""
+def floors_out(losses: list[float], out: Path, n_train: int = 72329, grad_accum: int = 16) -> Path:
+    """The REAL training-loss curve (runs/full_train.log): loss drops fast then floors. The story
+    beat 'it learns the harness in a fraction of one pass, so we don't train all 72K'. The examples-
+    seen + fraction-of-epoch are computed from the measured update count, not asserted."""
     plt = _plt()
-    fig = plt.figure(figsize=(10.2, 5.2)); fig.patch.set_facecolor("white")
-    _titlebar(fig, "Trained cheap, at scale — and taught to think")
-    _callout(fig, 0.17, f"{n_train/1000:.0f}K", "training examples")
-    _callout(fig, 0.40, "4B", "params (Gemma-4 E4B)")
-    _callout(fig, 0.63, "1", "free Kaggle T4 GPU")
-    ax = fig.add_axes([0.75, 0.26, 0.19, 0.50])
-    order = [m for m in ("fast", "think", "auto", "plan") if m in modes]
-    vals = [modes[m] for m in order]
-    cols = ["#aeb8c7", "#6f86b8", GREEN, GOLD]
-    ax.pie(vals, colors=cols[:len(order)], startangle=90, counterclock=False,
-           wedgeprops=dict(width=0.42, edgecolor="white"))
-    ax.text(0, 0, "reason\nmodes", ha="center", va="center", fontsize=9, color=NAVY)
-    pct = {m: modes[m] * 100 // sum(vals) for m in order}
-    fig.text(0.845, 0.17, "   ".join(f"{m} {pct[m]}%" for m in order[:2]), ha="center",
-             fontsize=8.5, color="#444")
-    fig.text(0.845, 0.125, "   ".join(f"{m} {pct[m]}%" for m in order[2:]), ha="center",
-             fontsize=8.5, color="#444")
-    fig.text(0.40, 0.115, "3 of 4 examples are general-purpose by design — chess is just the demo domain.",
-             ha="center", fontsize=10.5, color="#555")
+    fig = plt.figure(figsize=(9.6, 5.4)); fig.patch.set_facecolor("white")
+    _titlebar(fig, "It learns fast — then floors out")
+    ax = fig.add_axes([0.11, 0.20, 0.84, 0.52])
+    xs = list(range(1, len(losses) + 1))
+    ax.plot(xs, losses, color=NAVY, lw=1.6)
+    floor = sum(losses[-20:]) / min(20, len(losses))
+    ax.axhline(floor, color=GOLD, lw=1.4, ls="--")
+    ax.text(len(losses) * 0.5, floor + 0.22, f"floors at ~{floor:.1f}", ha="center",
+            fontsize=9.5, color=GOLD, fontweight="bold")
+    ax.set_xlabel("training updates (optimizer steps)", fontsize=10)
+    ax.set_ylabel("loss", fontsize=10)
+    ax.set_ylim(0, max(losses) * 1.05)
+    ax.set_xlim(1, len(losses))
+    seen = len(losses) * grad_accum
+    frac = seen / n_train
+    fig.text(0.5, 0.085, f"{len(losses)} updates ≈ {seen/1000:.1f}K examples ≈ {frac:.0%} of ONE pass "
+             f"through the {n_train/1000:.0f}K — so we never train the full set.",
+             ha="center", fontsize=11, color="#333")
+    fig.text(0.5, 0.025, "Why: ~85% of every example is the same harness contract — it nails the "
+             "format fast; the rest it generalizes.", ha="center", fontsize=9.5, color="#666")
     fig.savefig(out, dpi=150); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
