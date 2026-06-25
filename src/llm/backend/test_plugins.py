@@ -32,7 +32,11 @@ def test_hook_silent_when_no_game():
     assert plugins.prompt_start({}) == ""     # no runtime state -> nothing injected
 
 
-def test_build_system_prompt_injects_board_not_skill_body():
+def test_build_system_prompt_injects_board_not_skill_body(monkeypatch):
+    # Verifies the injection MECHANISM (board, not a skill body). The board hook now defaults OFF
+    # for train/serve parity, so enable it explicitly here — this test is about WHAT gets injected
+    # when the hook is on, not the default (the default is covered below).
+    monkeypatch.setattr("backend.inference._BOARD_HOOK", True)
     g = Game()
     sys = build_system_prompt(game=g)
     assert "AVAILABLE TOOLS" in sys           # base manifest still there

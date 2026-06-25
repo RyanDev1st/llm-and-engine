@@ -242,11 +242,22 @@ class ToolExecutor:
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board
-        requested = {part.strip() for part in fields.split(",") if part.strip()}
-        if not requested or "basic" in requested:
-            requested = {"turn", "last_move", "check", "legal_count"}
+        known = {"turn", "fen", "last_move", "check", "legal_count", "history"}
+        basic = {"turn", "last_move", "check", "legal_count"}
+        # Be LIBERAL in what we accept. The model sometimes wraps the value in schema-placeholder
+        # or list junk (seen live: fields=<['all']>, fields=[all]) — strip the wrapping chars so
+        # 'all'/'basic' still register. The old code matched the junk token literally, found no
+        # field, and returned an EMPTY "board_state:" — which left the model ungrounded and made it
+        # loop / play extra moves. board_state must NEVER come back empty.
+        requested = {part.strip(" <>[]'\"") for part in fields.split(",")}
+        requested = {part for part in requested if part}
         if "all" in requested:
-            requested = {"turn", "fen", "last_move", "check", "legal_count", "history"}
+            requested |= known
+        if not requested or "basic" in requested:
+            requested |= basic
+        requested &= known                      # drop 'all'/'basic'/junk; keep only real fields
+        if not requested:                       # unrecognized value -> fall back to basic, never empty
+            requested = basic
         values = {
             "turn": "white" if board.turn == chess.WHITE else "black",
             "fen": board.fen(),

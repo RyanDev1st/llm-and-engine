@@ -70,6 +70,23 @@ def test_valid_and_defaulted_calls_still_pass():
     assert "is a skill, not a tool" in ex.execute("<tool>chess-coach</tool>")
 
 
+def test_board_state_never_returns_empty_on_junk_fields():
+    # LIVE BUG (2026-06-25 Kaggle run): the model emitted `fields=<['all']>` (schema-placeholder +
+    # list junk). The old parser matched the junk literally, found no field, and returned a bare
+    # "board_state:" — leaving the model ungrounded so it looped and played an extra move. The fix:
+    # strip the wrapping chars so 'all' still registers, and NEVER return an empty board_state.
+    ex = _ex()
+    out = ex.execute("<tool>board_state fields=<['all']></tool>")
+    assert out.startswith("board_state: ") and out.strip() != "board_state:"
+    assert "turn=white" in out and "fen=" in out               # <['all']> -> the full 'all' set
+    # other junk wrappings the model produces all degrade to a useful board, not empty
+    assert "turn=white" in ex.execute("<tool>board_state fields=[all]</tool>")
+    assert "turn=white" in ex.execute("<tool>board_state fields=basic</tool>")
+    # a genuinely unrecognized value falls back to basic rather than empty
+    unknown = ex.execute("<tool>board_state fields=xyzzy</tool>")
+    assert "turn=white" in unknown and "legal_count=" in unknown
+
+
 # --- error labeling: a non-engine tool fault must NOT be reported as a Stockfish outage ---
 
 class _Boom(ToolExecutor):

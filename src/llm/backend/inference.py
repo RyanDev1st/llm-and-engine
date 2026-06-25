@@ -26,14 +26,15 @@ _PROMPT_HINTS = _os.environ.get("CHESS_PROMPT_HINTS", "0") in ("1", "true", "Tru
 # cleanup) stay ON in both modes. See docs/findings/2026-06-24-harness-vs-claude-code-codex.md.
 _THIN_HARNESS = _os.environ.get("CHESS_THIN_HARNESS", "0") in ("1", "true", "True")
 
-# Board-state prompt injection (train/serve parity). The serve prompt appends a "LIVE BOARD
+# Board-state prompt injection (train/serve parity). The serve prompt CAN append a "LIVE BOARD
 # (current position): turn=…, fen=…" line via the chess plugin's prompt_start hook — but TRAINING
 # NEVER had it (0/2731 corpus rows; the loader uses bare build_system, and the model was trained to
-# treat the board as HIDDEN and call board_state). This off-distribution line is a prime suspect for
-# "live != the 96% routing benchmark". ON by default (current behavior preserved); CHESS_BOARD_HOOK=0
-# restores the trained prompt shape so the model fetches the board exactly as trained.
-# See docs/findings/2026-06-24-harness-live-vs-benchmark-gap.md.
-_BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "1") not in ("0", "false", "False")
+# treat the board as HIDDEN and call board_state). OFF by default: the 2026-06-25 Kaggle A/B confirmed
+# the injected board makes the model HALLUCINATE off-distribution (board_on vs board_off, same prompts)
+# — so the trained prompt shape (model fetches the board via board_state) is the correct serve default.
+# Set CHESS_BOARD_HOOK=1 to restore the injected board for an A/B.
+# See docs/findings/2026-06-24-harness-live-vs-benchmark-gap.md + 2026-06-25-train-serve-parity-audit.md.
+_BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "0") not in ("0", "false", "False")
 
 from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
