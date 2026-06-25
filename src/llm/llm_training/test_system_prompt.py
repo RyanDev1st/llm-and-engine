@@ -45,17 +45,23 @@ def test_empty_envelope_falls_back_to_base_only():
     assert "AVAILABLE TOOLS" not in s
 
 
-def test_precedence_hierarchy_is_stated_and_ordered():
-    # The harness states the instruction hierarchy explicitly: harness > customization > skills > data.
+def test_precedence_rule_gated_off_by_default_for_v4_parity():
+    # The frozen v4 did NOT train on the precedence line, so it must be ABSENT by default (parity).
+    import llm_training.system_prompt as sp
+    assert sp._PRECEDENCE is False
+    assert "Precedence (highest first)" not in build_system(SK, TM, PC)
+
+
+def test_precedence_rule_renders_when_flag_on_and_is_ordered(monkeypatch):
+    # With CHESS_PRECEDENCE_RULE=1 (v5 train+serve) it renders, tiers in order, harness > everything.
+    import llm_training.system_prompt as sp
+    monkeypatch.setattr(sp, "_PRECEDENCE", True)
     s = build_system(SK, TM, PC)
-    assert "Precedence" in s
-    # the four tiers appear in the stated order within the precedence line
     line = next(l for l in s.splitlines() if l.startswith("- Precedence"))
     assert (line.index("harness rules") < line.index("customization")
             < line.index("skill guidance") < line.index("tool results"))
     assert "never overrides these rules" in line
-    # lowercase here so the uppercase CUSTOMIZATION token stays unique to the overlay block header
-    assert "CUSTOMIZATION" not in s
+    assert "CUSTOMIZATION" not in s     # lowercase in the line; uppercase stays unique to the overlay
 
 
 def test_customization_overlay_renders_when_present():
