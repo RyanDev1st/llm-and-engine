@@ -13,16 +13,21 @@ All numbers on the rendered images trace to real artifacts (run config, `runs/fu
 
 ## Beat → visual
 
-| # | Your line (draft) | Visual |
-|---|---|---|
-| 1 | "gemma 4 e4b, 4-bit, 73k… small, not the superman" | **[GENERATE]** — prompt A below |
-| 2 | "it's local. Your data never leaves your device. Right tool, no more no less" | **[GENERATE]** — prompt B below |
-| 3 | "small, not think-capable, but we trained it through a thinking loop" | **[RENDERED]** `slide-thinks.png` (the loop). Optional hero: prompt C |
-| 4 | "here's the pipeline… max seq, ranks, why" | **[RENDERED]** `slide-pipeline.png` (flow + knobs+why) |
-| 5 | "here's the distribution… the slices" | **[RENDERED]** `chart-corpus-composition.png` |
-| 6 | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** `slide-floors-out.png` (REAL loss curve) |
-| 7 | "how it runs [the chats]" | **YOU** — your Kaggle `chat-section1/2.png` (real verbatim runs) |
-| 8 | "the benchmarks" | **[RENDERED]** TWO slides, framed as two QUESTIONS: `slide-win-routing.png` (Q1, 49.6%→88.7% routing) + `slide-generalizes.png` (Q2, 91.7% unseen-domain). `slide-confusion-adapter.png` is backup only |
+Files are numbered by talk position (`NN-name.png` in `docs/findings/report_assets/`) so they sort in
+order. Your slides fill 01-02 and 07.
+
+| # | File | Your line (draft) | Visual |
+|---|---|---|---|
+| 01 | *(yours)* | "gemma 4 e4b, 4-bit, 73k… small, not the superman" | **[GENERATE]** — prompt A below |
+| 02 | *(yours)* | "it's local. Your data never leaves your device. Right tool, no more no less" | **[GENERATE]** — prompt B below |
+| 03 | `03-how-it-thinks.png` | "small, not think-capable, but we trained it through a thinking loop" | **[RENDERED]** the loop. Optional hero: prompt C |
+| 04 | `04-how-trained.png` | "here's the pipeline… max seq, ranks, why" | **[RENDERED]** flow + knobs+why |
+| 05 | `05-the-data.png` | "here's the distribution… the slices" | **[RENDERED]** mode mix + slices |
+| 06 | `06-floors-out.png` | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** REAL loss curve |
+| 07 | *(yours)* | "how it runs [the chats]" | **YOU** — your Kaggle chat screenshots (real verbatim runs) |
+| 08 | `08-result-routing.png` | "the benchmarks — does it route right?" | **[RENDERED]** Q1, 49.6%→88.7% routing |
+| 09 | `09-result-generalizes.png` | "…and does it generalize?" | **[RENDERED]** Q2, 91.7% unseen-domain |
+| — | `backup-confusion.png` | (only if asked "show the data") | **[RENDERED]** per-class matrix, the same 88.7% |
 
 That's ~9 slides: 2 generated + 5 rendered + your chats.
 
@@ -77,6 +82,7 @@ tagline — `Small. And right for the job.`
   image), tell me and I'll render a fallback in the same navy/gold style.
 - The rendered images use a light background (clean for PPT); the generated ones are dark — if you want
   them to match, either put the rendered charts on a dark PPT slide master, or ask me to render dark.
-- Backups not in the main flow: `slide-confusion-adapter.png` (per-class proof), `chart-training-
-  timeline.png` (v2→v3→v4 history), `chart-layer-contribution.png`, `slide-model-lines.png` (cross-
-  model — sparse until the Q5/Q6/E2B Kaggle runs land).
+- Backup not in the main flow: `backup-confusion.png` (per-class proof — the same 88.7%).
+- Removed as bad/misleading (don't use): the v2→v3→v4 timeline (single floating point + overlapping
+  boxes + stale 96%) and the cross-model line chart (only 1 real point until the Q5/Q6/E2B Kaggle runs
+  land). Both regenerate from a real multi-version GPU run via `report.version_eval` if needed later.

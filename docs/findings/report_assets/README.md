@@ -1,20 +1,33 @@
-# Report assets — charts for the project writeup/presentation
+# Report assets — the presentation deck (numbered in talk order)
 
-Generated PNGs for the report. Every number traces to a real artifact (see
-`src/llm/llm_training/report/chart_data.py` for sources). Regenerate, don't hand-edit.
+GPU-free PNGs for the talk. Every number traces to a real artifact (see
+`src/llm/llm_training/report/chart_data.py` + `docs/report/README.md §3`). Regenerate, don't
+hand-edit: **`python -m llm_training.report.deck`**. The beat-by-beat map (which slide for which
+spoken line, plus the AI-gen brand-slide prompts) is **`docs/report/slide-visuals.md`**.
 
-| File | What it shows | How to regenerate |
+Files are **numbered by talk position** so they sort in order and interleave with the presenter's
+own slides (01-02 = AI-generated brand cards; 07 = the live chat screenshots — the presenter supplies
+both):
+
+| File | Talk beat | What it shows |
 |---|---|---|
-| `chart-layer-contribution.png` | adapter+harness vs base+harness vs base-no-harness × verb-acc / macro-prec / exact-name — what the harness contract buys vs what the SFT weights add | `python -m llm_training.report.charts` (GPU-free; from the 2026-06-21 3-condition benchmark) |
-| `chart-corpus-composition.png` | reasoning-mode mix (fast/think/auto/plan) + top slices by size + train/val totals | `python -m llm_training.report.charts` (GPU-free; from `data/sft/v1_2_*.jsonl.gz`) |
-| `chart-training-timeline.png` | v2→v3→v4 diagnose→fix→measure; verb accuracy per version once measured | GPU-free preview via `charts`; the **measured** version runs on Kaggle via `version_eval` |
-| `chart-per-slice-v4.png` | per-slice exact routing accuracy (v4) — routing breadth | Kaggle: `python -m llm_training.report.version_eval` (needs GPU) |
-| `v4-val-misses.jsonl` | every missed val row + what the model emitted (settles slice G/H) | Kaggle: `version_eval` |
+| `03-how-it-thinks.png` | the idea | the ask → think → skill → tool → answer loop |
+| `04-how-trained.png` | pipeline | train (Kaggle 2× T4) → adapter → serve + the real knobs (seq 1664, rank-16, loss-weight ×8) and why |
+| `05-the-data.png` | the data | reasoning-mode mix + top slices + train/val totals (from `data/sft/v1_2_*.jsonl.gz`) |
+| `06-floors-out.png` | "floors out fast" | the REAL training-loss curve (`runs/full_train.log`) |
+| `08-result-routing.png` | benchmark Q1 | routing 49.6% → 88.7% (held-out val, n=142) |
+| `09-result-generalizes.png` | benchmark Q2 | 91.7% task completion on unseen domains (n=60) |
+| `backup-confusion.png` | (backup, if asked) | per-class routing matrix — the same 88.7%, proof |
 
-**Measured trend + per-slice + miss-analysis** come from one Kaggle pass (Cell 6 of
-`kaggle_benchmark.ipynb`). If the v2/v3 adapter repo ids differ from
-`chart_data.VERSIONS`, edit that file's `repo`/`sub` and re-run — a missing repo is skipped,
-not fatal.
+`SAMPLE-*.png` are CPU-gate fixtures (`report.gate`), not deck slides — ignore them.
+
+## Measured Kaggle charts (separate, GPU)
+
+`version_eval` (Kaggle Cell 6 of `kaggle_benchmark.ipynb`) produces the **measured** cross-version
+trend + per-slice + miss-analysis when the v2/v3/v4 adapters are evaluated on GPU. The cross-model
+line chart (`report.ppt_charts.model_lines`) fills in once the Q5/Q6/E2B runs land. These are not in
+the committed deck because they need a real multi-version GPU run; the static placeholders were
+removed (a single-point trend / sparse line chart read as broken).
 
 ## The prior E2B production model (3rd benchmark condition)
 
