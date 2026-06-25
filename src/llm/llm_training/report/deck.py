@@ -126,15 +126,18 @@ def main() -> None:
     else:
         print("no runs/full_train.log -> skipping floors-out slide (no fabricated curve)", flush=True)
     # 7 · (chats shown live from the Kaggle run) — not rendered here
-    # 8 · does it work — the benchmark wins
-    S.big_compare("50%", "89%", "base model", "after fine-tuning", "Does the training help? Routing accuracy",
-                  "Held-out tests it never saw (n=142). The core win.", o / "slide-win-routing.png")
-    S.big_compare("55", "7", "base model", "ours", "It learned restraint — tool over-fires",
-                  "Times it grabbed a tool when it should have just loaded a skill. Lower is better.",
-                  o / "slide-win-restraint.png")
-    S.big_single("92%", "It generalizes to domains it never trained on",
-                 "of tasks completed on real cooking / music / wellness / tax prompts (n=60, 95% grounded).",
+    # 8 · does it work — TWO results, framed as TWO DIFFERENT QUESTIONS so they don't read as
+    # comparable. EXACT numbers (88.7 / 91.7), never rounded, so they match the confusion backup and
+    # don't look fudged. The 55->7 / F1 detail lives ONLY on the confusion backup (no redundant slide).
+    S.big_compare("49.6%", "88.7%", "base model", "after fine-tuning",
+                  "Q1 · Does it pick the right action?  (routing)",
+                  "Held-out chess val, n=142. The base over-fired tools (55 false-calls → 7); the "
+                  "fine-tune taught it when to load a skill vs call a tool.", o / "slide-win-routing.png")
+    S.big_single("91.7%", "Q2 · Can it finish a task in a domain it never trained on?",
+                 "tasks completed on real cooking / music / wellness / tax prompts (n=60, 95% grounded) — "
+                 "a DIFFERENT test from Q1, so this isn't a drop from 88.7%.",
                  ["cooking", "music", "wellness", "tax"], o / "slide-generalizes.png")
+    # BACKUP only (not in the main flow): the per-class proof. Same 88.7% as the routing slide.
     ppt_charts.confusion_matrix(ADAPTER_CM, ["skill", "tool", "none"], o / "slide-confusion-adapter.png",
                                 CM_CAPTION, title="Where it routes right — E4B v4 adapter (val)")
     print(f"\nStory deck rendered into {o}", flush=True)

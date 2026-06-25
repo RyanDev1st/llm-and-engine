@@ -8,6 +8,7 @@ docs/report/README.md §3 (the 2026-06-24 Kaggle run); nothing here is fabricate
 """
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 
 SLATE = "#7a8699"   # the "before" / baseline tone (neutral, not alarming)
@@ -36,16 +37,18 @@ def _line(x0, x1, y):
 
 def big_compare(before: str, after: str, before_lbl: str, after_lbl: str,
                 title: str, sub: str, out: Path) -> Path:
-    """A before -> after hero: two giant numbers with an arrow, baseline muted, ours green."""
+    """A before -> after hero: two giant numbers with an arrow, baseline muted, ours green. Hero
+    font auto-shrinks for longer strings (e.g. '88.7%' vs '7') so exact numbers never clip the edge."""
     plt = _plt()
     fig = plt.figure(figsize=(9.6, 5.4)); fig.patch.set_facecolor("white")
     _titlebar(fig, title)
-    fig.text(0.27, 0.50, before, ha="center", va="center", fontsize=86, fontweight="bold", color=SLATE)
-    fig.text(0.50, 0.52, "→", ha="center", va="center", fontsize=58, color="#bbb")
-    fig.text(0.74, 0.50, after, ha="center", va="center", fontsize=92, fontweight="bold", color=GREEN)
-    fig.text(0.27, 0.30, before_lbl, ha="center", va="top", fontsize=12, color=SLATE)
-    fig.text(0.74, 0.30, after_lbl, ha="center", va="top", fontsize=12.5, color=GREEN, fontweight="bold")
-    fig.text(0.5, 0.10, sub, ha="center", va="center", fontsize=11, color="#444")
+    fs = 78 if max(len(before), len(after)) <= 3 else 62   # decimals ('49.6%') need a smaller hero
+    fig.text(0.26, 0.50, before, ha="center", va="center", fontsize=fs, fontweight="bold", color=SLATE)
+    fig.text(0.50, 0.51, "→", ha="center", va="center", fontsize=46, color="#bbb")
+    fig.text(0.74, 0.50, after, ha="center", va="center", fontsize=fs + 6, fontweight="bold", color=GREEN)
+    fig.text(0.26, 0.29, before_lbl, ha="center", va="top", fontsize=12, color=SLATE)
+    fig.text(0.74, 0.29, after_lbl, ha="center", va="top", fontsize=12.5, color=GREEN, fontweight="bold")
+    fig.text(0.5, 0.11, textwrap.fill(sub, 92), ha="center", va="center", fontsize=10.5, color="#444")
     fig.savefig(out, dpi=150); plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
@@ -57,8 +60,8 @@ def big_single(value: str, title: str, sub: str, chips: list[str], out: Path) ->
     fig = plt.figure(figsize=(9.6, 5.4)); fig.patch.set_facecolor("white")
     ax = fig.add_axes([0, 0, 1, 1]); ax.axis("off")
     _titlebar(fig, title)
-    fig.text(0.5, 0.56, value, ha="center", va="center", fontsize=120, fontweight="bold", color=GREEN)
-    fig.text(0.5, 0.30, sub, ha="center", va="center", fontsize=12.5, color="#333")
+    fig.text(0.5, 0.58, value, ha="center", va="center", fontsize=110, fontweight="bold", color=GREEN)
+    fig.text(0.5, 0.31, textwrap.fill(sub, 78), ha="center", va="center", fontsize=12, color="#333")
     n = len(chips); cw, gap = 0.16, 0.025
     x0 = 0.5 - (n * cw + (n - 1) * gap) / 2
     from matplotlib.patches import FancyBboxPatch

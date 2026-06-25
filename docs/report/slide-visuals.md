@@ -22,9 +22,16 @@ All numbers on the rendered images trace to real artifacts (run config, `runs/fu
 | 5 | "here's the distribution… the slices" | **[RENDERED]** `chart-corpus-composition.png` |
 | 6 | "floors out quick, don't need the whole dataset… why" | **[RENDERED]** `slide-floors-out.png` (REAL loss curve) |
 | 7 | "how it runs [the chats]" | **YOU** — your Kaggle `chat-section1/2.png` (real verbatim runs) |
-| 8 | "the benchmarks" | **[RENDERED]** `slide-win-routing.png`, `slide-win-restraint.png`, `slide-generalizes.png` (+ `slide-confusion-adapter.png` as backup if asked) |
+| 8 | "the benchmarks" | **[RENDERED]** TWO slides, framed as two QUESTIONS: `slide-win-routing.png` (Q1, 49.6%→88.7% routing) + `slide-generalizes.png` (Q2, 91.7% unseen-domain). `slide-confusion-adapter.png` is backup only |
 
-That's ~10 slides: 2 generated + 6 rendered + your chats.
+That's ~9 slides: 2 generated + 5 rendered + your chats.
+
+**Why two benchmark slides, not three:** the old deck showed `89%` (routing) AND `88.7%` (confusion
+matrix) — the SAME number twice — plus `92%` completion, which read as a drop. Now: **exact numbers
+only** (88.7 / 91.7, so they match the confusion backup and don't look rounded/fudged), the redundant
+`55→7` slide is folded into the routing caption, and the two results are labelled **Q1 (routing) vs
+Q2 (unseen-domain completion)** so the audience can't misread 91.7 as "less than 88.7" — they answer
+different questions on different test sets.
 
 ---
 
