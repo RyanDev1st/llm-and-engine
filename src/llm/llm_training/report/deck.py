@@ -69,80 +69,191 @@ def pipeline(out: Path) -> Path:
 
 
 def thinks(out: Path) -> Path:
-    """THE ACTION LOOP — a clean 5-step horizontal call flow with a loop-back arc.
-    Label-only nodes, no paragraphs. Real trace from training."""
+    """THE ACTION LOOP — a clean 8-step vertical staircase flowchart.
+    Light text, dark charcoal background, clear columns and flow arrows.
+    Real trace from training."""
     plt = _plt()
     from matplotlib.patches import FancyBboxPatch
-    fig, ax = plt.subplots(figsize=(11.5, 4.2)); fig.patch.set_facecolor("white")
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.92, "The call flow — one action at a time",
-            ha="center", fontsize=18, fontweight="bold", color=NAVY)
-    # 5 wide nodes, left → right, with generous gaps
-    nodes = [("User asks", "#f0f0f0"), ("<skill>\nload guidance", "#d5f5e3"),
-             ("<tool>\ncall function", "#dbe7f5"), ("read\nresult", "#eef2f7"),
-             ("grounded\nanswer", GOLD)]
-    n, w, gap, y, h = len(nodes), 0.148, 0.040, 0.48, 0.28
-    x0 = 0.5 - (n * w + (n - 1) * gap) / 2
-    for i, (label, fc) in enumerate(nodes):
-        x = x0 + i * (w + gap)
-        ec = NAVY if fc != GOLD else GOLD
-        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.010", fc=fc, ec=ec, lw=2.2))
-        ax.text(x + w/2, y + h/2, label, ha="center", va="center", fontsize=12,
-                fontweight="bold", color=NAVY if fc != GOLD else "white", linespacing=1.2)
-        if i < n - 1:
-            x1 = x + w + gap; yc = y + h/2
-            ax.annotate("", (x1, yc), (x + w, yc),
-                        arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#999"))
-    # loop-back arc
     import matplotlib.patches as mpatches
-    x4, x1b = x0 + 4*(w + gap) + w/2, x0 + w/2
-    ax.add_patch(mpatches.FancyArrowPatch((x4, y - 0.02), (x1b, y - 0.02),
-                connectionstyle="arc3,rad=-0.28", arrowstyle="-|>", lw=2.2, color=GREEN,
-                mutation_scale=20))
-    ax.text(0.5, y - 0.25, "loop: decide → act → read → decide again",
-            ha="center", fontsize=10.5, color=GREEN, fontweight="bold")
-    # bottom
-    ax.text(0.5, 0.05, "The same verbs, the same contract — only the skills + tools "
-            "LISTED in the prompt, which change every request.",
-            ha="center", fontsize=10, color="#555")
-    fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
+    from matplotlib.lines import Line2D
+
+    # Setup figure with dark background
+    fig, ax = plt.subplots(figsize=(11.5, 6.0))
+    fig.patch.set_facecolor("#11141a")
+    ax.set_facecolor("#11141a")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    # Title
+    ax.text(0.5, 0.94, "The Agent Harness & Thinking Loop", ha="center", va="center",
+            fontsize=18, fontweight="bold", color="#ffffff")
+    ax.add_artist(Line2D([0.38, 0.62], [0.90, 0.90], color="#c8a24a", lw=2.0))
+
+    # Column Headers
+    ax.text(0.26, 0.86, "USER / HARNESS (ENVIRONMENT)", ha="center", va="center",
+            fontsize=11, fontweight="bold", color="#7a8699")
+    ax.text(0.74, 0.86, "AGENT MODEL (INLINE LOOP)", ha="center", va="center",
+            fontsize=11, fontweight="bold", color="#c8a24a")
+
+    # Coordinates
+    w, h = 0.32, 0.125
+    cx1, cx2 = 0.26, 0.74
+    y1, y2, y3, y4 = 0.70, 0.51, 0.32, 0.13
+
+    # Helper function to draw a card
+    def _draw_card(x_center, y, title, body, bg_color, border_color, title_color):
+        x = x_center - w / 2
+        card = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.008", fc=bg_color, ec=border_color, lw=1.5)
+        ax.add_patch(card)
+        ax.text(x_center, y + h * 0.76, title, ha="center", va="center", fontsize=9.2, fontweight="bold", color=title_color)
+        ax.text(x_center, y + h * 0.34, body, ha="center", va="center", fontsize=7.2, color="#dcdde1", linespacing=1.2)
+
+    # Helper to draw a direct arrow
+    def _draw_arrow(start, end, color="#7a8699", connection_style=None):
+        if connection_style:
+            arrow = mpatches.FancyArrowPatch(start, end, connectionstyle=connection_style,
+                                             arrowstyle="-|>", lw=1.5, color=color, mutation_scale=12)
+        else:
+            arrow = mpatches.FancyArrowPatch(start, end, arrowstyle="-|>", lw=1.5, color=color, mutation_scale=12)
+        ax.add_patch(arrow)
+
+    # Row 1: Step 1 (User Input) -> Step 2 (Commit Goal)
+    _draw_card(cx1, y1, "1. USER PROMPT (Input)",
+               "Human sends a request\ne.g., 'check threats and find a move'",
+               "#1c202a", "#7a8699", "#ffffff")
+    _draw_card(cx2, y1, "2. COMMIT OBJECTIVE",
+               "<goal>threats; best move</goal>\nGoal held in state to prevent early stopping",
+               "#1a202c", "#3498db", "#3498db")
+
+    # Row 2: Step 3 (Routing Decision) -> Step 4 (Skill Catalog)
+    _draw_card(cx2, y2, "3. ROUTING DECISION",
+               "<think>need guidelines; load skill</think>\nEmits tags: <skill>threats</skill>",
+               "#15221c", "#27ae60", "#2ecc71")
+    _draw_card(cx1, y2, "4. HARNESS DISCLOSURE",
+               "Harness retrieves and returns skill body\n(Instructions injected dynamically into context)",
+               "#1c202a", "#7a8699", "#7a8699")
+
+    # Row 3: Step 5 (Tool Call) -> Step 6 (Tool Subprocess)
+    _draw_card(cx2, y3, "5. TOOL CALL",
+               "<think>skill loaded; get eval data</think>\nEmits tags: <tool>eval fen=...</tool>",
+               "#15221c", "#27ae60", "#2ecc71")
+    _draw_card(cx1, y3, "6. HARNESS EXECUTION",
+               "Harness runs engine or sandboxed python script\nReturns grounded DATA (e.g. '+1.4' / move)",
+               "#1c202a", "#7a8699", "#7a8699")
+
+    # Row 4: Step 7 (Goal-Met Check) -> Step 8 (Grounded Answer)
+    _draw_card(cx2, y4, "7. GOAL-MET SELF CHECK",
+               "<think>goal met; reply now</think>\nChecks off checklist, exits thinking loop",
+               "#15221c", "#27ae60", "#2ecc71")
+    _draw_card(cx1, y4, "8. GROUNDED REPLY (Output)",
+               "Plain text response to user: 'Ba6'\nNo tags, purely grounded in tool results",
+               "#2c2518", "#c8a24a", "#c8a24a")
+
+    # Draw arrows
+    # Arrow 1: User Prompt -> Goal Commit
+    _draw_arrow((cx1 + w/2, y1 + h/2), (cx2 - w/2, y1 + h/2), color="#7a8699")
+    # Arrow 2: Goal Commit -> Routing Decision
+    _draw_arrow((cx2, y1), (cx2, y2 + h), color="#3498db")
+    # Arrow 3: Routing Decision -> Skill Catalog
+    _draw_arrow((cx2 - w/2, y2 + h/2), (cx1 + w/2, y2 + h/2), color="#27ae60")
+    # Arrow 4: Skill Catalog -> Tool Call
+    _draw_arrow((cx1, y2), (cx2, y3 + h), color="#7a8699")
+    # Arrow 5: Tool Call -> Harness Execution
+    _draw_arrow((cx2 - w/2, y3 + h/2), (cx1 + w/2, y3 + h/2), color="#27ae60")
+    # Arrow 6: Harness Execution -> Goal-Met Check
+    _draw_arrow((cx1, y3), (cx2, y4 + h), color="#7a8699")
+    # Arrow 7: Goal-Met Check -> Grounded Reply
+    _draw_arrow((cx2 - w/2, y4 + h/2), (cx1 + w/2, y4 + h/2), color="#c8a24a")
+
+    # Multi-step loop arc
+    _draw_arrow((cx1 - w/2, y3 + h/2), (cx2 + w/2, y3 + h/2), color="#2ecc71", connection_style="arc3,rad=-0.45")
+    ax.text(0.5, y3 + h * 1.5, "loop: decide → act → read → decide again",
+            ha="center", va="center", fontsize=8.2, color="#2ecc71", fontweight="bold")
+
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
+
 
 def modes(out: Path) -> Path:
     """4 clean cards. Big name, one rule, one example. Generous whitespace."""
     plt = _plt()
     from matplotlib.patches import FancyBboxPatch
     from matplotlib.lines import Line2D
-    fig, ax = plt.subplots(figsize=(11.5, 4.8)); fig.patch.set_facecolor("white")
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
-    ax.text(0.5, 0.95, "One model — four reasoning modes", ha="center",
-            fontsize=18, fontweight="bold", color=NAVY)
+    import matplotlib.patches as mpatches
+
+    fig, ax = plt.subplots(figsize=(11.5, 5.0))
+    fig.patch.set_facecolor("#11141a")
+    ax.set_facecolor("#11141a")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    ax.text(0.5, 0.94, "One Model — Four Reasoning Modes", ha="center", va="center",
+            fontsize=18, fontweight="bold", color="#ffffff")
+    ax.add_artist(Line2D([0.38, 0.62], [0.90, 0.90], color="#c8a24a", lw=2.0))
+
     cards = [
-        ("FAST", "#7a8699", "no <goal>\nno <think>", "“push Ba6”"),
-        ("THINK", "#2471a3", "<goal> once\n<think> every step", "“yo, e6 for me”"),
-        ("AUTO", "#1e8449", "<goal> once\n<think> only on\nhard choices", "“play Qa4+ pls”"),
-        ("PLAN", "#c8a24a", "<goal> all\n<plan> checklist", "“debug + break down”"),
+        ("FAST", "#7a8699", "No <goal>\nNo <think> tags", "“push Ba6”", "Direct action path", ["In", "Act", "Out"]),
+        ("THINK", "#3498db", "<goal> once\n<think> every step", "“yo, e6 for me”", "Deep multi-turn analysis", ["Goal", "Think", "Tag"]),
+        ("AUTO", "#2ecc71", "<goal> once\n<think> only on\nhard choices", "“play Qa4+ pls”", "Balanced speed & depth", ["Goal", "Silent", "Think*"]),
+        ("PLAN", "#c8a24a", "<goal> all asks\n<plan> checklist", "“debug + break down”", "For compound tasks", ["Goal", "Plan", "Check"]),
     ]
-    w, gap, y0, h = 0.225, 0.027, 0.34, 0.55; x0 = 0.5 - (4 * w + 3 * gap) / 2
-    for i, (name, ec, rule, ex) in enumerate(cards):
+
+    w, gap, y0, h = 0.225, 0.024, 0.22, 0.60
+    x0 = 0.5 - (4 * w + 3 * gap) / 2
+
+    for i, (name, ec, rule, ex, desc, steps) in enumerate(cards):
         x = x0 + i * (w + gap)
-        ax.add_patch(FancyBboxPatch((x, y0), w, h, boxstyle="round,pad=0.014",
-                    fc="white", ec=ec, lw=3.0))
-        ax.text(x + w/2, y0 + h - 0.06, name, ha="center", va="top",
-                fontsize=18, fontweight="bold", color=ec)
-        sep_y = y0 + h - 0.20
-        ax.add_artist(Line2D([x + 0.06, x + w - 0.06], [sep_y, sep_y], color=ec, lw=1.2))
-        ax.text(x + w/2, sep_y - 0.04, rule, ha="center", va="top",
-                fontsize=10, color="#333", linespacing=1.5)
+        # Card Background
+        card = FancyBboxPatch((x, y0), w, h, boxstyle="round,pad=0.012", fc="#161a23", ec=ec, lw=2.0)
+        ax.add_patch(card)
+
+        # Header Title
+        ax.text(x + w/2, y0 + h - 0.05, name, ha="center", va="top",
+                fontsize=16, fontweight="bold", color=ec)
+        
+        # Rule text
+        ax.text(x + w/2, y0 + h - 0.12, rule, ha="center", va="top",
+                fontsize=9.2, color="#ffffff", linespacing=1.3)
+
+        # Draw mini sequence flow
+        yc = y0 + h * 0.44
+        n_steps = len(steps)
+        xs = [x + w * (0.16 + 0.68 * j / (n_steps - 1)) for j in range(n_steps)]
+        box_w, box_h = 0.038, 0.046
+        
+        for j, step_lbl in enumerate(steps):
+            box_x = xs[j] - box_w / 2
+            box_y = yc - box_h / 2
+            step_box = FancyBboxPatch((box_x, box_y), box_w, box_h, boxstyle="round,pad=0.002",
+                                      fc="#1e2530", ec=ec, lw=1.0)
+            ax.add_patch(step_box)
+            ax.text(xs[j], yc, step_lbl, ha="center", va="center", fontsize=6.8, fontweight="bold", color="#ffffff")
+            
+            if j < n_steps - 1:
+                arrow = mpatches.FancyArrowPatch((xs[j] + box_w/2 + 0.002, yc), (xs[j+1] - box_w/2 - 0.002, yc),
+                                                 arrowstyle="-|>", lw=1.0, color="#555", mutation_scale=8)
+                ax.add_patch(arrow)
+
+        # Mode description
+        ax.text(x + w/2, y0 + 0.12, desc, ha="center", va="bottom",
+                fontsize=8.5, color="#7a8699")
+
+        # Example text
         ax.text(x + w/2, y0 + 0.05, ex, ha="center", va="bottom",
-                fontsize=8.5, color="#888", fontstyle="italic")
+                fontsize=8.5, color=ec, fontstyle="italic")
+
     # bottom line
-    fig.text(0.5, 0.09, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
-             ha="center", fontsize=11, color="#333")
-    fig.text(0.5, 0.03, "A 4B model — we trained the reasoning IN, and the restraint to not over-think.",
-             ha="center", fontsize=9.5, color="#555")
-    fig.savefig(out, dpi=150, bbox_inches="tight"); plt.close(fig)
+    fig.text(0.5, 0.11, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
+             ha="center", fontsize=10.5, color="#dcdde1")
+    fig.text(0.5, 0.05, "A 4B model — we trained the reasoning IN, and the restraint to not over-think.",
+             ha="center", fontsize=9.5, color="#7a8699")
+
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
     print(f"wrote {out}", flush=True)
     return out
 
