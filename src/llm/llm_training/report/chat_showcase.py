@@ -49,6 +49,29 @@ class _Timed:
         return self.model.context_limit()
 
 
+def _ascii_board(fen: str) -> str:
+    """An 8x8 ASCII board from a FEN (python-chess unicode-free), for the before/after panels so you
+    can SEE whether a move/reset tool actually changed the position. Falls back to the FEN on error."""
+    try:
+        import chess
+        return str(chess.Board(fen))
+    except Exception:
+        return fen
+
+
+def _board_panel(t: dict) -> list[str]:
+    """A 'board before -> after' block for one turn: side-by-side ASCII + a one-line verdict on whether
+    the board CHANGED (the proof a move/new_game/load_fen tool ran and took effect)."""
+    before, after = _ascii_board(t.get("fen_before", "")), _ascii_board(t.get("fen_after", ""))
+    bl, al = before.splitlines(), after.splitlines()
+    verdict = "board CHANGED (a board tool took effect)" if t.get("board_changed") else "board unchanged"
+    L = ["```", f"{'BEFORE':<18}{'AFTER':<18}{'(' + verdict + ')'}"]
+    for i in range(max(len(bl), len(al))):
+        L.append(f"{(bl[i] if i < len(bl) else ''):<18}{(al[i] if i < len(al) else ''):<18}")
+    L.append("```")
+    return L
+
+
 def _steps(events: list[dict]) -> list[str]:
     """Compact one-line render of the executed skill/tool steps (for the markdown transcript)."""
     out = []
@@ -85,13 +108,17 @@ def run_section(model: _Timed, scenarios: list[dict], *, board_hook: bool, engin
             for text, mode in sc["turns"]:
                 model.reset()
                 events: list[dict] = []
+                fen_before = game.board.fen()                 # board BEFORE the turn
                 res = loop.respond(history, text, coverage=True, on_event=events.append,
                                    reasoning_mode=mode)
+                fen_after = game.board.fen()                  # board AFTER (proves a move/reset tool ran)
                 secs, tok = model.seconds, model.tokens
                 turns.append({"section": label, "scenario": sc["title"], "fen": sc.get("fen", ""),
                               "prompt": text, "mode": mode, "reply": res.get("reply", "").strip(),
                               "steps": _steps(events), "secs": secs, "gen_tokens": tok,
-                              "tok_s": tok / max(secs, 1e-6)})
+                              "tok_s": tok / max(secs, 1e-6),
+                              "fen_before": fen_before, "fen_after": fen_after,
+                              "board_changed": fen_before != fen_after})
                 history = res.get("turns", history)
                 print(f"  [{label}] {text[:46]!r} -> {secs:.1f}s {tok}tok "
                       f"{tok / max(secs, 1e-6):.0f}tok/s", flush=True)
@@ -111,6 +138,8 @@ def _md_section(label: str, intro: str, turns: list[dict]) -> list[str]:
         L.append(f"**[{t['mode']}] User:** {t['prompt']}")
         for s in t["steps"]:
             L.append(f"- {s}")
+        if t.get("fen"):                       # web (board) turns: show board before -> after
+            L += _board_panel(t)
         L += [f"**Coach:** {t['reply']}",
               f"_⏱ {t['secs']:.1f}s · {t['gen_tokens']} tok · {t['tok_s']:.0f} tok/s_", "", "---", ""]
     L += ["", f"**{label} timing**", "", "| turn | time (s) | tokens | tok/s |", "|---|---|---|---|"]
