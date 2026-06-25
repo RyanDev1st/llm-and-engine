@@ -48,10 +48,16 @@ def merge(adapter: Path, out: Path) -> Path:
     import torch
     from peft import PeftModel
     from transformers import AutoModelForImageTextToText, AutoTokenizer
-    print(f"merging {adapter} into base (cpu, bf16) ...", flush=True)
+    # CHESS_MERGE_DEVICE: "cpu" (default, low-RAM friendly) or "cuda"/"gpu"/"0" to merge on the GPU. A
+    # 4B bf16 model (~9GB) fits a 16GB T4 and avoids a CPU-RAM OOM on a ~13GB Kaggle box; the saved
+    # weights are byte-identical either way (merge_and_unload is deterministic). Use GPU on Kaggle.
+    dev = os.environ.get("CHESS_MERGE_DEVICE", "cpu").strip().lower()
+    on_gpu = dev in ("cuda", "gpu", "0", "1")
+    device_map = {"": 0} if on_gpu else {"": "cpu"}
+    print(f"merging {adapter} into base ({'gpu' if on_gpu else 'cpu'}, bf16) ...", flush=True)
     tok = AutoTokenizer.from_pretrained(str(BASE), local_files_only=True)
     model = AutoModelForImageTextToText.from_pretrained(
-        str(BASE), local_files_only=True, dtype=torch.bfloat16, low_cpu_mem_usage=True, device_map={"": "cpu"})
+        str(BASE), local_files_only=True, dtype=torch.bfloat16, low_cpu_mem_usage=True, device_map=device_map)
     model = PeftModel.from_pretrained(model, str(adapter))
     model = model.merge_and_unload()
     out.mkdir(parents=True, exist_ok=True)
