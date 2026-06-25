@@ -69,16 +69,13 @@ def pipeline(out: Path) -> Path:
 
 
 def thinks(out: Path) -> Path:
-    """THE ACTION LOOP — a clean 8-step vertical staircase flowchart.
-    Light text, dark charcoal background, clear columns and flow arrows.
-    Real trace from training."""
+    """THE ACTION LOOP — Ultra-minimal text, purely visual flowchart."""
     plt = _plt()
     from matplotlib.patches import FancyBboxPatch
     import matplotlib.patches as mpatches
     from matplotlib.lines import Line2D
 
-    # Setup figure with dark background
-    fig, ax = plt.subplots(figsize=(11.5, 6.0))
+    fig, ax = plt.subplots(figsize=(11.5, 6.2))
     fig.patch.set_facecolor("#11141a")
     ax.set_facecolor("#11141a")
     ax.set_xlim(0, 1)
@@ -88,88 +85,70 @@ def thinks(out: Path) -> Path:
     # Title
     ax.text(0.5, 0.94, "The Agent Harness & Thinking Loop", ha="center", va="center",
             fontsize=18, fontweight="bold", color="#ffffff")
-    ax.add_artist(Line2D([0.38, 0.62], [0.90, 0.90], color="#c8a24a", lw=2.0))
+    ax.add_artist(Line2D([0.38, 0.62], [0.89, 0.89], color="#c8a24a", lw=2.0))
 
-    # Column Headers
-    ax.text(0.26, 0.86, "USER / HARNESS (ENVIRONMENT)", ha="center", va="center",
-            fontsize=11, fontweight="bold", color="#7a8699")
-    ax.text(0.74, 0.86, "AGENT MODEL (INLINE LOOP)", ha="center", va="center",
-            fontsize=11, fontweight="bold", color="#c8a24a")
+    # Box dimensions & centers
+    cx_L, cx_R = 0.28, 0.78
+    y_top, y_mid, y_bot = 0.80, 0.46, 0.12
+    
+    # 1. User Prompt
+    w1, h1 = 0.36, 0.12
+    card1 = FancyBboxPatch((cx_L - w1/2, y_top - h1/2), w1, h1, boxstyle="round,pad=0.01", fc="#1c202a", ec="#7a8699", lw=1.5)
+    ax.add_patch(card1)
+    ax.text(cx_L, y_top + 0.02, "1. USER PROMPT", ha="center", va="center", fontsize=12, fontweight="bold", color="#ffffff")
+    ax.text(cx_L, y_top - 0.025, "“find a good move”", ha="center", va="center", fontsize=11, color="#dcdde1", fontstyle="italic")
 
-    # Coordinates
-    w, h = 0.32, 0.125
-    cx1, cx2 = 0.26, 0.74
-    y1, y2, y3, y4 = 0.70, 0.51, 0.32, 0.13
+    # 2. Agent Model
+    w2, h2 = 0.36, 0.26
+    card2 = FancyBboxPatch((cx_L - w2/2, y_mid - h2/2), w2, h2, boxstyle="round,pad=0.01", fc="#15221c", ec="#2ecc71", lw=2.0)
+    ax.add_patch(card2)
+    ax.text(cx_L, y_mid + 0.08, "2. AGENT", ha="center", va="center", fontsize=14, fontweight="bold", color="#2ecc71")
+    
+    agent_text = "<goal>\n<think>\n<skill> or <tool>"
+    ax.text(cx_L, y_mid - 0.03, agent_text, ha="center", va="center", fontsize=12, color="#ffffff", fontweight="bold", linespacing=1.8)
 
-    # Helper function to draw a card
-    def _draw_card(x_center, y, title, body, bg_color, border_color, title_color):
-        x = x_center - w / 2
-        card = FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.008", fc=bg_color, ec=border_color, lw=1.5)
-        ax.add_patch(card)
-        ax.text(x_center, y + h * 0.76, title, ha="center", va="center", fontsize=9.2, fontweight="bold", color=title_color)
-        ax.text(x_center, y + h * 0.34, body, ha="center", va="center", fontsize=7.2, color="#dcdde1", linespacing=1.2)
+    # 3. Harness
+    w3, h3 = 0.36, 0.26
+    card3 = FancyBboxPatch((cx_R - w3/2, y_mid - h3/2), w3, h3, boxstyle="round,pad=0.01", fc="#1a202c", ec="#3498db", lw=1.5)
+    ax.add_patch(card3)
+    ax.text(cx_R, y_mid + 0.08, "3. HARNESS", ha="center", va="center", fontsize=14, fontweight="bold", color="#3498db")
+    
+    harness_text = "Injects Skill\nRuns Code\nReturns Data"
+    ax.text(cx_R, y_mid - 0.03, harness_text, ha="center", va="center", fontsize=12, color="#ffffff", fontweight="bold", linespacing=1.8)
 
-    # Helper to draw a direct arrow
-    def _draw_arrow(start, end, color="#7a8699", connection_style=None):
-        if connection_style:
-            arrow = mpatches.FancyArrowPatch(start, end, connectionstyle=connection_style,
-                                             arrowstyle="-|>", lw=1.5, color=color, mutation_scale=12)
-        else:
-            arrow = mpatches.FancyArrowPatch(start, end, arrowstyle="-|>", lw=1.5, color=color, mutation_scale=12)
+    # 4. Final Reply
+    w4, h4 = 0.36, 0.12
+    card4 = FancyBboxPatch((cx_L - w4/2, y_bot - h4/2), w4, h4, boxstyle="round,pad=0.01", fc="#2c2518", ec="#c8a24a", lw=1.5)
+    ax.add_patch(card4)
+    ax.text(cx_L, y_bot + 0.02, "4. GROUNDED REPLY", ha="center", va="center", fontsize=12, fontweight="bold", color="#c8a24a")
+    ax.text(cx_L, y_bot - 0.025, "“Play Ba6”", ha="center", va="center", fontsize=11, color="#dcdde1", fontstyle="italic")
+
+    # Arrows
+    def _draw_arrow(start, end, color="#7a8699"):
+        arrow = mpatches.FancyArrowPatch(start, end, arrowstyle="-|>", lw=2.0, color=color, mutation_scale=16)
         ax.add_patch(arrow)
 
-    # Row 1: Step 1 (User Input) -> Step 2 (Commit Goal)
-    _draw_card(cx1, y1, "1. USER PROMPT (Input)",
-               "Human sends a request\ne.g., 'check threats and find a move'",
-               "#1c202a", "#7a8699", "#ffffff")
-    _draw_card(cx2, y1, "2. COMMIT OBJECTIVE",
-               "<goal>threats; best move</goal>\nGoal held in state to prevent early stopping",
-               "#1a202c", "#3498db", "#3498db")
-
-    # Row 2: Step 3 (Routing Decision) -> Step 4 (Skill Catalog)
-    _draw_card(cx2, y2, "3. ROUTING DECISION",
-               "<think>need guidelines; load skill</think>\nEmits tags: <skill>threats</skill>",
-               "#15221c", "#27ae60", "#2ecc71")
-    _draw_card(cx1, y2, "4. HARNESS DISCLOSURE",
-               "Harness retrieves and returns skill body\n(Instructions injected dynamically into context)",
-               "#1c202a", "#7a8699", "#7a8699")
-
-    # Row 3: Step 5 (Tool Call) -> Step 6 (Tool Subprocess)
-    _draw_card(cx2, y3, "5. TOOL CALL",
-               "<think>skill loaded; get eval data</think>\nEmits tags: <tool>eval fen=...</tool>",
-               "#15221c", "#27ae60", "#2ecc71")
-    _draw_card(cx1, y3, "6. HARNESS EXECUTION",
-               "Harness runs engine or sandboxed python script\nReturns grounded DATA (e.g. '+1.4' / move)",
-               "#1c202a", "#7a8699", "#7a8699")
-
-    # Row 4: Step 7 (Goal-Met Check) -> Step 8 (Grounded Answer)
-    _draw_card(cx2, y4, "7. GOAL-MET SELF CHECK",
-               "<think>goal met; reply now</think>\nChecks off checklist, exits thinking loop",
-               "#15221c", "#27ae60", "#2ecc71")
-    _draw_card(cx1, y4, "8. GROUNDED REPLY (Output)",
-               "Plain text response to user: 'Ba6'\nNo tags, purely grounded in tool results",
-               "#2c2518", "#c8a24a", "#c8a24a")
-
-    # Draw arrows
-    # Arrow 1: User Prompt -> Goal Commit
-    _draw_arrow((cx1 + w/2, y1 + h/2), (cx2 - w/2, y1 + h/2), color="#7a8699")
-    # Arrow 2: Goal Commit -> Routing Decision
-    _draw_arrow((cx2, y1), (cx2, y2 + h), color="#3498db")
-    # Arrow 3: Routing Decision -> Skill Catalog
-    _draw_arrow((cx2 - w/2, y2 + h/2), (cx1 + w/2, y2 + h/2), color="#27ae60")
-    # Arrow 4: Skill Catalog -> Tool Call
-    _draw_arrow((cx1, y2), (cx2, y3 + h), color="#7a8699")
-    # Arrow 5: Tool Call -> Harness Execution
-    _draw_arrow((cx2 - w/2, y3 + h/2), (cx1 + w/2, y3 + h/2), color="#27ae60")
-    # Arrow 6: Harness Execution -> Goal-Met Check
-    _draw_arrow((cx1, y3), (cx2, y4 + h), color="#7a8699")
-    # Arrow 7: Goal-Met Check -> Grounded Reply
-    _draw_arrow((cx2 - w/2, y4 + h/2), (cx1 + w/2, y4 + h/2), color="#c8a24a")
-
-    # Multi-step loop arc
-    _draw_arrow((cx1 - w/2, y3 + h/2), (cx2 + w/2, y3 + h/2), color="#2ecc71", connection_style="arc3,rad=-0.45")
-    ax.text(0.5, y3 + h * 1.5, "loop: decide → act → read → decide again",
-            ha="center", va="center", fontsize=8.2, color="#2ecc71", fontweight="bold")
+    # User -> Agent
+    _draw_arrow((cx_L, y_top - h1/2), (cx_L, y_mid + h2/2), "#7a8699")
+    
+    # Agent -> Harness (Top Half)
+    arr_y1 = y_mid + 0.05
+    _draw_arrow((cx_L + w2/2, arr_y1), (cx_R - w3/2, arr_y1), "#2ecc71")
+    ax.text((cx_L + cx_R)/2, arr_y1 + 0.02, "Action", ha="center", va="bottom", fontsize=11, color="#2ecc71", fontweight="bold")
+    
+    # Harness -> Agent (Bottom Half)
+    arr_y2 = y_mid - 0.05
+    _draw_arrow((cx_R - w3/2, arr_y2), (cx_L + w2/2, arr_y2), "#3498db")
+    ax.text((cx_L + cx_R)/2, arr_y2 - 0.02, "Data", ha="center", va="top", fontsize=11, color="#3498db", fontweight="bold")
+    
+    # Agent -> Reply
+    _draw_arrow((cx_L, y_mid - h2/2), (cx_L, y_bot + h4/2), "#c8a24a")
+    
+    # Add a visual "Looping" indicator
+    loop_arc = mpatches.FancyArrowPatch((cx_L - w2/2 - 0.01, y_mid - 0.06), (cx_L - w2/2 - 0.01, y_mid + 0.06), 
+                                         connectionstyle="arc3,rad=-0.8", arrowstyle="-|>", lw=2.0, color="#2ecc71", mutation_scale=16)
+    ax.add_patch(loop_arc)
+    ax.text(cx_L - w2/2 - 0.05, y_mid, "LOOP", ha="right", va="center", fontsize=11, fontweight="bold", color="#2ecc71", rotation=90)
 
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -193,63 +172,63 @@ def modes(out: Path) -> Path:
 
     ax.text(0.5, 0.94, "One Model — Four Reasoning Modes", ha="center", va="center",
             fontsize=18, fontweight="bold", color="#ffffff")
-    ax.add_artist(Line2D([0.38, 0.62], [0.90, 0.90], color="#c8a24a", lw=2.0))
+    ax.add_artist(Line2D([0.38, 0.62], [0.88, 0.88], color="#c8a24a", lw=2.0))
 
     cards = [
-        ("FAST", "#7a8699", "No <goal>\nNo <think> tags", "“push Ba6”", "Direct action path", ["In", "Act", "Out"]),
-        ("THINK", "#3498db", "<goal> once\n<think> every step", "“yo, e6 for me”", "Deep multi-turn analysis", ["Goal", "Think", "Tag"]),
-        ("AUTO", "#2ecc71", "<goal> once\n<think> only on\nhard choices", "“play Qa4+ pls”", "Balanced speed & depth", ["Goal", "Silent", "Think*"]),
-        ("PLAN", "#c8a24a", "<goal> all asks\n<plan> checklist", "“debug + break down”", "For compound tasks", ["Goal", "Plan", "Check"]),
+        ("FAST", "#7a8699", "No <goal>\nNo <think>", "“push Ba6”", "Direct action", ["Prompt", "Act"]),
+        ("THINK", "#3498db", "Use <goal>\n<think> every step", "“yo, e6 for me”", "Multi-turn analysis", ["Goal", "Think", "Tag"]),
+        ("AUTO", "#2ecc71", "Use <goal>\n<think> when hard", "“play Qa4+ pls”", "Speed & depth", ["Goal", "Quiet", "Think*"]),
+        ("PLAN", "#c8a24a", "Use <goal>\n<plan> checklist", "“debug + break down”", "Compound tasks", ["Goal", "Plan", "Tick"]),
     ]
 
-    w, gap, y0, h = 0.225, 0.024, 0.22, 0.60
+    w, gap, y0, h = 0.22, 0.02, 0.22, 0.56
     x0 = 0.5 - (4 * w + 3 * gap) / 2
 
     for i, (name, ec, rule, ex, desc, steps) in enumerate(cards):
         x = x0 + i * (w + gap)
         # Card Background
-        card = FancyBboxPatch((x, y0), w, h, boxstyle="round,pad=0.012", fc="#161a23", ec=ec, lw=2.0)
+        card = FancyBboxPatch((x, y0), w, h, boxstyle="round,pad=0.01", fc="#161a23", ec=ec, lw=2.0)
         ax.add_patch(card)
 
         # Header Title
-        ax.text(x + w/2, y0 + h - 0.05, name, ha="center", va="top",
-                fontsize=16, fontweight="bold", color=ec)
+        ax.text(x + w/2, y0 + h - 0.06, name, ha="center", va="top",
+                fontsize=15, fontweight="bold", color=ec)
         
         # Rule text
-        ax.text(x + w/2, y0 + h - 0.12, rule, ha="center", va="top",
+        ax.text(x + w/2, y0 + h - 0.16, rule, ha="center", va="top",
                 fontsize=9.2, color="#ffffff", linespacing=1.3)
 
-        # Draw mini sequence flow
-        yc = y0 + h * 0.44
+        # Draw mini sequence flow (simplified)
+        yc = y0 + h * 0.42
         n_steps = len(steps)
-        xs = [x + w * (0.16 + 0.68 * j / (n_steps - 1)) for j in range(n_steps)]
-        box_w, box_h = 0.038, 0.046
+        xs = [x + w * (0.2 + 0.6 * j / max(1, n_steps - 1)) for j in range(n_steps)]
+        box_w, box_h = 0.05, 0.05
         
         for j, step_lbl in enumerate(steps):
             box_x = xs[j] - box_w / 2
             box_y = yc - box_h / 2
-            step_box = FancyBboxPatch((box_x, box_y), box_w, box_h, boxstyle="round,pad=0.002",
-                                      fc="#1e2530", ec=ec, lw=1.0)
+            step_box = FancyBboxPatch((box_x, box_y), box_w, box_h, boxstyle="circle,pad=0.01" if j==0 else "round,pad=0.01",
+                                      fc="#1e2530", ec=ec, lw=1.2)
             ax.add_patch(step_box)
-            ax.text(xs[j], yc, step_lbl, ha="center", va="center", fontsize=6.8, fontweight="bold", color="#ffffff")
+            ax.text(xs[j], yc, step_lbl, ha="center", va="center", fontsize=7.2, fontweight="bold", color="#ffffff")
             
             if j < n_steps - 1:
-                arrow = mpatches.FancyArrowPatch((xs[j] + box_w/2 + 0.002, yc), (xs[j+1] - box_w/2 - 0.002, yc),
-                                                 arrowstyle="-|>", lw=1.0, color="#555", mutation_scale=8)
+                arrow = mpatches.FancyArrowPatch((xs[j] + box_w/2 + 0.01, yc), (xs[j+1] - box_w/2 - 0.01, yc),
+                                                 arrowstyle="-|>", lw=1.2, color="#777", mutation_scale=10)
                 ax.add_patch(arrow)
 
         # Mode description
-        ax.text(x + w/2, y0 + 0.12, desc, ha="center", va="bottom",
-                fontsize=8.5, color="#7a8699")
+        ax.text(x + w/2, y0 + 0.10, desc, ha="center", va="bottom",
+                fontsize=9, color="#7a8699")
 
         # Example text
-        ax.text(x + w/2, y0 + 0.05, ex, ha="center", va="bottom",
+        ax.text(x + w/2, y0 + 0.04, ex, ha="center", va="bottom",
                 fontsize=8.5, color=ec, fontstyle="italic")
 
     # bottom line
-    fig.text(0.5, 0.11, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
+    fig.text(0.5, 0.10, "Same contract: <skill> loads guidance · <tool> calls a function · one per step.",
              ha="center", fontsize=10.5, color="#dcdde1")
-    fig.text(0.5, 0.05, "A 4B model — we trained the reasoning IN, and the restraint to not over-think.",
+    fig.text(0.5, 0.04, "A 4B model — we trained the reasoning IN, and the restraint to not over-think.",
              ha="center", fontsize=9.5, color="#7a8699")
 
     fig.savefig(out, dpi=150, bbox_inches="tight")
