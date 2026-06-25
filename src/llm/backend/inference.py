@@ -202,6 +202,38 @@ def _is_leadin_only(reply: str) -> bool:
     return bool(r) and len(r) <= 70 and bool(_LEADIN_ONLY.match(r))
 
 
+# A DEGENERATE final: just stray markup or too short to be an answer — a lone '<', a dangling
+# '<tool'/'<skill' open the gen never closed, or a 1-char fragment. The live "play e4 for me" turn
+# surfaced one ("Coach: <"): a corrective error confused the model into emitting a bare '<', which
+# the whiff guard (empty / lead-in-only) didn't catch, so it reached the user. Treat it as a whiff.
+_MARKUP_FRAGMENT = _re.compile(r"^(?:<[/\w]*>?|[<>/]+)$")
+
+
+def _is_markup_fragment(reply: str) -> bool:
+    r = (reply or "").strip()
+    return bool(r) and (len(r) < 2 or bool(_MARKUP_FRAGMENT.match(r)))
+
+
+def _strip_result_echo(reply: str, tool_results: list[str]) -> str:
+    """Drop a raw tool-result line the model PARROTED verbatim into its reply (mode: 'narrate the
+    raw result instead of synthesizing'). The live breathing turn ended '... for the set time.
+    breathing_timer: 120s set — about 6 ... cycle(s). How are you feeling?' — the middle is the
+    executor's exact `name: payload` line leaking through. Training never puts a raw result line in a
+    final, so remove an EXACT echo of a single-line `name: …` fact. Exact-match only (the model had to
+    reproduce it character-for-character — the parroting bug), so legitimate prose is never touched."""
+    out = (reply or "").strip()
+    for res in tool_results or []:
+        r = (res or "").strip()
+        first = r.split("\n", 1)[0]
+        # only short, single-line `name: payload` FACT lines (skip errors + multi-line skill bodies)
+        if r.startswith("error") or "\n" in r or len(first) > 200 or not _re.match(r"^[a-z_]+: ", first):
+            continue
+        for frag in (r, r.rstrip(".")):
+            if frag and frag in out:
+                out = out.replace(frag, " ")
+    return _re.sub(r"\s{2,}", " ", out).strip()
+
+
 # A DEFLECTION: after loading a skill the model answers with a generic capability blurb /
 # ask-back ("I'm here to help with tactics, positions… what's on your mind?") instead of
 # DOING what the user asked — it treats loading the skill as the task. This evades the whiff
@@ -773,6 +805,7 @@ class CoachLoop:
             for t in thinks:
                 on_event({"type": "think", "content": t})
         reply = _strip_announce_leadin(reply)
+        reply = _strip_result_echo(reply, tool_results)   # drop a parroted raw "name: …" result line
         reply = _correct_eval_number(reply, tool_results)
         reply = _correct_move_names(reply, tool_results)
         reply = _ensure_required_narrated(reply, required, tool_calls, tool_results)
@@ -921,9 +954,11 @@ class CoachLoop:
                         if nxt is not None:
                             decision = nxt           # fill the box; fall through to execute
                     if decision is None:
-                        # All required intents covered. An empty reply — or a bare tool-intent
+                        # All required intents covered. An empty reply, a markup-only fragment (a
+                        # lone '<' / dangling tag — the "play e4" break), or a bare tool-intent
                         # lead-in the model stopped on after tools ran — is a non-answer.
-                        whiffed = (not raw) or bool(tool_calls and _is_leadin_only(raw))
+                        whiffed = (not raw) or _is_markup_fragment(raw) \
+                            or bool(tool_calls and _is_leadin_only(raw))
                         if not whiffed:
                             reply = raw
                             # No-truncation guard: if a fast-mode step capped a longer-than-usual final

@@ -12,6 +12,12 @@ import re
 # skill name to load_skill rather than dead-ending.
 _CALL = re.compile(r"<tool>\s*([a-z0-9_-]+)(.*?)</tool>", re.DOTALL)
 
+# A bare move token (SAN, castling, or UCI) for the move-arg coercion below. Same shape as
+# tool_hints._SAN/_UCI — kept local so toolfmt stays dependency-free.
+_MOVE_TOK = re.compile(
+    r"\b(O-O-O|O-O|[KQRBN][a-h1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?"
+    r"|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8][a-h][1-8][qrbnQRBN]?|[a-h][1-8])\b")
+
 
 def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
     m = _CALL.search(tool_call.strip())
@@ -28,7 +34,16 @@ def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:
         args = _kv(head)
         args[free[:-1]] = tail.strip()
         return name, args
-    return name, _kv(rest)
+    args = _kv(rest)
+    # move arg coercion: `<tool>move e4</tool>` / `<tool>move Nf3</tool>` — the model's single
+    # most common slip is omitting `san=`. When move has no san but a bare move-like token sits
+    # in the call, fill it, so a clearly-valid move runs instead of bouncing to a corrective error
+    # (which the model then sometimes mishandles into a broken reply). UCI/SAN both handled by move.
+    if name == "move" and not args.get("san"):
+        mv = _MOVE_TOK.fullmatch(rest)     # ONLY a clean single token (`move e4`); 'move rook f8'
+        if mv:                             # (multi-word) stays a corrective error, not a wrong coerce
+            args["san"] = mv.group(1)
+    return name, args
 
 
 def _kv(text: str) -> dict[str, str]:
