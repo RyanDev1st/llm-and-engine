@@ -17,6 +17,8 @@ RUN ON A FRESH COLAB RUNTIME (stop the serve; one E4B per T4):
 """
 from __future__ import annotations
 
+import re
+
 from llm_training.probe_native_thinking import _fn, gen, load, parse
 
 # load_skill = the progressive-disclosure verb, modeled as a native TOOL.
@@ -79,10 +81,18 @@ SCENARIOS = [
 ]
 
 
+def _stalled(p):
+    """No tool call AND no real content (just an end-of-turn / empty) — the post-load stall."""
+    if p["tool_calls"]:
+        return False
+    clean = re.sub(r"<eos>|<end_of_turn>|<turn\|>|<\|turn>", "", p["content"] or "").strip()
+    return not clean
+
+
 def run_turn(tok, proc, model, messages, label):
     print("\n" + "=" * 80 + f"\n{label}")
-    loaded = []
-    for step in range(6):
+    loaded, nudged, just_loaded = [], False, False
+    for step in range(7):
         _text, raw, _kw = gen(tok, model, messages, TOOLS)
         p = parse(proc, raw)
         print(f"[step {step}] CALLS : {p['tool_calls']}")
@@ -91,20 +101,27 @@ def run_turn(tok, proc, model, messages, label):
         if (p["content"] or "").strip():
             print(f"[step {step}] ANSWER: {p['content'][:240]}")
         if not p["tool_calls"]:
+            if _stalled(p) and just_loaded and not nudged:   # one follow-through nudge, then judge
+                nudged = True; just_loaded = False
+                print(f"[step {step}] STALLED after load -> injecting ONE follow-through nudge")
+                messages.append({"role": "user", "content": "You've loaded the skill. Now FOLLOW its "
+                                 "instructions: call the tool(s) it names, then give a grounded answer."})
+                continue
             messages.append({"role": "assistant", "content": p["content"]})
-            return loaded
+            return loaded, nudged
         messages.append({"role": "assistant", "content": p.get("content", "") or "",
                          "tool_calls": [{"type": "function", "function": {"name": tc["name"],
                           "arguments": tc.get("arguments", {})}} for tc in p["tool_calls"]]})
+        just_loaded = False
         for tc in p["tool_calls"]:
             if tc["name"] == "load_skill":
                 nm = (tc.get("arguments") or {}).get("name", "")
-                loaded.append(nm)
+                loaded.append(nm); just_loaded = True
                 res = SKILL_BODIES.get(nm, f"(unknown skill: {nm})")
             else:
                 res = CANNED.get(tc["name"], f"(no canned result for {tc['name']})")
             messages.append({"role": "tool", "name": tc["name"], "content": res})
-    return loaded
+    return loaded, nudged
 
 
 def main():
@@ -113,22 +130,22 @@ def main():
     results = []
     for label, expected, turns in SCENARIOS:
         msgs = [{"role": "system", "content": SYS}]
-        loaded = []
+        loaded, nudged = [], False
         for user in turns:
             msgs.append({"role": "user", "content": user})
-            loaded += run_turn(tok, proc, model, msgs, f"{label}  [expected skill: {expected}]")
-        if expected is None:
-            ok = (len(loaded) == 0)
-        else:
-            ok = (expected in loaded)
-        results.append((label, expected, loaded, ok))
-    print("\n" + "=" * 80 + "\nROUTING SUMMARY (did it load the EXPECTED skill?):")
+            ld, nd = run_turn(tok, proc, model, msgs, f"{label}  [expected skill: {expected}]")
+            loaded += ld; nudged = nudged or nd
+        ok = (len(loaded) == 0) if expected is None else (expected in loaded)
+        results.append((label, expected, loaded, ok, nudged))
+    print("\n" + "=" * 80 + "\nROUTING SUMMARY (did it load the EXPECTED skill? did it STALL after load?):")
     hits = 0
-    for label, expected, loaded, ok in results:
+    for label, expected, loaded, ok, nudged in results:
         hits += ok
-        print(f"  {'OK  ' if ok else 'MISS'}  expected={expected!s:18} loaded={loaded}  ({label})")
-    print(f"\nrouting: {hits}/{len(results)}. Also judge each final: grounded + correct?")
-    print("High zero-shot routing => 'base + harness' is viable (no fine-tune). Mis-routes => fine-tune earns its place.")
+        print(f"  {'OK  ' if ok else 'MISS'}  expected={expected!s:18} loaded={loaded}  "
+              f"{'[STALLED -> needed nudge]' if nudged else ''}  ({label})")
+    print(f"\nrouting: {hits}/{len(results)}.  Judge each final: did the nudge recover a GROUNDED answer?")
+    print("Routes well + nudge recovers => base + harness + light orchestration (no fine-tune).")
+    print("Stalls even after the nudge / ungrounded => fine-tuning the load->act->ground loop earns its place.")
 
 
 if __name__ == "__main__":
