@@ -87,16 +87,26 @@ def tokenize_with_assistant_mask(
     # delta once per turn (O(n) vs the old O(n^2) full re-tokenize). Also emit a
     # per-token loss weight: fact tokens (eval numbers, SAN moves) in assistant
     # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
-    from .chat_format import remap_tool_messages
+    from .chat_format import remap_tool_messages, wants_thinking
     # Gemma's template drops role="tool"; remap to a rendered user turn so the
     # model is trained WITH the tool results in context (grounding), not blind.
     messages = remap_tool_messages(messages)
+    # v4.1: turn on enable_thinking for thinking rows so the <|think|> system signal
+    # matches serve (where native reasoning is generated). We do NOT convert <think>
+    # to the native channel — the template STRIPS native thought from completed
+    # assistant turns, which would delete the reasoning step entirely. The custom
+    # <think> survives, is masked from loss below (never trained), and just positions
+    # the action after a reasoning step; native reasoning fills the slot at serve.
+    think_on = wants_thinking(messages)
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []
     prev_text = ""
     for i, msg in enumerate(messages):
         try:
+            text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False,
+                                                 add_generation_prompt=False, enable_thinking=think_on)
+        except TypeError:  # older template without the kwarg
             text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False, add_generation_prompt=False)
         except Exception:
             text = _fallback_render(messages[: i + 1])

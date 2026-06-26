@@ -21,6 +21,21 @@ from __future__ import annotations
 TOOL_OPEN = "<tool_result>"
 TOOL_CLOSE = "</tool_result>"
 
+# v4.1 hybrid: native reasoning is enabled via the enable_thinking SIGNAL (a <|think|>
+# in the system turn), NOT by injecting a native <|channel>thought into the row —
+# Gemma's template STRIPS native thought from completed assistant turns, so an injected
+# thought would vanish. We keep the custom <think> (masked from loss in data_pipeline,
+# never trained) to position the action after a reasoning step; the model's own native
+# reasoning fills the slot at serve. See probe_hybrid_thinking.
+
+
+def wants_thinking(messages: list[dict]) -> bool:
+    """True if any assistant turn carries a thought (custom or native) — drives the
+    per-row enable_thinking so train and serve agree (fast rows have none -> off)."""
+    return any(m.get("role") == "assistant"
+               and ("<think>" in (m.get("content") or "") or "<|channel>thought" in (m.get("content") or ""))
+               for m in messages)
+
 
 def remap_tool_messages(messages: list[dict]) -> list[dict]:
     """Return a new message list with every role="tool" turn rewritten as a
