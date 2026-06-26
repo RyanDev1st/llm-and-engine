@@ -29,6 +29,13 @@ FORMAT_WEIGHT = 8.0  # loss multiplier on the harness CONTROL tags AND the skill
 # `</?...>` matched `<skill>` first, finditer would advance past it and miss the name.
 _CONTROL = re.compile(r"<(?:skill|tool)>\s*[\w./-]+|</?(?:think|goal|plan|skill|tool)>")
 
+# v4.1 hybrid: the THOUGHT content is MASKED from loss (not trained), so we never
+# overwrite Gemma's native reasoning with shallow templated stubs — v4's mistake,
+# which suppressed the base's real chain-of-thought (see probe_hybrid_thinking).
+# At serve, enable_thinking lets the model's OWN native reasoning fill this slot.
+# Matches both our custom <think>…</think> and the native <|channel>thought…<channel|>.
+_THINK = re.compile(r"<think>.*?</think>|<\|channel>thought.*?<channel\|>", re.DOTALL)
+
 
 def _fact_spans(text: str) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in _FACT.finditer(text)]
@@ -36,6 +43,10 @@ def _fact_spans(text: str) -> list[tuple[int, int]]:
 
 def _control_spans(text: str) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in _CONTROL.finditer(text)]
+
+
+def _think_spans(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _THINK.finditer(text)]
 
 
 def _overlaps(offset: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
@@ -103,15 +114,20 @@ def tokenize_with_assistant_mask(
         delta = enc["input_ids"]
         fact_spans = _fact_spans(delta_text) if (assistant and offsets) else []
         ctrl_spans = _control_spans(delta_text) if (assistant and offsets) else []
+        think_spans = _think_spans(delta_text) if (assistant and offsets) else []
         for j, tid in enumerate(delta):
             input_ids.append(tid)
-            if assistant:
+            # Mask the thought span from loss (v4.1): keep it in context so the action
+            # is conditioned on a reasoning step, but never train its content — that's
+            # what preserves the base's native reasoning instead of overwriting it.
+            masked_think = bool(offsets) and _overlaps(offsets[j], think_spans)
+            if assistant and not masked_think:
                 labels.append(tid)
                 w = 1.0
                 if offsets and _overlaps(offsets[j], fact_spans):
                     w = GROUND_WEIGHT
                 if offsets and _overlaps(offsets[j], ctrl_spans):
-                    w = max(w, FORMAT_WEIGHT)  # control tags must beat the base prior
+                    w = max(w, FORMAT_WEIGHT)  # action tags must beat the base prior
                 weights.append(w)
             else:
                 labels.append(IGNORE_INDEX)
