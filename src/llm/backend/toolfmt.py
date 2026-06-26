@@ -15,8 +15,9 @@ _CALL = re.compile(r"<tool>\s*([a-z0-9_-]+)(.*?)</tool>", re.DOTALL)
 # A bare move token (SAN, castling, or UCI) for the move-arg coercion below. Same shape as
 # tool_hints._SAN/_UCI — kept local so toolfmt stays dependency-free.
 _MOVE_TOK = re.compile(
-    r"\b(O-O-O|O-O|[KQRBN][a-h1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?"
-    r"|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8][a-h][1-8][qrbnQRBN]?|[a-h][1-8])\b")
+    r"(O-O-O[+#]?|O-O[+#]?|[KQRBN][a-h1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?"
+    r"|[a-h]x[a-h][1-8](?:=[QRBN])?[+#]?|[a-h][1-8](?:=[QRBN])?[+#]?"
+    r"|[a-h][1-8][a-h][1-8][qrbnQRBN]?)")
 
 
 def parse_call(tool_call: str) -> tuple[str | None, dict[str, str]]:

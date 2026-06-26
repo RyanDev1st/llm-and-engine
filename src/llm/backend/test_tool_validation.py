@@ -83,6 +83,18 @@ def test_arg_keys_are_case_insensitive():
     assert "turn=" in ex.execute("<tool>board_state FIELDS=basic</tool>")
 
 
+def test_move_positional_san_with_mate_suffix_is_coerced():
+    # LIVE BUG: after best_move returned Qh4#, the model emitted `<tool>move Qh4#</tool>`.
+    # The parser intended to coerce bare SAN into san=..., but a word-boundary regex rejected
+    # the trailing '#', so the executor bounced with "needs san". Mate/check suffixes must run.
+    g = Game()
+    for san in ["f3", "e5", "g4"]:
+        assert g.move(san).startswith("success:")
+    out = ToolExecutor(g, None).execute("<tool>move Qh4#</tool>")
+    assert out.startswith("success: Qh4#")
+    assert "needs 'san'" not in out
+
+
 def test_enum_values_are_case_folded():
     # The model also CAPITALIZES enum values (color=White, kind=Puzzle). The allowed sets are
     # lowercase, so a capitalized value would bounce; the executor folds enum values before validate.
