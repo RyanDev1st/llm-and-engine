@@ -315,6 +315,29 @@ def test_chess_coverage_still_fires_in_chess_context():
     assert "eval" in _names(out)
 
 
+def test_default_chess_plugins_do_not_disable_chess_coverage():
+    # The served default enables openings/analysis/puzzles. Those add chess-domain tools, not OOD
+    # tools, so they must not disable matched_calls coverage for normal chess requests.
+    pc = {"installed": ["chess-official", "openings", "analysis", "puzzles"],
+          "enabled": ["chess-official", "openings", "analysis", "puzzles"], "marketplace": []}
+    out = CoachLoop(ScriptedModel(["Let me see.", "Position noted."]),
+                    ToolExecutor(Game(), None, pc), plugin_context=pc).respond([], "how am I doing?")
+    assert "eval" in _names(out)
+
+
+def test_goal_context_only_turn_must_verify_before_stopping():
+    # The model declared a concrete goal, loaded the right skill, then tried to stop with a
+    # context-only reply. The goal checkpoint asks for the next action; the puzzle tool then runs.
+    out = _loop([
+        "<goal>set a fresh tactical puzzle</goal><skill>tactical-puzzles</skill>",
+        "I have the info I need; time to reply.",
+        "<tool>random_position kind=puzzle</tool>",
+        "Black to move; find the tactic.",
+    ]).respond([], "load another puzzle please", coverage=False, reasoning_mode="auto")
+    assert "random_position" in _names(out)
+    assert out["reply"].startswith("Black to move")
+
+
 def test_tool_as_skill_miss_is_coerced_and_grounded_without_model_recovery():
     # The dominant E4B miss mode = a tool emitted as a skill (<skill>list_pieces</skill>). BEFORE
     # coercion, a model that doesn't recover from the off-distribution corrective dead-ended on

@@ -1,7 +1,7 @@
 """Real position source: fetch a rated tactical puzzle from Lichess (public API, no
 key) and set it on the board. This is the "search a real FEN board online" capability —
-unlike the local curated bank, the FEN, themes, rating, and SOLUTION are real and
-verifiable, so the coach narrates a grounded tactic instead of a hand-labeled guess.
+unlike the local curated bank, the FEN, themes, and rating are real and verifiable.
+The setup result does not expose the solution; the coach calls best_move later to reveal it.
 
 Robust by construction: short timeout, /next (rotating) then /daily fallback, and on
 ANY network/parse failure we fall back to the local bank so the tool never hangs the
@@ -35,8 +35,7 @@ def _fetch_puzzle_json(timeout: float) -> dict | None:
 
 def fetch_puzzle(game, timeout: float = 6.0) -> str:
     """Set `game` to a real Lichess puzzle and return a grounded description. The FEN's
-    side-to-move is the solver; solution[0] is the answer (rendered as SAN so the coach
-    can reveal it if asked). Falls back to the local curated bank if offline."""
+    side-to-move is the solver. Falls back to the local curated bank if offline."""
     data = _fetch_puzzle_json(timeout)
     if not data:
         from .positions import random_position
@@ -52,10 +51,8 @@ def fetch_puzzle(game, timeout: float = 6.0) -> str:
     themes = ", ".join(pz.get("themes", []) or []) or "tactics"
     rating = pz.get("rating", "?")
     pid = pz.get("id", "?")
-    answer = _solution_san(fen, pz.get("solution", []) or [])
-    ans = f" answer={answer}" if answer else ""
     return (f"position: lichess puzzle {pid} (rating {rating}, themes: {themes}). "
-            f"{side} to move and find the tactic. fen={fen}{ans}")
+            f"{side} to move and find the tactic. fen={fen}")
 
 
 def _puzzle_fen(data: dict) -> str:

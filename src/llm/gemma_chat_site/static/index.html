@@ -1231,7 +1231,7 @@ const ChessUI = (() => {
   freshBoard();   // local-only reset at boot (NO /api/reset — that would wipe the active session
                   // before SessionsUI.restore() resumes it); restore() loads the real game next.
   return { newGame, newGameColor, undo, flipBoard, render, getFEN, getMovesUci, loadFEN, tryApplyUci,
-           syncPayload, reconcile, freshBoard, restoreSession, moveSeq: () => moveSeq };
+           syncPayload, reconcile, autoOpponent, freshBoard, restoreSession, moveSeq: () => moveSeq };
 })();
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1346,7 +1346,16 @@ const ChatUI = (() => {
   // thought (else the client board is newer — don't clobber it; re-sync backend to client).
   function reconcileBoard(res, seqAtSend) {
     if (ChessUI.moveSeq() !== seqAtSend) api('/api/sync', ChessUI.syncPayload()).catch(() => {});
-    else if (res && res.state) ChessUI.reconcile(res.state);
+    else if (res && res.state) {
+      ChessUI.reconcile(res.state);
+      if (modelPlayedMove(res)) setTimeout(ChessUI.autoOpponent, 300);
+    }
+  }
+
+  function modelPlayedMove(res) {
+    const calls = (res && (res.tool_calls || (res.tool_call ? [res.tool_call] : []))) || [];
+    const results = (res && (res.tool_results || (res.tool_result ? [res.tool_result] : []))) || [];
+    return calls.some((c, i) => /<tool>\s*move\b/.test(String(c)) && /^success:/.test(String(results[i] || '')));
   }
 
   // A client-side typewriter: reveals `target` text a few chars per frame, so the reply

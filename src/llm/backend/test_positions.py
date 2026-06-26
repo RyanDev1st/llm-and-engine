@@ -22,6 +22,7 @@ def test_random_position_sets_the_board():
     g = Game()
     out = random_position(g, "puzzle", random.Random(1))
     assert out.startswith("position: puzzle set") and "fen=" in out
+    assert "answer=" not in out                             # don't leak the solution on setup
     assert g.board.fen() != chess.STARTING_FEN            # board actually changed
     # scramble produces a legal, non-start board
     g2 = Game()

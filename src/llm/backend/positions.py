@@ -19,8 +19,8 @@ import chess
 # (theme, FEN). Side-to-move has the tactic. Each FEN + theme was VERIFIED with our own
 # Stockfish (depth 14): the labelled motif IS the engine's top line, decisive (mate or
 # >=+1.9). The old bank had 5/8 mislabeled/dead positions that the model then narrated as
-# fabricated tactics — replaced. random_position also engine-grounds the real best move at
-# dispatch (see ToolExecutor), so narration never invents the solution.
+# fabricated tactics — replaced. The setup result intentionally does NOT expose the answer:
+# the model should call best_move later when the user asks for a hint/solution.
 PUZZLES: list[tuple[str, str]] = [
     ("mate in 1 (back-rank): the rook delivers mate", "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1"),
     ("mate in 1 (back-rank): the rook delivers mate", "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"),
@@ -43,8 +43,8 @@ def random_position(game, kind: str = "puzzle", rng: random.Random | None = None
                     engine=None) -> str:
     """Set `game`'s board to a position of the requested kind and return a description
     the model can scan. Falls back to a puzzle for an unknown kind. When `engine` is
-    given (the live Stockfish), a puzzle is engine-GROUNDED: the real best move + score
-    is appended as `answer=<SAN>` so the coach narrates the true solution, not a guess."""
+    given (the live Stockfish), it is ignored for setup: hiding the solution prevents the
+    first puzzle-presenting reply from leaking the answer."""
     r = rng or random.Random()
     kind = (kind or "puzzle").lower()
     if kind == "scramble":
@@ -64,18 +64,4 @@ def random_position(game, kind: str = "puzzle", rng: random.Random | None = None
     theme, fen = r.choice(PUZZLES)
     game.load_fen(fen)
     side = "white" if fen.split()[1] == "w" else "black"
-    return (f"position: puzzle set ({theme}). {side} to move and find it. "
-            f"fen={fen}{_grounded_answer(game.board, engine)}")
-
-
-def _grounded_answer(board: chess.Board, engine) -> str:
-    """The engine's real best move + score for the puzzle, as ` answer=<SAN> (<score>)`.
-    '' when no engine (e.g. tests) or it can't analyse — never raises into the tool."""
-    if engine is None:
-        return ""
-    try:
-        san, (kind, val) = engine.best_for_side_to_move(board, 14)
-        score = f"M{val}" if kind == "mate" else f"{val / 100:+.2f}"
-        return f" answer={san} ({score})"
-    except Exception:  # noqa: BLE001
-        return ""
+    return f"position: puzzle set ({theme}). {side} to move and find it. fen={fen}"

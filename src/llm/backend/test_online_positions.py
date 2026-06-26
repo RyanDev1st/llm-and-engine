@@ -1,6 +1,6 @@
 """fetch_puzzle: real Lichess puzzle source. Tested OFFLINE — the network call is
 monkeypatched, so CI never depends on Lichess. We verify (1) a good payload loads the
-board + renders the solution SAN, (2) any failure falls back to the local bank, never
+board without leaking the solution, (2) any failure falls back to the local bank, never
 errors or hangs, (3) the dispatcher wires the tool."""
 import chess
 
@@ -16,15 +16,14 @@ _PAYLOAD = {"puzzle": {
     "solution": ["f1c1", "d7c7", "c1c7"], "lastMove": "d3f3"}}
 
 
-def test_good_payload_loads_board_and_solution(monkeypatch):
+def test_good_payload_loads_board_without_solution_leak(monkeypatch):
     monkeypatch.setattr(op, "_fetch_puzzle_json", lambda timeout: _PAYLOAD)
     g = Game()
     out = op.fetch_puzzle(g)
     assert "lichess puzzle abcd1" in out and "rating 1822" in out
     assert "themes: middlegame, crushing" in out
     assert g.board.fen().split()[0] == _PAYLOAD["puzzle"]["fen"].split()[0]   # board set
-    # f1c1 from that FEN is Rc1 in SAN — grounded, real answer
-    assert "answer=Rc1" in out
+    assert "answer=" not in out
 
 
 def test_next_shape_derives_fen_from_pgn(monkeypatch):
@@ -38,8 +37,7 @@ def test_next_shape_derives_fen_from_pgn(monkeypatch):
     g = Game()
     out = op.fetch_puzzle(g)
     assert "lichess puzzle nx1" in out and "note:" not in out   # used the real puzzle
-    # after 5 plies (e4 e5 Qh5 Nc6 Bc4 Nf6) white plays Qxf7# -> derived FEN makes it legal
-    assert "answer=Qxf7#" in out
+    assert "answer=" not in out
 
 
 def test_network_failure_falls_back_to_local_bank(monkeypatch):

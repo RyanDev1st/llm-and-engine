@@ -478,6 +478,7 @@ def normalize_tool_call(text: str) -> str:
 _TOOL_NAMES = sorted(
     {t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()} | {"load_skill"},
     key=len, reverse=True)
+_CHESS_PLUGIN_TOOL_NAMES = {"name_opening", "opening_ideas", "accuracy_report", "find_blunders"}
 _NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
 
 
@@ -733,7 +734,8 @@ class CoachLoop:
         return forced
 
     @staticmethod
-    def _verify_fulfilled(convo: list[dict], gen_quiet, user_message: str, draft: str) -> str | None:
+    def _verify_fulfilled(convo: list[dict], gen_quiet, user_message: str, draft: str,
+                          goal: str = "") -> str | None:
         """Design B — the robust self-verification step. After a context-only (skill-load)
         turn produces a final reply, ask the model whether that draft actually DID what the
         user asked, or merely loaded context / asked back ("skill loaded, what would you
@@ -742,8 +744,9 @@ class CoachLoop:
         None. Model-driven (not keyword matching) so it generalizes to any phrasing/skill.
         Runs QUIET (no token streaming) — the verdict is scaffolding, not user-facing. The
         caller gates this to skill-load-without-fact turns and to a single pass."""
+        goal_line = f' The active goal is: "{goal}".' if goal else ""
         convo.append({"role": "user", "content":
-            f'Self-check before you reply. The user asked: "{user_message}". Your draft '
+            f'Self-check before you reply.{goal_line} The user asked: "{user_message}". Your draft '
             f'reply is: "{draft}". Did you actually DO what they asked, or did you only load '
             "a skill / ask them what they want? If you fully answered, reply with the single "
             "word DONE. If not, output the ONE next tool call that fulfils the request now "
@@ -855,7 +858,8 @@ class CoachLoop:
         # bundles (user-skills/synthetic-pack) that register NO runtime tools — those stay chess
         # (live_names - chess = empty -> crutch on); only a bundle that adds real non-chess tools
         # (life-skills) flips it off.
-        chess_domain = not (live_names - set(_TOOL_NAMES))     # any non-chess tool callable -> False
+        chess_tools = set(_TOOL_NAMES) | _CHESS_PLUGIN_TOOL_NAMES
+        chess_domain = not (live_names - chess_tools)     # any non-chess tool callable -> False
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode)
         # Off-distribution serve-only nudges — OFF by default so the live prompt matches the bare
@@ -890,6 +894,7 @@ class CoachLoop:
         plan_nudges = 0                # plan-box steers used this turn (cap = number of boxes)
         reload_nudges = 0              # "you already loaded that skill — use it" steers used this turn
         goal_shown = [False]           # emit the <goal> to its panel once, when first seen
+        active_goal = ""               # model-declared objective for this turn's stop check
 
         # True token streaming: when the caller wants events AND the backend supports it,
         # stream each generation's tokens out as `token` events so the UI fills live. The
@@ -925,9 +930,10 @@ class CoachLoop:
         verified = False   # the self-verify step (Design B) runs at most once per turn
         for _ in range(MAX_TOOL_CALLS):
             raw = gen(step_cap, ACTION_STOP)
-            if on_event and not goal_shown[0]:  # surface the objective to the goal panel early
-                gm = _GOAL_OPEN.search(raw)      # tolerant: pins even an unclosed <goal>
-                if gm and gm.group(1).strip():
+            gm = _GOAL_OPEN.search(raw)          # tolerant: pins even an unclosed <goal>
+            if gm and gm.group(1).strip():
+                active_goal = gm.group(1).strip()
+                if on_event and not goal_shown[0]:  # surface the objective to the goal panel early
                     on_event({"type": "goal", "content": gm.group(1).strip()})
                     goal_shown[0] = True
             decision = extract_call(raw, allowed=live_names)  # canonical call (plugin-aware recovery) or None
@@ -995,10 +1001,13 @@ class CoachLoop:
                         # probe + deflection handling below, so behavior on them is unchanged.
                         suspicious = (_is_deflection(reply) or _is_ask_back(reply)
                                       or len(reply.strip()) < 40)
-                        if (not _THIN_HARNESS and coverage and not verified
-                                and loaded_skill_only and suspicious):
+                        goal_context_only = bool(active_goal) and loaded_skill_only
+                        if (not verified and loaded_skill_only
+                                and (goal_context_only
+                                     or (not _THIN_HARNESS and coverage and suspicious))):
                             verified = True
-                            nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply)
+                            nxt = self._verify_fulfilled(convo, gen_quiet, user_message, reply,
+                                                         active_goal)
                             if nxt is not None:
                                 decision = nxt           # deflection that NEEDS a tool -> continue
                             elif _is_deflection(reply):

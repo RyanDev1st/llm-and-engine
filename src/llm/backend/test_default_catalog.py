@@ -22,6 +22,7 @@ def test_tactical_puzzles_body_drives_the_coach_loop():
     from backend.plugins import puzzles
     b = puzzles._BODY
     assert "random_position kind=puzzle" in b      # GET a puzzle, don't scan the start board
-    # the body withholds the move via a positive recipe (recipe > prohibition) and reveals only when stuck
-    assert "keep the move itself for" in b          # don't spoil the solution up front
+    # the body withholds the move via the stronger setup contract: no answer appears until best_move.
+    assert "do NOT reveal the solution" in b        # don't spoil the solution up front
+    assert "call `best_move`" in b                  # ground the reveal/check only when needed
     assert "reveal now" in b                        # but do give it when the solver is stuck
