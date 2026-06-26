@@ -26,7 +26,8 @@ import os
 import re
 
 import torch
-from transformers import AutoModelForImageTextToText, AutoProcessor, BitsAndBytesConfig
+from transformers import (AutoModelForImageTextToText, AutoProcessor, AutoTokenizer,
+                          BitsAndBytesConfig)
 
 BASE = os.environ.get("PROBE_BASE", "unsloth/gemma-4-E4B-it")
 FEN = "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"  # White: Re8# back-rank mate. NO bishops.
@@ -59,13 +60,17 @@ CANNED = {
 
 def load():
     print(f"loading BASE (4-bit): {BASE}", flush=True)
-    proc = AutoProcessor.from_pretrained(BASE)
+    tok = AutoTokenizer.from_pretrained(BASE)          # the chat template lives on the TOKENIZER
+    try:
+        proc = AutoProcessor.from_pretrained(BASE)     # only used for parse_response, if present
+    except Exception:
+        proc = None
     quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
     model = AutoModelForImageTextToText.from_pretrained(
         BASE, quantization_config=quant, torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True, device_map={"": 0})
-    return proc, model
+    return tok, proc, model
 
 
 def parse(proc, raw):
@@ -115,21 +120,38 @@ def _norm_calls(d):
     return d
 
 
-def gen(proc, model, messages):
-    text = proc.apply_chat_template(messages, tools=TOOLS, add_generation_prompt=True,
-                                    tokenize=False, enable_thinking=True)
-    enc = proc(text=text, return_tensors="pt").to(model.device)
+# Try richest kwargs first; fall back so we LEARN what this template supports.
+_RENDER_KW = [{"tools": TOOLS, "enable_thinking": True}, {"tools": TOOLS}, {}]
+
+
+def render(tok, messages):
+    last = None
+    for kw in _RENDER_KW:
+        try:
+            return tok.apply_chat_template(messages, add_generation_prompt=True,
+                                           tokenize=False, **kw), kw
+        except (TypeError, ValueError) as e:
+            last = e
+    raise RuntimeError(f"apply_chat_template failed for every kwarg combo: {last}")
+
+
+def gen(tok, model, messages):
+    text, kw = render(tok, messages)
+    enc = tok(text, return_tensors="pt").to(model.device)
     n = enc["input_ids"].shape[1]
     out = model.generate(**enc, max_new_tokens=640, do_sample=False)
-    raw = proc.decode(out[0][n:], skip_special_tokens=False)
-    return text, raw
+    raw = tok.decode(out[0][n:], skip_special_tokens=False)
+    return text, raw, kw
 
 
-def run_turn(proc, model, messages, label, show_prompt=False):
+def run_turn(tok, proc, model, messages, label, show_prompt=False):
     print("\n" + "=" * 80 + f"\n{label}")
     for step in range(5):
-        text, raw = gen(proc, model, messages)
+        text, raw, kw = gen(tok, model, messages)
         if show_prompt and step == 0:
+            print(f"  template kwargs accepted: {kw or '{} (NO tools/thinking support!)'}")
+            print(f"  tools in prompt? {'board_state' in text}  | think marker in prompt? "
+                  f"{('<|think' in text) or ('channel' in text)}")
             print("--- RENDERED NATIVE PROMPT (tail) ---\n" + text[-1100:] + "\n--- end prompt ---")
         p = parse(proc, raw)
         print(f"[step {step}] THINK : {(p['thinking'] or '(none)')[:320]}")
@@ -148,17 +170,17 @@ def run_turn(proc, model, messages, label, show_prompt=False):
 
 
 def main():
-    proc, model = load()
+    tok, proc, model = load()
     print("\n>>> Judge: does NATIVE thinking REASON about the tool result and answer GROUNDED?")
     msgs = [{"role": "system", "content": SYS},
             {"role": "user", "content": f"Here's my position (FEN {FEN}). What's the best move here?"}]
-    run_turn(proc, model, msgs, "SCENARIO 1a — best move (does it call a tool + reason?)", show_prompt=True)
+    run_turn(tok, proc, model, msgs, "SCENARIO 1a — best move (does it call a tool + reason?)", show_prompt=True)
     msgs.append({"role": "user", "content": "why is that a good move?"})
-    run_turn(proc, model, msgs, "SCENARIO 1b — WHY is it good? (the key test: grounded reason?)")
+    run_turn(tok, proc, model, msgs, "SCENARIO 1b — WHY is it good? (the key test: grounded reason?)")
 
     msgs2 = [{"role": "system", "content": SYS},
              {"role": "user", "content": f"In this position (FEN {FEN}), is there a bishop on the board?"}]
-    run_turn(proc, model, msgs2, "SCENARIO 2 — grounding: there is NO bishop (does it confabulate one?)")
+    run_turn(tok, proc, model, msgs2, "SCENARIO 2 — grounding: there is NO bishop (does it confabulate one?)")
     print("\n" + "=" * 80)
     print("VERDICT cues: (1) native THINK block present + on-topic? (2) calls the right tool?")
     print("(3) WHY answer cites the real line/mate, not a canned phrase? (4) says NO bishop?")
