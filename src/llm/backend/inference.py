@@ -481,6 +481,7 @@ _TOOL_NAMES = sorted(
     {t["name"] for t in official_tools()} | {t["name"] for t in compute_tools()} | {"load_skill"},
     key=len, reverse=True)
 _CHESS_PLUGIN_TOOL_NAMES = {"name_opening", "opening_ideas", "accuracy_report", "find_blunders"}
+_THIN_BOARD_GROUNDING = {"board_state", "legal_moves", "threats"}
 _NAME_ALT = "|".join(_re.escape(n) for n in _TOOL_NAMES)
 
 
@@ -877,8 +878,15 @@ class CoachLoop:
             system += "\n\n" + memory_block
         # Coverage set: tool -> canonical call for each detected intent. Empty on a finished game,
         # when coverage is off, or outside the chess domain (the triggers are chess-specific).
-        required = ({} if (game_over or not coverage or not chess_domain or _THIN_HARNESS)
-                    else matched_calls(user_message))
+        if game_over or not coverage or not chess_domain:
+            required = {}
+        else:
+            required = matched_calls(user_message)
+            if _THIN_HARNESS:
+                # Thin mode should drop broad rescue routing (eval/best_move/etc.), but keep the
+                # minimal board-fact safety rail. With BOARD_HOOK off, board-dependent explanations
+                # otherwise become prose-only and the 4B hallucinates pieces/attacks from priors.
+                required = {k: v for k, v in required.items() if k in _THIN_BOARD_GROUNDING}
         kept_history, ctx_stats = self.window.fit(system, history, user_message, compress=True)
         # Clever compaction: when old turns are evicted, their distilled note (goal/plan
         # anchor + what's already done) rides the system prompt so the model keeps the

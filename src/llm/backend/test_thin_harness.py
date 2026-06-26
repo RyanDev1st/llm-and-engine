@@ -1,7 +1,7 @@
-"""S1 — the CHESS_THIN_HARNESS flag. When ON, the loop drops the deterministic RESCUE layer
-built for the weak E2B (coverage force-routing, the per-turn self-verify probe, the ask-back
-re-gen) and trusts the model like a top harness. These tests prove the flag flips exactly those
-three behaviors and nothing else, using scripted models so no GPU is needed.
+"""S1 — the CHESS_THIN_HARNESS flag. When ON, the loop drops the broad deterministic RESCUE
+layer built for the weak E2B (eval/best-move coverage force-routing, the per-turn self-verify
+probe, the ask-back re-gen) while keeping the minimal board-fact safety rail. These tests prove
+the flag flips exactly those behaviors and nothing else, using scripted models so no GPU is needed.
 
 See docs/findings/2026-06-24-harness-vs-claude-code-codex.md (S1)."""
 from backend.game import Game
@@ -49,6 +49,22 @@ def test_coverage_not_forced_when_thin_on(monkeypatch):
     monkeypatch.setattr("backend.inference._THIN_HARNESS", True)
     out = _loop(["Just play e4."]).respond([], "how am I doing?")
     assert out["tool_calls"] == [] and out["reply"] == "Just play e4."
+
+
+def test_thin_keeps_board_grounding_for_explain_questions(monkeypatch):
+    # Thin mode still needs this tiny rail: with BOARD_HOOK off, a board-dependent explanation
+    # cannot be prose-only or the 4B hallucinates pieces/attacks from priors.
+    monkeypatch.setattr("backend.inference._THIN_HARNESS", True)
+    out = _loop(["The rook is still a target.", "Grounded now."]).respond([], "why in this case though?")
+    assert "board_state" in _names(out)
+
+
+def test_thin_keeps_safety_grounding_but_not_full_rescue(monkeypatch):
+    monkeypatch.setattr("backend.inference._THIN_HARNESS", True)
+    out = _loop(["Looks safe to me.", "Grounded now."]).respond(
+        [], "wait is my queen safe on a5 or did I just blunder it")
+    assert {"board_state", "threats"} <= set(_names(out))
+    assert "eval" not in _names(out) and "best_move" not in _names(out)
 
 
 # --- #19 per-turn self-verify probe + #23 deflection re-gen ----------------------
