@@ -117,6 +117,8 @@ def _norm_calls(d):
         elif isinstance(tc, dict):
             norm.append({"name": tc.get("name"), "arguments": tc.get("arguments", {})})
     d["tool_calls"] = norm or d.get("tool_calls") or []
+    d.setdefault("thinking", "")
+    d.setdefault("content", "")
     return d
 
 
