@@ -5,6 +5,7 @@ stays off APP.game. No model or engine needed — scripted loops + the `move` to
 import chess
 
 from backend.inference import CoachLoop
+from backend.toolfmt import parse_call
 from backend.web_app import App
 
 
@@ -67,6 +68,21 @@ def test_board_changing_puzzle_setup_is_available_to_followup_context():
     note = app._context_block("why is it back-rank?")
     assert "ESTABLISHED THIS SESSION" in note
     assert "position: puzzle set" in note and "fen=" in note
+
+
+def test_thin_mode_board_hook_off_still_grounds_board_questions(monkeypatch):
+    # Mirrors the Colab serve setup: thin harness + no raw board injection. The model may try to
+    # answer from prose, but board-dependent safety questions must still execute fact tools.
+    monkeypatch.setattr("backend.inference._THIN_HARNESS", True)
+    monkeypatch.setattr("backend.inference._BOARD_HOOK", False)
+    app = App(adapter=None)
+    app.loop = CoachLoop(ScriptedModel(["Looks safe to me.", "Grounded now."]), app.executor)
+
+    out = app.chat("wait is my queen safe on a5 or did I just blunder it")
+
+    tool_names = {parse_call(call)[0] for call in out["tool_calls"]}
+    assert {"board_state", "threats"} <= tool_names
+    assert out["state"]["fen"].split()[0] == chess.STARTING_FEN.split()[0]
 
 
 def test_chat_base_graceful_when_not_loaded():
