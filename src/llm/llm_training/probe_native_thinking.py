@@ -81,7 +81,8 @@ SCENARIOS = [
      "turns": [f"Position FEN {RUY}. What should I play here, and why?"]},
     {"label": "COOKING / non-chess domain (does native reasoning generalize?)", "sys": COOK_SYS,
      "tools": COOK_TOOLS, "canned": COOK_CANNED,
-     "turns": ["I'm doubling this cookie recipe — how much flour and butter do I need?"]},
+     "turns": ["I'm doubling this cookie recipe (base: flour 240 g, butter 113 g, sugar 100 g, "
+               "2 eggs, 1 tsp vanilla) — how much flour and butter do I need?"]},
 ]
 
 
@@ -123,7 +124,9 @@ def _norm_calls(d):
             norm.append({"name": tc.get("name"), "arguments": tc.get("arguments", {})})
     d["tool_calls"] = norm or d.get("tool_calls") or []
     d.setdefault("thinking", "")
-    d.setdefault("content", "")
+    # strip residual native markers that parse_response sometimes leaves in content
+    c = re.sub(r"<\|?channel\|?>|<\|?tool_call\|?>", "", d.get("content") or "")
+    d["content"] = re.sub(r"^\s*thought\s*\n", "", c).strip()
     return d
 
 
