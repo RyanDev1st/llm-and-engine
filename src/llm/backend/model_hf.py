@@ -121,12 +121,24 @@ class HFModel:
         # use_adapter=False runs the SAME base weights with the LoRA turned OFF
         # (PEFT disable_adapter) — lets one loaded model serve both the untrained
         # base and our SFT side by side for the comparison demo.
+        import os
         from llm_training.chat_format import remap_tool_messages
         # Same remap as training: Gemma drops role="tool", so render tool results
         # as user turns. MUST match data_pipeline or the model sees a new shape.
         messages = remap_tool_messages(messages)
-        enc = self.tok.apply_chat_template(
-            messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+        # v4.1: native reasoning. CHESS_NATIVE_THINK=1 turns on the enable_thinking signal
+        # (must match how the served model was trained) AND keeps special tokens in the
+        # decode so the native <|channel>thought block survives for _split_reasoning to
+        # lift to the panel (skip_special_tokens would delete the markers, leaking the
+        # thought into the chat bubble). OFF by default -> v4 serve unchanged.
+        native = os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
+        try:
+            enc = self.tok.apply_chat_template(
+                messages, add_generation_prompt=True, return_tensors="pt", return_dict=True,
+                enable_thinking=native)
+        except TypeError:  # older template without the kwarg
+            enc = self.tok.apply_chat_template(
+                messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
         enc = {k: v.to(self.model.device) for k, v in enc.items()}
         prompt_len = enc["input_ids"].shape[1]
         can_toggle = hasattr(self.model, "disable_adapter")
@@ -147,7 +159,7 @@ class HFModel:
         else:
             out_ids = self._gen_cached(enc, max_new_tokens, stop) if reuse_ok \
                 else self._run_plain(enc, max_new_tokens, stop)
-        text = self.tok.decode(out_ids[prompt_len:], skip_special_tokens=True)
+        text = self.tok.decode(out_ids[prompt_len:], skip_special_tokens=not native)
         return _truncate(text, stop)
 
     def count_tokens(self, text: str) -> int:

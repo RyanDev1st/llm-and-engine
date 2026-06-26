@@ -616,6 +616,11 @@ _GOAL_TAG = _re.compile(r"<goal>(.*?)</goal>", _re.DOTALL)
 # compaction miner, which wants a fully-closed block.
 _GOAL_OPEN = _re.compile(r"<goal>\s*(.*?)\s*(?:</goal>|(?=<think>|<plan>|<skill>|<tool>)|$)", _re.DOTALL)
 _THINK_TAG = _re.compile(r"<think>(.*?)</think>", _re.DOTALL)
+# v4.1: Gemma's NATIVE thinking block (enable_thinking). Stripped to the panel exactly
+# like our <think>. `<|channel>thought\n…<channel|>` — tolerate a missing close (cut by
+# the action) and stray channel/think markers left when decoding keeps special tokens.
+_NATIVE_THINK = _re.compile(r"<\|channel>thought\n?(.*?)(?:<channel\|>|$)", _re.DOTALL)
+_STRAY_NATIVE = _re.compile(r"<\|?(?:channel|think)\|?>")
 _PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
 _SKILL_ARG = _re.compile(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)")
 
@@ -629,11 +634,13 @@ def _split_reasoning(reply: str) -> tuple[str, list[str], str | None]:
     only the tag blocks, leaves all other prose intact."""
     text = reply or ""
     thinks = [m.group(1).strip() for m in _THINK_TAG.finditer(text) if m.group(1).strip()]
+    thinks += [m.group(1).strip() for m in _NATIVE_THINK.finditer(text) if m.group(1).strip()]
     gm = _GOAL_OPEN.search(text)
     goal = gm.group(1).strip() if gm and gm.group(1).strip() else None
     # Strip the goal FIRST: an unclosed <goal> is bounded by the following <think>/<skill> tag, so
     # removing <think> first would delete that boundary and let the goal strip run to end-of-text.
-    visible = _THINK_TAG.sub("", _GOAL_OPEN.sub("", text))
+    visible = _NATIVE_THINK.sub("", _THINK_TAG.sub("", _GOAL_OPEN.sub("", text)))
+    visible = _STRAY_NATIVE.sub("", visible)   # any leftover native markers (decode kept specials)
     visible = _re.sub(r"\n{3,}", "\n\n", visible).strip()
     return visible, thinks, goal
 

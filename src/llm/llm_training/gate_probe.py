@@ -19,7 +19,8 @@ import re
 import sys
 
 CONTRACT = {"think", "/think", "goal", "/goal", "plan", "/plan",
-            "skill", "/skill", "tool", "/tool"}
+            "skill", "/skill", "tool", "/tool",
+            "channel"}  # v4.1: native thinking close marker <channel|> is expected, not foreign
 PASS_MIN = 7   # of 8 samples
 
 
