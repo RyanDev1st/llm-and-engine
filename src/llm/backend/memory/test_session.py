@@ -16,6 +16,14 @@ def test_caches_analysis_facts_and_reuses_when_fen_matches():
     assert "board_state" not in note           # cheap/re-derivable facts are not cached
 
 
+def test_caches_position_setup_fact_for_current_fen():
+    sess = {}
+    S.update_setup(sess, FEN_A, ["position: puzzle set (mate in 1 back-rank). fen=" + FEN_A])
+    note = S.render(sess, FEN_A)
+    assert "ESTABLISHED THIS SESSION" in note
+    assert "back-rank" in note and FEN_A in note
+
+
 def test_freshness_guard_drops_facts_when_board_moved():
     sess = {}
     S.update(sess, FEN_A, ["score: +0.30 pawns from white POV, depth=18"])
@@ -43,3 +51,9 @@ def test_no_facts_is_noop():
     sess = {}
     S.update(sess, FEN_A, ["board_state: turn=black", "error: engine_unavailable"])
     assert S.render(sess, FEN_A) == ""         # nothing groundable cached
+
+
+def test_setup_update_ignores_non_setup_results_after_board_change():
+    sess = {}
+    S.update_setup(sess, FEN_B, ["best: e5, score: +0.30", "board_state: turn=black"])
+    assert S.render(sess, FEN_B) == ""         # avoids stale eval/best facts under a new FEN

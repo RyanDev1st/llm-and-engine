@@ -38,6 +38,18 @@ def format_score(kind: str, val) -> str:
     return f"{int(val) / 100:+.2f}"
 
 
+def _piece_summary(board: chess.Board) -> str:
+    parts = []
+    names = {chess.WHITE: "white", chess.BLACK: "black"}
+    for color in (chess.WHITE, chess.BLACK):
+        items = []
+        for sq, piece in sorted(board.piece_map().items()):
+            if piece.color == color:
+                items.append(f"{piece.symbol().upper()}={chess.square_name(sq)}")
+        parts.append(f"{names[color]}:[{', '.join(items) or 'none'}]")
+    return "; ".join(parts)
+
+
 def _arg_hint(schema: dict | None) -> str:
     """Render a tool's manifest args as a fill-in call template: a required arg -> `arg=<arg>`,
     an enum arg -> `arg=<opt|opt>`. Used by the tool-as-skill corrective error so the model sees
@@ -249,7 +261,7 @@ class ToolExecutor:
 
     def _board_state(self, fields: str) -> str:
         board = self.game.board
-        known = {"turn", "fen", "last_move", "check", "legal_count", "history"}
+        known = {"turn", "fen", "last_move", "check", "legal_count", "legal", "pieces", "history"}
         basic = {"turn", "last_move", "check", "legal_count"}
         # Be LIBERAL in what we accept. The model sometimes wraps the value in schema-placeholder
         # or list junk (seen live: fields=<['all']>, fields=[all]) — strip the wrapping chars so
@@ -271,6 +283,8 @@ class ToolExecutor:
             "last_move": self.game.san_stack[-1] if self.game.san_stack else "none",
             "check": "yes" if board.is_check() else "no",
             "legal_count": str(board.legal_moves.count()),
+            "legal": "[" + ", ".join(board.san(m) for m in board.legal_moves) + "]",
+            "pieces": _piece_summary(board),
             "history": " ".join(self.game.san_stack) or "none",
         }
         parts = [f"{key}={values[key]}" for key in values if key in requested]

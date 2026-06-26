@@ -56,6 +56,20 @@ def test_other_default_tools():
     assert "list_pieces" in _tools("what pieces do I have left?")
 
 
+def test_board_dependent_explanations_ground_board_state():
+    for msg in ["why is it backrank?", "why in this case though", "there isnt any bishop here"]:
+        assert "board_state" in matched_tools(msg), msg
+        assert matched_calls(msg)["board_state"] == "<tool>board_state fields=all</tool>"
+
+
+def test_safety_and_capture_questions_route_to_grounding_tools():
+    calls = matched_calls("wait is my queen safe on a5 or did I just blunder it")
+    assert "board_state" in calls and "threats" in calls
+    calls2 = matched_calls("can the rook take my queen here?")
+    assert "board_state" in calls2 and "legal_moves" in calls2
+    assert calls2["legal_moves"] == "<tool>legal_moves</tool>"
+
+
 def test_load_fen_on_keyword_and_raw_fen():
     assert "load_fen" in _tools("set up this position for me")
     assert "load_fen" in _tools("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")

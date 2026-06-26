@@ -60,13 +60,19 @@ _TRIGGERS: list[tuple[str, str, str, re.Pattern]] = [
     ("review_move", "review the move just played", "<tool>review_move depth=15</tool>",
      re.compile(r"\b(was that (a )?(good|ok|bad|blunder)|did i blunder|rate my (last )?move|how was (that|my) move|review (my|the|that) move|good move\??$)\b", re.I)),
     ("threats", "check the opponent's strongest threat", "<tool>threats depth=12</tool>",
-     re.compile(r"\b(threat|threats|what'?s the opponent|opponent'?s plan|in danger|under attack|am i attacked|any danger)\b", re.I)),
-    ("legal_moves", "list the legal moves", "<tool>legal_moves square=<sq></tool>",
-     re.compile(r"\b(legal moves|possible moves|available moves|where can .*(go|move)|what can (this|my) .* (do|move))\b", re.I)),
+     re.compile(r"\b(threat|threats|what'?s the opponent|opponent'?s plan|in danger|under attack"
+                r"|am i attacked|any danger|safe|hanging|en prise|loose piece|blunder(?:ed)? it)\b", re.I)),
+    ("legal_moves", "list the legal moves", "<tool>legal_moves</tool>",
+     re.compile(r"\b(legal moves|possible moves|available moves|where can .*(go|move)"
+                r"|what can (this|my) .* (do|move)|can .*(take|capture)|can .* move)\b", re.I)),
     ("undo", "take back the last move", "<tool>undo</tool>",
      re.compile(r"\b(undo|take ?back|takeback|revert (that|the|my) move)\b", re.I)),
     ("list_pieces", "list the remaining pieces", "<tool>list_pieces color=<white|black></tool>",
      re.compile(r"\b(what pieces|my pieces|list .* pieces|material count|what do i have left)\b", re.I)),
+    ("board_state", "inspect the current board before explaining", "<tool>board_state fields=all</tool>",
+     re.compile(r"\b(why is (it|this|that)|why in this case|in this case|on this board|current position"
+                r"|back ?rank|where is|there (is|isn'?t|are|aren'?t).*(bishop|rook|queen|king|knight|pawn)"
+                r"|is .* safe|safe on|can .*(take|capture)|hanging|attacked|defended)\b", re.I)),
     ("load_fen", "set up the position from a FEN", "<tool>load_fen fen=<FEN></tool>",
      re.compile(r"\b(load fen|set up (the|this) (position|board)|use this fen)\b|[pnbrqkPNBRQK1-8]{2,}/[pnbrqkPNBRQK1-8/]+ [wb] ", re.I)),
     ("fetch_puzzle", "fetch a real rated puzzle from Lichess", "<tool>fetch_puzzle</tool>",

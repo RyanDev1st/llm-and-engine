@@ -55,6 +55,20 @@ def test_chat_reports_elapsed_time():
     assert "elapsed_s" in out and isinstance(out["elapsed_s"], (int, float))
 
 
+def test_board_changing_puzzle_setup_is_available_to_followup_context():
+    # A puzzle setup changes the FEN, so the generic analysis cache used to skip it entirely.
+    # That made follow-ups answer from generic chess priors instead of the just-created puzzle.
+    app = App(adapter=None)
+    app.loop = CoachLoop(ScriptedModel([
+        "<tool>random_position kind=puzzle</tool>",
+        "It's white to move; find the tactic.",
+    ]), app.executor)
+    app.chat("give me a puzzle")
+    note = app._context_block("why is it back-rank?")
+    assert "ESTABLISHED THIS SESSION" in note
+    assert "position: puzzle set" in note and "fen=" in note
+
+
 def test_chat_base_graceful_when_not_loaded():
     # The untrained base is demo-only and lazy-loaded; before load, chat_base is safe.
     app = App(adapter=None)

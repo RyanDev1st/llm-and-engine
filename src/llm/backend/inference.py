@@ -313,6 +313,8 @@ def _result_signal(result: str) -> str | None:
     if t.startswith("review:"):
         m = _r.search(r"label=(\w+)", t)
         return m.group(1) if m else None
+    if t.startswith("board_state:"):
+        return None
     # Not a chess result with a precise SAN/eval/label token — fall back to the domain-neutral
     # signal so a plugin tool's result (convert/scale/metronome/...) is grounding-checkable too.
     return generic_result_signal(t)

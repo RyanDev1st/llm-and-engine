@@ -11,9 +11,9 @@ Deterministic, no model call (matches the compaction philosophy). Bounded to a f
 from __future__ import annotations
 
 _MAX_FACTS = 5
-# Grounded tool-result prefixes worth carrying forward (an analysis fact about THIS position).
+# Grounded tool-result prefixes worth carrying forward (a fact about THIS position).
 # Excludes board_state (re-derivable, cheap) and load_skill bodies (not a fact).
-_FACT_PREFIXES = ("score:", "best:", "best_line:", "best_moves:", "threats:", "review:")
+_FACT_PREFIXES = ("score:", "best:", "best_line:", "best_moves:", "threats:", "review:", "position:")
 
 
 def update(session: dict, fen: str, tool_results: list[str]) -> None:
@@ -31,6 +31,20 @@ def update(session: dict, fen: str, tool_results: list[str]) -> None:
         if f not in facts:
             facts.append(f)
     del facts[:-_MAX_FACTS]                        # keep the most recent few
+
+
+def update_setup(session: dict, fen: str, tool_results: list[str]) -> None:
+    """Record board-setup facts after a tool changed the live FEN. Normal update() is
+    skipped on board changes to avoid storing stale eval/best facts under the new board;
+    setup tools are different: their `position:` result describes the NEW current board."""
+    setup = []
+    for res in tool_results or []:
+        text = (res or "").strip()
+        if text.startswith("position:"):
+            setup.append(text)
+        elif " position:" in text:                 # e.g. online fallback note + local position
+            setup.append(text[text.index("position:"):].strip())
+    update(session, fen, setup)
 
 
 def render(session: dict, current_fen: str) -> str:

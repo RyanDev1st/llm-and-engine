@@ -295,8 +295,12 @@ class App:
         # Cache analysis facts ONLY when the board didn't move this turn (else the facts are
         # ambiguous as to which position they describe). The render freshness-guard drops them
         # the moment the live FEN diverges anyway.
-        if loop is self.loop and self.game.board.fen() == entry_fen:
-            session_mem.update(self.session, entry_fen, result.get("tool_results", []))
+        if loop is self.loop:
+            current_fen = self.game.board.fen()
+            if current_fen == entry_fen:
+                session_mem.update(self.session, entry_fen, result.get("tool_results", []))
+            else:
+                session_mem.update_setup(self.session, current_fen, result.get("tool_results", []))
         elapsed = round(time.time() - t0, 2)   # agent time: prompt received -> task finished
         # Thinking turns (tool calls + results) are ephemeral: respond() already
         # used them in-turn to write the reply. Persist ONLY the user message and

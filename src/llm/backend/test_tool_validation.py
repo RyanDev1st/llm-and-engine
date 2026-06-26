@@ -123,6 +123,15 @@ def test_board_state_never_returns_empty_on_junk_fields():
     assert "turn=white" in unknown and "legal_count=" in unknown
 
 
+def test_board_state_all_includes_pieces_and_legal_moves():
+    g = Game()
+    g.load_fen("6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1")
+    out = ToolExecutor(g, None).execute("<tool>board_state fields=all</tool>")
+    assert "pieces=" in out and "white:[" in out and "black:[" in out
+    assert "R=e1" in out and "K=g8" in out
+    assert "legal=[" in out and "Re8#" in out
+
+
 # --- error labeling: a non-engine tool fault must NOT be reported as a Stockfish outage ---
 
 class _Boom(ToolExecutor):
