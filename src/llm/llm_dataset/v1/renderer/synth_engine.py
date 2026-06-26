@@ -19,6 +19,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+from .tags import tool_call
+
 # Plausible candidate moves (piece moves are grounding "facts"; the regex in
 # validate._FACT matches them, so any move named in the final must come from the
 # best_moves result here). Mix of developing moves so top/backup vary per seed.
@@ -87,9 +89,9 @@ def chain(s: Scene) -> list[tuple[str, str]]:
     Three calls (board -> eval -> best_move): still multi-tool, and keeps the
     longest slice safely under the train seq ceiling even on the largest manifest."""
     return [
-        ("<tool>board_state fields=basic</tool>", board_state_result(s)),
-        ("<tool>eval depth=15</tool>", eval_result(s)),
-        ("<tool>best_move depth=15 top=3</tool>", best_move_result(s)),
+        (tool_call("board_state", "fields=basic"), board_state_result(s)),
+        (tool_call("eval", "depth=15"), eval_result(s)),
+        (tool_call("best_move", "depth=15 top=3"), best_move_result(s)),
     ]
 
 
