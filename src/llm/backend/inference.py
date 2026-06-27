@@ -621,6 +621,8 @@ _THINK_TAG = _re.compile(r"<think>(.*?)</think>", _re.DOTALL)
 # the action) and stray channel/think markers left when decoding keeps special tokens.
 _NATIVE_THINK = _re.compile(r"<\|channel>thought\n?(.*?)(?:<channel\|>|$)", _re.DOTALL)
 _STRAY_NATIVE = _re.compile(r"<\|?(?:channel|think)\|?>")
+# v4.1 auto-router verdict: the isolated classifier pass ends with "reasoning = yes|no".
+_AUTO_VERDICT = _re.compile(r"reasoning\s*=\s*(yes|no)", _re.I)
 _PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
 _SKILL_ARG = _re.compile(r"name=([A-Za-z0-9_][A-Za-z0-9_-]*)")
 
@@ -836,6 +838,26 @@ class CoachLoop:
             "context": ctx_stats.as_payload(),
         }
 
+    def _auto_needs_reasoning(self, user_message: str) -> bool:
+        """v4.1 auto-router: an ISOLATED classifier pass (no harness, no history) that decides
+        whether the request needs reasoning. It reasons briefly (native) then ends with
+        'reasoning = yes|no', which we parse. Default to yes (reason) if unparseable — safer to
+        reason than to wrongly skip. The backend then runs the MAIN turn with reasoning on/off."""
+        import inspect as _ins
+        sysp = ("You are a routing classifier. Decide whether answering the user's request WELL "
+                "needs step-by-step reasoning (analysis, multi-step logic, careful grounding), or "
+                "can be answered directly. Reason briefly, then end with EXACTLY one line: "
+                "'reasoning = yes' (needs reasoning) or 'reasoning = no' (answer directly).")
+        msgs = [{"role": "system", "content": sysp}, {"role": "user", "content": user_message}]
+        try:
+            kw = ({"enable_thinking": True}
+                  if "enable_thinking" in _ins.signature(self.model.generate).parameters else {})
+            out = self.model.generate(msgs, 96, [], **kw) or ""
+        except Exception:
+            return True
+        m = _AUTO_VERDICT.search(out)
+        return m.group(1).lower() != "no" if m else True
+
     def respond(self, history: list[dict], user_message: str, coverage: bool = True,
                 on_event=None, reasoning_mode: str = "", memory_block: str = "") -> dict:
         """history: prior user/assistant turns (no system). Returns the reply,
@@ -870,6 +892,13 @@ class CoachLoop:
         # (life-skills) flips it off.
         chess_tools = set(_TOOL_NAMES) | _CHESS_PLUGIN_TOOL_NAMES
         chess_domain = not (live_names - chess_tools)     # any non-chess tool callable -> False
+        # v4.1 auto-router (native only): "auto" runs a cheap ISOLATED classifier pass to decide
+        # whether this task needs reasoning, resolving to think (yes) or fast (no) BEFORE we build
+        # the prompt. Explicit + parseable beats the model self-gating mid-generation. v4 serve
+        # (native off) is unchanged — the router and the per-mode enable_thinking are gated on it.
+        _native = _os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
+        if _native and (reasoning_mode or "").strip().lower() == "auto":
+            reasoning_mode = "think" if self._auto_needs_reasoning(user_message) else "fast"
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode)
         # Off-distribution serve-only nudges — OFF by default so the live prompt matches the bare
@@ -918,18 +947,27 @@ class CoachLoop:
         # frontend clears a provisional bubble when the generation turns out to be a tool
         # decision (tool event), and keeps it when it's the final reply.
         import inspect as _inspect
-        can_stream = on_event is not None and "on_token" in _inspect.signature(self.model.generate).parameters
+        _gen_params = _inspect.signature(self.model.generate).parameters
+        can_stream = on_event is not None and "on_token" in _gen_params
+        # v4.1: native thinking is per-mode (fast=off, think/plan=on) — but ONLY when native is
+        # active and the backend's generate accepts the kwarg. Otherwise we pass nothing and the
+        # backend keeps its own default (v4 serve unchanged).
+        think_on = _native and (reasoning_mode or "").strip().lower() not in ("", "fast")
+        can_think = _native and ("enable_thinking" in _gen_params)
 
         def gen(mx: int, stop: list[str]) -> str:
+            kw = {"enable_thinking": think_on} if can_think else {}
             if can_stream:
                 return self.model.generate(convo, mx, stop,
-                                           on_token=lambda t: on_event({"type": "token", "text": t})).strip()
-            return self.model.generate(convo, mx, stop).strip()
+                                           on_token=lambda t: on_event({"type": "token", "text": t}),
+                                           **kw).strip()
+            return self.model.generate(convo, mx, stop, **kw).strip()
 
         def gen_quiet(mx: int, stop: list[str]) -> str:
             # never streams: internal scaffolding (answer-retry, self-verify) whose tokens
             # must NOT leak into the user's chat bubble.
-            return self.model.generate(convo, mx, stop).strip()
+            kw = {"enable_thinking": think_on} if can_think else {}
+            return self.model.generate(convo, mx, stop, **kw).strip()
 
         # Per-step decode budget: fast mode replies are concise -> a tighter cap bounds runaways
         # (with the regen guard below as the no-truncation safety net); reasoning modes keep the

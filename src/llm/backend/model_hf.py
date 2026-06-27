@@ -117,7 +117,7 @@ class HFModel:
 
     @torch.inference_mode()
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
-                 use_adapter: bool = True, on_token=None) -> str:
+                 use_adapter: bool = True, on_token=None, enable_thinking=None) -> str:
         # use_adapter=False runs the SAME base weights with the LoRA turned OFF
         # (PEFT disable_adapter) — lets one loaded model serve both the untrained
         # base and our SFT side by side for the comparison demo.
@@ -131,7 +131,8 @@ class HFModel:
         # decode so the native <|channel>thought block survives for _split_reasoning to
         # lift to the panel (skip_special_tokens would delete the markers, leaking the
         # thought into the chat bubble). OFF by default -> v4 serve unchanged.
-        native = os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
+        native = (enable_thinking if enable_thinking is not None
+                  else os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False"))
         try:
             enc = self.tok.apply_chat_template(
                 messages, add_generation_prompt=True, return_tensors="pt", return_dict=True,

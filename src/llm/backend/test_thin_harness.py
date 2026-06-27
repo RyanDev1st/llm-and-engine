@@ -106,3 +106,12 @@ def test_thin_keeps_reload_nudge_and_does_not_crash(monkeypatch):
     ]).respond([], "coach me")
     assert _names(out) == ["load_skill"]            # the duplicate load was not recorded again
     assert "develop" in out["reply"]
+
+
+# --- v4.1 auto-router: the isolated classifier pass -> reasoning yes/no ------------
+
+def test_auto_router_parses_verdict_and_defaults_to_reason():
+    assert _loop(["reasoning = no"])._auto_needs_reasoning("what can you do?") is False
+    assert _loop(["thinking... reasoning = yes"])._auto_needs_reasoning("is my queen safe?") is True
+    # unparseable verdict -> default to reasoning (safer to reason than wrongly skip)
+    assert _loop(["no clear verdict"])._auto_needs_reasoning("hmm") is True
