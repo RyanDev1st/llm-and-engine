@@ -86,27 +86,28 @@ def _render_plugins(plugin_context: dict) -> str:
     )
 
 
+# v4.1: reasoning is Gemma's NATIVE thinking (enable_thinking), not a custom <think> tag —
+# so these lines NO LONGER instruct <think>. They only set the mode's intent (direct vs
+# reason vs plan) and keep the structural tags the harness still uses: <goal> (the committed
+# objective) and <plan> (the multi-step checklist). "auto" is resolved to fast/think by the
+# serve router BEFORE this renders, so it maps to the same prompt as think (reasoning on).
 _REASONING_LINE = {
+    "fast": "Reasoning mode: FAST — answer directly and concisely; no <goal>, minimal deliberation.",
     "think": "Reasoning mode: THINK — FIRST commit what the user wants, once: "
-             "<goal>their objective</goal>. Then open every step with a brief "
-             "<think>your state and next move; no facts</think> and act. <goal> shows "
-             "in the plan panel; <think> is hidden from the user.",
-    "fast": "Reasoning mode: FAST — no <goal>, no <think>; act and answer directly.",
-    "auto": "Reasoning mode: AUTO — FIRST commit what the user wants, once: "
-            "<goal>their objective</goal>. Then use a brief <think> ONLY before a hard "
-            "choice (which skill/tool fits, recovering from an error, or deciding you have "
-            "enough to answer); skip it on obvious steps. <goal> shows in the plan panel; "
-            "<think> is hidden.",
-    "plan": "Reasoning mode: PLAN — this request needs SEVERAL tools/skills to fully "
-            "answer; do not stop after one. FIRST commit EVERY objective the request "
-            "contains (there may be more than one): <goal>each ask, enumerated</goal>. "
-            "Then list the needed steps: <plan> with one '- [ ] step (skill-or-tool)' line "
-            "per necessary tool/skill, covering every goal. Then DO EVERY box in order — "
-            "load the named skill / call the named tool and read each result — and do NOT "
-            "give the final answer until every box is done. Then synthesize across all the "
-            "results. If a box genuinely can't be done, say what's finished and what's "
-            "blocked — never skip a box silently or claim one you didn't do. <goal>/<plan> "
-            "show in the plan panel, not the chat.",
+             "<goal>their objective</goal>. Reason it through, then act and answer — ground every "
+             "claim in a tool result, never invent facts. <goal> shows in the plan panel.",
+    "auto": "Reasoning mode: THINK — FIRST commit what the user wants, once: "
+            "<goal>their objective</goal>. Reason as much as the task needs, then act and answer — "
+            "ground every claim in a tool result, never invent facts. <goal> shows in the plan panel.",
+    "plan": "Reasoning mode: PLAN — this request needs SEVERAL tools/skills to fully answer; do "
+            "not stop after one. FIRST commit EVERY objective the request contains (there may be "
+            "more than one): <goal>each ask, enumerated</goal>. Then list the needed steps: <plan> "
+            "with one '- [ ] step (skill-or-tool)' line per necessary tool/skill, covering every "
+            "goal. Then DO EVERY box in order — load the named skill / call the named tool and read "
+            "each result — and do NOT give the final answer until every box is done. Then synthesize "
+            "across all the results. If a box genuinely can't be done, say what's finished and what's "
+            "blocked — never skip a box silently or claim one you didn't do. <goal>/<plan> show in "
+            "the plan panel, not the chat.",
 }
 
 
