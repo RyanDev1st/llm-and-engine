@@ -48,10 +48,15 @@ def _render_skills(skills_index: list[dict]) -> str:
     # per-row system prompt small enough that the conversation fits the train seq.
     lines = []
     for s in skills_index:
-        tag = s.get("plugin", "?")
-        if not s.get("enabled", True):
-            tag += ", disabled"
-        lines.append(f"- {s['name']}: {s.get('description', '')} [{tag}]")
+        # Flat v5 catalog has no plugin provenance, so only annotate the exception
+        # (a disabled skill) — a bare "- name: desc" is the common case (saves the [?]).
+        plugin = s.get("plugin")
+        if plugin:
+            tag = plugin if s.get("enabled", True) else f"{plugin}, disabled"
+            suffix = f" [{tag}]"
+        else:
+            suffix = "" if s.get("enabled", True) else " [disabled]"
+        lines.append(f"- {s['name']}: {s.get('description', '')}{suffix}")
     return "\n\nAVAILABLE SKILLS (names + descriptions; load with <skill>name</skill> to get the body):\n" + "\n".join(lines)
 
 
@@ -91,23 +96,23 @@ def _render_plugins(plugin_context: dict) -> str:
 # reason vs plan) and keep the structural tags the harness still uses: <goal> (the committed
 # objective) and <plan> (the multi-step checklist). "auto" is resolved to fast/think by the
 # serve router BEFORE this renders, so it maps to the same prompt as think (reasoning on).
+# Tightened for v5: same instructions, less verbosity, so the per-row contract leaves room
+# for the conversation within the train seq (the contract is the dominant token term).
 _REASONING_LINE = {
     "fast": "Reasoning mode: FAST — answer directly and concisely; no <goal>, minimal deliberation.",
-    "think": "Reasoning mode: THINK — FIRST commit what the user wants, once: "
-             "<goal>their objective</goal>. Reason it through, then act and answer — ground every "
-             "claim in a tool result, never invent facts. <goal> shows in the plan panel.",
-    "auto": "Reasoning mode: THINK — FIRST commit what the user wants, once: "
-            "<goal>their objective</goal>. Reason as much as the task needs, then act and answer — "
-            "ground every claim in a tool result, never invent facts. <goal> shows in the plan panel.",
-    "plan": "Reasoning mode: PLAN — this request needs SEVERAL tools/skills to fully answer; do "
-            "not stop after one. FIRST commit EVERY objective the request contains (there may be "
-            "more than one): <goal>each ask, enumerated</goal>. Then list the needed steps: <plan> "
-            "with one '- [ ] step (skill-or-tool)' line per necessary tool/skill, covering every "
-            "goal. Then DO EVERY box in order — load the named skill / call the named tool and read "
-            "each result — and do NOT give the final answer until every box is done. Then synthesize "
-            "across all the results. If a box genuinely can't be done, say what's finished and what's "
-            "blocked — never skip a box silently or claim one you didn't do. <goal>/<plan> show in "
-            "the plan panel, not the chat.",
+    "think": "Reasoning mode: THINK — FIRST commit the objective once: <goal>their objective</goal>, "
+             "then reason, act, and answer; ground every claim in a tool result, never invent facts. "
+             "<goal> shows in the plan panel.",
+    "auto": "Reasoning mode: THINK — FIRST commit the objective once: <goal>their objective</goal>, "
+            "then reason as much as the task needs, act, and answer; ground every claim in a tool "
+            "result, never invent facts. <goal> shows in the plan panel.",
+    "plan": "Reasoning mode: PLAN — this needs SEVERAL tools/skills; don't stop after one. FIRST "
+            "commit EVERY objective: <goal>each ask, enumerated</goal>. Then <plan> with one "
+            "'- [ ] step (skill-or-tool)' line per needed tool/skill, covering every goal. Then DO "
+            "EVERY box in order (load the named skill / call the named tool, read each result) before "
+            "the final answer; then synthesize across the results. If a box can't be done, say what's "
+            "finished and what's blocked — never skip one silently. <goal>/<plan> show in the plan "
+            "panel, not the chat.",
 }
 
 

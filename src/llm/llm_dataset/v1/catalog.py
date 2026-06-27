@@ -37,7 +37,7 @@ CALC_TEMPLATE = 'print(f"{EXPR:.2f}")'
 # so build_system renders it identically at train and serve; executor is
 # backend.sandbox.run_python.
 COMPUTE_TOOLS: list[dict[str, Any]] = [
-    {"name": "python", "description": "Run a short Python script and return its stdout. Write a script that print()s the answer, then read the result — use it to verify any computed or checkable claim instead of asserting it from your head. For plain arithmetic, fill in this working template and run it: " + CALC_TEMPLATE, "args": {"code": "required"}, "applies_when": "always"},
+    {"name": "python", "description": "Run a short Python script and return its stdout — write a script that print()s the answer, then read it, to verify a computed or checkable claim instead of asserting it.", "args": {"code": "required"}, "applies_when": "always"},
 ]
 
 

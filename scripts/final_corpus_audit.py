@@ -75,12 +75,12 @@ def row_hash(row):
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-def main():
+def main(train_path=TRAIN, val_path=VAL):
     tok = AutoTokenizer.from_pretrained(str(TOK_DIR), trust_remote_code=True)
     print("tokenizer loaded:", type(tok).__name__, flush=True)
 
-    train = list(read_rows(TRAIN))
-    val = list(read_rows(VAL))
+    train = list(read_rows(train_path))
+    val = list(read_rows(val_path))
     print(f"train={len(train)} val={len(val)}", flush=True)
 
     summary = {"train": len(train), "val": len(val), "MAX_SEQ": MAX_SEQ}
@@ -235,4 +235,13 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import argparse
+
+    from llm_dataset.v1.profiles import profile as _profile
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--profile", default="v1.2")
+    a = ap.parse_args()
+    p = _profile(a.profile)
+    MAX_SEQ = p.max_seq          # module global read by main(); enforce the profile's seq ceiling
+    raise SystemExit(main(Path(str(p.train_path) + ".gz"), Path(str(p.val_path) + ".gz")))

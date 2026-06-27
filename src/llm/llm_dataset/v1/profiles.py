@@ -20,6 +20,7 @@ class DatasetProfile:
     max_prompt_concentration: float
     pure_chess: bool = False        # v5: flat chess catalog -> skip the cross-domain/plugin
                                     # audit checks, enforce the grounded-why floor instead
+    max_seq: int = 1664             # train seq ceiling the token-length gate enforces
 
 
 V1_2 = DatasetProfile(
