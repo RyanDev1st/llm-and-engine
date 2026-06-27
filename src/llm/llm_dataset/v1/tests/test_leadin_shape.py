@@ -6,7 +6,6 @@ import re
 import chess
 
 from llm_dataset.v1.renderer.chess import render_chess_row
-from llm_dataset.v1.renderer.universality import render_universality_row
 from llm_dataset.v1.sampler import plan_scenarios
 from llm_dataset.v1.validate import validate_row
 
@@ -70,15 +69,3 @@ def test_expected_tool_calls_survive_leadin():
     assert row["expected_tool_calls"][0] == "board_state"
     assert "eval" in row["expected_tool_calls"]
     assert "<skill>chess-coach</skill>" in "".join(m["content"] for m in row["messages"])
-
-
-def test_universality_action_turns_have_leadin_and_one_tool():
-    for slice_name in ("V1_E_board_grounding", "V1_G_multi_tool_budget",
-                       "V1_H_error_recovery", "V1_K_adversarial_injection",
-                       "V1_N_human_chat_skill_bridge"):
-        row = render_universality_row(plan_scenarios({slice_name: 1}, seed=5)[0])
-        assert validate_row(row) == [], (slice_name, validate_row(row))
-        for content in _assistant_tool_msgs(row):
-            assert not content.startswith("<tool>"), f"{slice_name}: {content!r}"
-            assert len(_TOOL.findall(content)) == 1, f"{slice_name}: {content!r}"
-        assert row["expected_tool_calls"], slice_name

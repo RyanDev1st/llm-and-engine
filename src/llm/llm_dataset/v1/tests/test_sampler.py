@@ -20,8 +20,18 @@ def test_plan_scenarios_deterministic_with_seed():
     assert [s.intent for s in a] == [s.intent for s in b]
 
 
-def test_v1_2_scenarios_include_prompt_styles_and_plugin_sources():
-    scenarios = plan_scenarios({"V1_M_marketplace_navigation": 40}, seed=5)
+def test_scenarios_use_flat_pure_chess_catalog():
+    """v5: every row lists the SAME flat chess catalog (coach + specialists + chat,
+    and the core + specialist + python tools) with NO plugin gating or cross-domain
+    distractors — the model routes by description/context, matching the served manifest."""
+    scenarios = plan_scenarios({"E": 40}, seed=5)
     assert {s.prompt_style for s in scenarios} >= {"casual", "slang", "typo"}
-    sources = {skill.get("source") for s in scenarios for skill in s.skills_index}
-    assert {"official_plugin", "user_skill", "marketplace_plugin", "synthetic_plugin"} <= sources
+    skill_names = {skill["name"] for s in scenarios for skill in s.skills_index}
+    assert {"chess-coach", "game-reviewer", "opening-advisor", "tactical-puzzles",
+            "hood-human-chat"} <= skill_names
+    assert "cooking-helper" not in skill_names and "code-reviewer" not in skill_names
+    tool_names = {t["name"] for s in scenarios for t in s.tool_manifest}
+    assert {"best_move", "what_if", "name_opening", "accuracy_report", "find_blunders",
+            "python"} <= tool_names
+    assert all(not skill.get("plugin") for s in scenarios for skill in s.skills_index)
+    assert all(s.plugin_context == {} for s in scenarios)

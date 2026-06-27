@@ -3,18 +3,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from .catalog import (
-    HUMAN_CHAT_SKILL,
-    OFFICIAL_SKILL,
-    USER_SKILL_TOOLS,
-    alt_skills,
-    alt_tools,
-    compute_tools,
-    official_tools,
-    synthetic_skill_name,
-    synthetic_tool_name,
-    with_plugin,
-)
+from .catalog import chess_skills, chess_tools
 from .positions import Position, load_default_bank, sample_position
 
 CHESS_SLICES = set("ABCDEFGHIJK")
@@ -101,11 +90,7 @@ def _one(slice_name: str, bank, rng: random.Random, n: int) -> Scenario:
     skills_index = _skills(rng, name_family)
     tool_manifest = _tools(rng, name_family, slice_name)
     prompt_style = PROMPT_STYLES[n % len(PROMPT_STYLES)]
-    plugin_context = {
-        "installed": ["chess-official", "user-skills", "market-tactics", "synthetic-pack"],
-        "enabled": ["chess-official", "user-skills", "synthetic-pack"],
-        "marketplace": ["market-openings", "market-endgames"],
-    }
+    plugin_context: dict = {}   # v5 flat catalog: serve aggregates plugins flat, no gating
     intent = f"{slice_name.lower()}_{n:04d}"
     return Scenario(
         slice_name,
@@ -123,40 +108,16 @@ def _one(slice_name: str, bank, rng: random.Random, n: int) -> Scenario:
 
 
 def _skills(rng: random.Random, name_family: str) -> tuple:
-    user = with_plugin(rng.sample(alt_skills(), 2), "user-skills", "user_skill")
-    market = with_plugin(rng.sample(alt_skills(), 2), "market-tactics", "marketplace_plugin")
-    base = [OFFICIAL_SKILL, HUMAN_CHAT_SKILL] + user + market
-    if name_family == "synthetic":
-        base += [
-            {
-                "name": synthetic_skill_name(rng.randint(1, 10**6)),
-                "description": "Domain-neutral skill for the harness universality test.",
-                "plugin": "synthetic-pack",
-                "source": "synthetic_plugin",
-                "enabled": True,
-            }
-        ]
-    rng.shuffle(base)
-    return tuple(base)
+    """The flat pure-chess skill set, order shuffled so the model routes by description,
+    not by position. Same set every row (no distractors) — v5 is a chess-only catalog."""
+    skills = chess_skills()
+    rng.shuffle(skills)
+    return tuple(skills)
 
 
 def _tools(rng: random.Random, name_family: str, slice_name: str) -> tuple:
-    base = official_tools() + with_plugin(USER_SKILL_TOOLS, "user-skills", "user_skill")
-    base += with_plugin(rng.sample(alt_tools(), 2), "user-skills", "user_skill")
-    base += with_plugin(rng.sample(alt_tools(), 1), "market-tactics", "marketplace_plugin", enabled=False)
-    if name_family == "synthetic" or slice_name == "V1_C_dynamic_tool_schema":
-        base += [
-            {
-                "name": synthetic_tool_name(rng.randint(1, 10**6)),
-                "description": "Harness universality test tool. Args defined inline.",
-                "args": {"input": "required"},
-                "applies_when": "always",
-                "plugin": "synthetic-pack",
-                "source": "synthetic_plugin",
-                "enabled": True,
-            }
-        ]
-    if slice_name in COMPUTE_SLICES:
-        base += compute_tools()       # calc must be listed for the model to call it
-    rng.shuffle(base)
-    return tuple(base)
+    """The flat pure-chess tool manifest (incl. python + the opening/analysis specialist
+    tools), order shuffled. No plugin gating, no cross-domain distractors."""
+    tools = chess_tools()
+    rng.shuffle(tools)
+    return tuple(tools)

@@ -68,6 +68,48 @@ def official_tools() -> list[dict[str, Any]]:
     ]
 
 
+# --- Flat pure-chess catalog (v5) -------------------------------------------------
+# The serve harness aggregates every enabled plugin into ONE flat catalog the model
+# sees, with no plugin gating. v5 training mirrors that exactly (train==serve parity):
+# the generalist coach + three specialists + the human-chat normalizer, and the core
+# tools + the opening/analysis specialist tools + the human-chat tool + python. NO
+# plugin_context, NO cross-domain distractors. Specialist skill descriptions and tool
+# schemas are VERBATIM from backend/plugins/{openings,analysis,puzzles}.py so routing
+# keys on the same text the served model will see.
+SPECIALIST_SKILLS: list[dict[str, Any]] = [
+    {"name": "game-reviewer", "description": "Use when the user asks how they played overall, their accuracy, or to find blunders across the game."},
+    {"name": "opening-advisor", "description": "Use when the user asks what opening this is, or for opening plans, theory, or a repertoire."},
+    {"name": "tactical-puzzles", "description": "Use when the user wants a tactical puzzle, to practice or hone tactics, or to be coached through a combination."},
+]
+
+SPECIALIST_TOOLS: list[dict[str, Any]] = [
+    {"name": "name_opening", "description": "Identify the opening being played from the move history.", "args": {}, "applies_when": "has_history"},
+    {"name": "opening_ideas", "description": "Give the typical plans and ideas for the current opening.", "args": {}, "applies_when": "has_history"},
+    {"name": "accuracy_report", "description": "Score how accurately the whole game was played so far (per-side accuracy).", "args": {"depth": "required"}, "applies_when": "has_history"},
+    {"name": "find_blunders", "description": "List the blunders made so far in the game with the better move.", "args": {"depth": "required"}, "applies_when": "has_history"},
+]
+
+
+def chess_skills() -> list[dict[str, Any]]:
+    """The flat pure-chess skill catalog listed in every row: generalist coach + the
+    three specialists + the human-chat normalizer. Flat (no plugin/enabled gating) —
+    the model picks by description/context, exactly as it must at serve."""
+    coach = {"name": OFFICIAL_SKILL["name"], "description": OFFICIAL_SKILL["description"]}
+    chat = {"name": HUMAN_CHAT_SKILL["name"], "description": HUMAN_CHAT_SKILL["description"]}
+    return [coach, *[dict(s) for s in SPECIALIST_SKILLS], chat]
+
+
+def chess_tools() -> list[dict[str, Any]]:
+    """The flat pure-chess tool manifest: core coach tools + opening/analysis specialist
+    tools + the human-chat helper tool + python. Flat, parity with the served manifest."""
+    return (
+        [dict(t) for t in OFFICIAL_TOOLS]
+        + [dict(t) for t in SPECIALIST_TOOLS]
+        + [dict(t) for t in USER_SKILL_TOOLS]
+        + compute_tools()
+    )
+
+
 def with_plugin(items: list[dict[str, Any]], plugin: str, source: str, enabled: bool = True) -> list[dict[str, Any]]:
     return [{**item, "plugin": plugin, "source": source, "enabled": enabled} for item in items]
 

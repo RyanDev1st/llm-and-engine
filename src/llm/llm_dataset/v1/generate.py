@@ -7,7 +7,6 @@ from typing import Callable
 
 from .annotator import DEFAULT_SF, StockfishAnnotator
 from .dedup import drop_near_duplicates
-from .domains import pick_domain
 from .jsonl_io import write_rows
 from .paths import OUT
 from .profiles import DatasetProfile, profile
@@ -16,62 +15,32 @@ from .renderer.audited_plan import render_audited_plan_row
 from .renderer.compound_plan import render_compound_plan_row
 from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
-from .renderer.skill_routing import render_skill_routing_row
-from .renderer.universality import render_universality_row
 from .sampler import (
     AUDIT_SLICES, CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE,
-    UNIVERSALITY_SLICES, plan_scenarios,
+    plan_scenarios,
 )
 from .validate import validate_row
 
-ROUTING_SLICE = "V1_O_cross_domain_skill_routing"
-# Prompt styles whose rendered text is genuinely messy (shorthand/typos) — the only
-# inputs that justify a normalize_human_chat step. formal/casual/anxious/beginner
-# render as coherent sentences (see renderer.skill_routing._style).
-_MESSY_STYLES = frozenset({"slang", "typo"})
-
-# GENERAL-FIRST mix (~75% general / ~25% chess): the product is a general
-# skill+tool harness operator, chess is the flagship demo domain (one of many).
-# Chess = A-K + V1_P (~25%); general = V1_A-O (~75%) with cross-domain routing
-# (V1_O) dominant since "choose the right skill/tool across ANY domain" is the
-# core capability. Proportions are preserved through plan_for_profile scaling.
+# PURE-CHESS mix (v5): the product is a chess coach. The grounded-answer slices —
+# D eval, E best-move, F review, G threats — are UP-WEIGHTED because concretely
+# ANSWERING (the grounded "why") is the product, not just routing; v1-v4 over-fit
+# routing and under-fit answering, which fed serve-time confabulation. The keystones
+# (python-verify / compound-plan / audited-plan, refocused to chess) and a moderate
+# specialist-routing slice are added back in later steps. Proportions are preserved
+# through plan_for_profile scaling.
 DEFAULT_PLAN: dict[str, int] = {
-    # chess coaching (flagship domain) — ~20% of base
-    "A": 180, "B": 110, "C": 80, "D": 95, "E": 100, "F": 95,
-    "G": 50, "H": 65, "I": 120, "J": 80, "K": 55,
-    # domain-agnostic harness lessons — ~48% of base
-    "V1_A_skill_index_selection": 180,
-    "V1_B_skill_conflict_and_absence": 180,
-    "V1_C_dynamic_tool_schema": 200,
-    "V1_D_tool_unavailable_and_readonly": 180,
-    "V1_E_board_grounding": 180,
-    "V1_F_special_chess_rules": 150,
-    "V1_G_multi_tool_budget": 220,
-    "V1_H_error_recovery": 220,
-    "V1_I_eval_language": 150,
-    "V1_J_no_tool_and_mixed_intent": 150,
-    "V1_K_adversarial_injection": 180,
-    "V1_L_rejects_and_audit_fixtures": 120,
-    "V1_M_marketplace_navigation": 180,
-    "V1_N_human_chat_skill_bridge": 200,
-    # cross-domain routing across the whole domain pool — the general flagship
-    "V1_O_cross_domain_skill_routing": 1400,
-    # multi-turn dialogue-state (chess-flavored) — ~6% of base
-    "V1_P_multiturn_followup": 300,
-    # NO listed skill fits -> answer directly (greeting/meta/off-domain); teaches
-    # that loading a skill is conditional, not reflexive.
-    "V1_Q_no_skill_direct": 180,
-    # compute-grounding (Stage 0): verify a claim by RUNNING the python tool and
-    # reading stdout instead of asserting. Base 80 -> ~1000 train rows ≈ 28 per
-    # (3 reasoning modes × ~12 prompt families) cell, the threshold for a 4B to
-    # learn the behavior robustly rather than sample it (audit 2026-06-14).
-    "V1_R_compute_grounding": 80,
-    # Stage 1 compound-plan: goal-driven completion across 2 skills (anti-early-stop).
-    # base 90 -> ~1000 rows after scaling, broad domain-pair coverage.
-    "V1_S_compound_plan": 90,
-    # Stage 2 audited-plan: load the audit skill, verify each checkable box via the
-    # python tool (never assert), split-determinism on semantic boxes, honest-partial.
-    "V1_T_audited_plan": 90,
+    "A": 120,   # play a named move
+    "B": 110,   # decide between options
+    "C": 90,    # refuse an illegal move
+    "D": 150,   # evaluate the position
+    "E": 200,   # best move (grounded "why")
+    "F": 200,   # review the move played (grounded verdict)
+    "G": 150,   # opponent threats (grounded)
+    "H": 80,    # list pieces
+    "I": 130,   # chess knowledge (ask_chessbot)
+    "J": 90,    # greeting / capabilities
+    "K": 90,    # general chess Q&A
+    "V1_P_multiturn_followup": 200,   # multi-turn dialogue state (chess)
 }
 
 
@@ -139,21 +108,6 @@ def run(
                     if progress and _should_report(index, total):
                         progress(index, total, len(accepted), len(rejected))
                     continue
-            elif scenario.slice == ROUTING_SLICE:
-                # Normalize ONLY when the input is genuinely messy (slang/typo) — loading
-                # the chat-cleaner on an already-clean "Please total my spend" taught a
-                # pointless ritual. Gated further by seed so the model still sees messy
-                # inputs answered BOTH with and without a normalize step (judge when it's
-                # needed, not a fixed dance). The dedicated V1_N slice fully covers the
-                # human-chat bridge regardless.
-                row = render_skill_routing_row(
-                    pick_domain(scenario.seed),
-                    scenario.seed,
-                    scenario.prompt_style,
-                    normalize=scenario.prompt_style in _MESSY_STYLES and scenario.seed % 2 == 0,
-                )
-            elif scenario.slice in UNIVERSALITY_SLICES:
-                row = render_universality_row(scenario)
             elif scenario.slice in COMPUTE_SLICES:
                 row = render_compute_row(scenario)
             elif scenario.slice in COMPOUND_SLICES:
