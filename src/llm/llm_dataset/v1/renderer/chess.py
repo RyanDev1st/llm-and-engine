@@ -10,6 +10,7 @@ from . import tone
 from .chess_kb import KBItem, pick_answer, pick_kb
 from .finals import e_top_form, final_narration, wants_number
 from .leadins import lead
+from .review import ReviewFacts, delta_str, review_for_played
 from .text import score_pawns, score_text
 from .thinking import gated_answer, gated_think, pick_mode, prepend_open_goal
 
@@ -57,12 +58,26 @@ def _best_moves_result(top_moves: tuple) -> str:
     return "best_moves: " + "; ".join(f"{i}. {san} ({cp / 100:+.2f})" for i, (san, cp) in enumerate(top_moves, 1))
 
 
+def _played_move(annotated: AnnotatedPosition | None, slice_name: str, seed: int) -> str | None:
+    """The move to execute. F alternates the engine's best (-> a grounded 'good move'
+    review) and an arbitrary legal move (-> a grounded critique); A just plays one."""
+    if not annotated or slice_name not in {"A", "F"}:
+        return None
+    if slice_name == "F" and seed % 2 == 0 and annotated.best_san:
+        return annotated.best_san
+    return choose_move(annotated.fen, seed)
+
+
 def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[str, Any]:
     annotated = annotator.annotate(scenario.position.fen, depth=12) if scenario.position else None
-    # A legal move to execute for the move-playing slices (A plays a requested
-    # move, F plays then reviews). Chosen from the real position so it is legal.
-    move = choose_move(annotated.fen, scenario.seed) if (annotated and scenario.slice in {"A", "F"}) else None
     seed = scenario.seed
+    # A legal move to execute for the move-playing slices (A plays a requested move, F
+    # plays then reviews). See _played_move: F alternates a genuinely good move and a weak
+    # one so the review teaches BOTH praise and correction, not a rubber-stamp.
+    move = _played_move(annotated, scenario.slice, seed)
+    # Measure that move honestly (real label + centipawn loss) for the F review — replaces
+    # the old hardcoded "label=good, delta=+0.05" that fabricated every review.
+    review = review_for_played(annotator, annotated, move) if (annotated and scenario.slice == "F" and move) else None
     # Knowledge slices (I/K) are topic-keyed so the user's QUESTION drives the
     # answer (and I's ask_chessbot query+result), not a single hardcoded reply.
     kb = pick_kb(scenario.slice, seed) if scenario.slice in ("I", "K") else None
@@ -79,9 +94,10 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
         messages.append({"role": "assistant",
                          "content": _step(seed, "board_state", 2, "<tool>board_state fields=basic</tool>", goal, "skill", mode=mode, kind="routine")})
         messages.append({"role": "tool", "content": _board_state_text(annotated)})
-    _emit_slice_tool(messages, scenario, annotated, move, goal, mode, kb)
+    _emit_slice_tool(messages, scenario, annotated, move, goal, mode, kb, review)
     final = gated_answer(seed, goal, mode=mode)
-    body = final_narration(scenario, annotated, move, wants_number(user), pick_answer(kb, seed) if kb else None)
+    body = final_narration(scenario, annotated, move, wants_number(user),
+                           pick_answer(kb, seed) if kb else None, review=review)
     messages.append({"role": "assistant", "content": f"{final}\n{body}" if final else body})
     prepend_open_goal(messages, seed, mode, goal)   # lead with <goal> in thinking modes
     return _envelope(scenario, messages, annotated, mode)
@@ -128,7 +144,8 @@ def _board_state_text(annotated: AnnotatedPosition | None) -> str:
 
 def _emit_slice_tool(
     messages: list[dict[str, str]], scenario: Scenario, annotated: AnnotatedPosition | None,
-    move: str | None, goal: str = "", mode: str = "think", kb: KBItem | None = None
+    move: str | None, goal: str = "", mode: str = "think", kb: KBItem | None = None,
+    review: ReviewFacts | None = None,
 ) -> None:
     seed = scenario.seed
     if scenario.slice == "A" and annotated:
@@ -149,9 +166,10 @@ def _emit_slice_tool(
             messages.append({"role": "assistant", "content": _step(seed, "best_move", 3, "<tool>best_move depth=15 series=3</tool>", goal, "board", mode=mode, kind="routine")})
             line = " ".join(annotated.best_line_sans)
             messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
-    elif scenario.slice == "F" and annotated:
+    elif scenario.slice == "F" and annotated and review:
         messages.append({"role": "assistant", "content": _step(seed, "review_move", 3, "<tool>review_move depth=12</tool>", goal, "board", mode=mode, kind="routine")})
-        messages.append({"role": "tool", "content": f"review: {move}, label=good, delta=+0.05 pawns, best_was={annotated.best_san}"})
+        # REAL review: measured label + centipawn swing, not a hardcoded "good, +0.05".
+        messages.append({"role": "tool", "content": f"review: {review.played}, label={review.label}, delta={delta_str(review)}, best_was={review.best}"})
     elif scenario.slice == "G" and annotated:
         threat = annotated.threats_san or "none"
         messages.append({"role": "assistant", "content": _step(seed, "threats", 3, "<tool>threats depth=12</tool>", goal, "board", mode=mode, kind="routine")})

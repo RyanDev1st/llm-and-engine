@@ -74,7 +74,11 @@ class StockfishAnnotator:
             if not ipv:
                 continue
             top_moves.append((board.san(ipv[0]), int(inf["score"].white().score(mate_score=100000))))
-        threats = self._threats(board, depth) if board.move_stack else None
+        # Threats via a null move are well-defined for ANY position, not just ones with a
+        # move_stack — our positions are FEN-loaded (empty stack), so gating on move_stack
+        # left every threats row blank. Skip only the start position (a null move there is
+        # meaningless and warns); _threats itself guards check/terminal.
+        threats = None if board.fen() == chess.STARTING_FEN else self._threats(board, depth)
         kind, cp = ("mate", score.mate()) if score.is_mate() else ("cp", int(score.score()))
         return AnnotatedPosition(
             fen, depth, cp, kind, best_san, tuple(line_sans), threats, tuple(top_moves),
@@ -89,7 +93,7 @@ class StockfishAnnotator:
         self._engine = None
 
     def _threats(self, board: chess.Board, depth: int) -> str | None:
-        if board.is_game_over():
+        if board.is_game_over() or board.is_check():   # can't pass the move while in check
             return None
         nb = board.copy()
         nb.push(chess.Move.null())

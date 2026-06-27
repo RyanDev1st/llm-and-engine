@@ -4,7 +4,7 @@ known move_facts, so a wrong or fabricated reason fails."""
 import chess
 
 from llm_dataset.v1.annotator import AnnotatedPosition
-from llm_dataset.v1.renderer.grounded import why_best_move
+from llm_dataset.v1.renderer.grounded import threat_reason, why_best_move
 
 START = chess.STARTING_FEN
 
@@ -51,3 +51,19 @@ def test_number_form_quotes_a_groundable_score():
     a = _ann("k7/8/8/3b4/8/8/8/3RK3 w - - 0 1", "Rxd5", ["Rxd5"], cp=300)
     out = why_best_move(a, ask_number=True, seed=5)
     assert "3.00 pawns" in out
+
+
+# --- threat_reason: name what the opponent's threat would DO, grounded on its facts ---
+
+def test_threat_reason_names_a_free_capture():
+    # White to move; after a null move Black's Bxd1 wins the undefended rook.
+    fen = "7k/8/8/8/b7/8/8/3R3K w - - 0 1"
+    out = threat_reason(fen, "Bxd1", seed=1)
+    assert out and "rook" in out
+    assert "<" not in out
+
+
+def test_threat_reason_is_none_for_a_nonexistent_threat():
+    # An illegal/unavailable threat must yield None so the caller falls back, not invent.
+    fen = "7k/8/8/8/b7/8/8/3R3K w - - 0 1"
+    assert threat_reason(fen, "Qd8", seed=1) is None

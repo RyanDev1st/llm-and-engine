@@ -71,6 +71,38 @@ def move_reason(mf: MoveFacts, mover_cp: int, seed: int) -> str:
                      "it's the most accurate try, keeping the balance"])
 
 
+def threat_reason(fen: str, threat_san: str, seed: int) -> str | None:
+    """A concrete, THREAT-FRAMED reason naming what the opponent's threat would do, from
+    move_facts on the position after a null move (opponent on the move). The annotator's
+    threats_san is the engine's top threat, so describing its real effect is grounded;
+    the conditional framing ('would', 'threatens') keeps it honest even if the threat is
+    defendable. Returns None when the threat has no flashy point — the caller falls back
+    to a generic 'serious initiative' line rather than inventing one."""
+    try:
+        b = chess.Board(fen)
+        b.push(chess.Move.null())                 # hand the move to the opponent
+    except (ValueError, AssertionError):
+        return None
+    mf = move_facts(b.fen(), threat_san)
+    if not mf:
+        return None
+    r = random.Random(seed * 191 + 13)
+    if mf.is_mate:
+        return r.choice(["it threatens mate", "mate is the threat"])
+    if mf.forks:
+        n1, n2 = mf.fork_names[0], mf.fork_names[1]
+        return r.choice([f"it would hit both your {n1} and {n2}", f"it forks your {n1} and {n2}"])
+    if mf.wins_material and mf.captured:
+        return r.choice([f"it would win your {mf.captured}", f"it picks off your {mf.captured}"])
+    if mf.pin_to_king and mf.pin_name:
+        return f"it pins your {mf.pin_name} to the king"
+    if mf.gives_check:
+        return r.choice(["it comes in with check", "it hits you with check"])
+    if mf.attacks_queen:
+        return "it goes after your queen"
+    return None
+
+
 def _short_line(annotated: AnnotatedPosition, n: int = 4) -> str:
     return " ".join(annotated.best_line_sans[:n])
 

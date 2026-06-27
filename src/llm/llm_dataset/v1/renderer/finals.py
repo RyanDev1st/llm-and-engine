@@ -18,8 +18,9 @@ import re
 from ..annotator import AnnotatedPosition
 from ..sampler import Scenario
 from . import tone
-from .grounded import why_best_move
+from .grounded import threat_reason, why_best_move
 from .leadins import ask
+from .review import ReviewFacts, why_review
 from .text import eval_magnitude, pawns_abs, score_phrase
 
 # Words that mean "give me the actual number", not just "how am I doing".
@@ -73,12 +74,16 @@ _NO_THREAT = (
 
 
 def _threat_body(annotated: AnnotatedPosition, ask_number: bool, seed: int = 0) -> str:
+    # threats_san is the opponent's best free move; it's only a REAL threat if it does
+    # something concrete (capture / fork / check / mate / pin). threat_reason returns the
+    # grounded, threat-framed point, or None for a quiet move -> nothing forcing to warn of.
     threat = annotated.threats_san
-    if not threat:
+    reason = threat_reason(annotated.fen, threat, seed) if threat else None
+    if not reason:
         return random.Random(seed * 37 + 7).choice(_NO_THREAT)
     if ask_number:
-        return f"Watch for {threat} — that's worth about {pawns_abs(annotated)} to them."
-    return f"Watch for {threat} — that would hand them a serious initiative."
+        return f"Watch for {threat} — {reason}; that's worth about {pawns_abs(annotated)} to them."
+    return f"Watch for {threat} — {reason}."
 
 
 # Lesson-type chess finals (B/C/H/J) state a behaviour, not a position fact, so
@@ -136,7 +141,7 @@ _LESSON_FINALS = {
 
 def final_narration(
     scenario: Scenario, annotated: AnnotatedPosition | None, move: str | None, ask_number: bool,
-    kb_answer: str | None = None,
+    kb_answer: str | None = None, review: ReviewFacts | None = None,
 ) -> str:
     opener = _opener(scenario)
     sep = " " if opener else ""
@@ -156,9 +161,11 @@ def final_narration(
         return ask(f"{opener}{sep}{_eval_body(annotated, seed, ask_number)}", seed, 4)
     if sl == "E" and annotated:
         return ask(f"{opener}{sep}{_best_move_body(scenario, annotated, ask_number)}", seed, 4)
-    if sl == "F" and annotated:
-        tail = " It only moved the eval by 0.05 pawns." if ask_number else ""
-        return ask(f"{opener}{sep}{move} was a solid choice — about as good as the top pick, {annotated.best_san}.{tail}", seed, 4)
+    if sl == "F" and annotated and review:
+        # Grounded verdict: praise a good move for its real point, or name the better move.
+        return ask(f"{opener}{sep}{why_review(review, annotated, ask_number=ask_number, seed=seed)}", seed, 4)
+    if sl == "F" and annotated:                              # defensive: no review computed
+        return ask(f"{opener}{sep}{move} is a playable move here.", seed, 4)
     if sl == "G" and annotated:
         return ask(f"{opener}{sep}{_threat_body(annotated, ask_number, seed)}", seed, 4)
     if sl == "I":
