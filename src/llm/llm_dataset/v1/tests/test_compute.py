@@ -6,6 +6,7 @@ import re
 
 from backend.sandbox import run_python
 from llm_dataset.v1.renderer.compute import render_compute_row
+from llm_dataset.v1.renderer.tags import tool_calls_of
 from llm_dataset.v1.sampler import plan_scenarios
 from llm_dataset.v1.validate import validate_row
 
@@ -19,7 +20,7 @@ def _rows(n=80):
 
 def _final(row):
     return [m["content"] for m in row["messages"]
-            if m["role"] == "assistant" and "<tool>" not in m["content"]][-1]
+            if m["role"] == "assistant" and not tool_calls_of(m)][-1]
 
 
 def _tool(row):
@@ -27,8 +28,12 @@ def _tool(row):
 
 
 def _code(row):
-    call = next(m["content"] for m in row["messages"] if "<tool>python" in m["content"])
-    return call.split("code=", 1)[1].rsplit("</tool>", 1)[0]
+    for m in row["messages"]:
+        if m["role"] == "assistant":
+            for tc in tool_calls_of(m):
+                if tc["name"] == "python":
+                    return str(tc["arguments"].get("code", ""))
+    raise AssertionError("no python tool call in row")
 
 
 def test_rows_validate_clean():

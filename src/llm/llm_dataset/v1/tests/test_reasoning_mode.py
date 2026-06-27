@@ -68,11 +68,12 @@ def test_validator_rejects_think_in_fast_row():
 def test_system_prompt_renders_mode_line():
     assert "FAST" in build_system([], [], {}, reasoning_mode="fast")
     assert "THINK" in build_system([], [], {}, reasoning_mode="think")
-    # v4.1: reasoning is Gemma-native (enable_thinking), so "auto" resolves to a reasoning-ON
-    # prompt (the serve router picks fast vs think BEFORE this renders) — it commits a <goal>
-    # and reasons, rather than naming a distinct AUTO mode.
+    # v5-native: reasoning is Gemma-native (enable_thinking). AUTO is its own line (reason as
+    # much as the task needs) and, like fast/think, adds NO custom <goal>/<think> structure.
     auto = build_system([], [], {}, reasoning_mode="auto")
-    assert "THINK" in auto and "<goal>" in auto
+    assert "AUTO" in auto and "<goal>" not in auto
+    # Only PLAN mode keeps the visible <goal>/<plan> deliverable the serve plan-gate maps to boxes.
+    assert "<goal>" in build_system([], [], {}, reasoning_mode="plan")
     # The mode lines no longer instruct the custom <think> tag (native handles reasoning).
     assert "<think>" not in build_system([], [], {}, reasoning_mode="think")
     assert "Reasoning mode" not in build_system([], [], {})  # unset -> no line (back-compat)

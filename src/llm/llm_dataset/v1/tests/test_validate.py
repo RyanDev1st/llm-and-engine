@@ -1,11 +1,23 @@
+from llm_dataset.v1.renderer.tags import skill_call_msg, tool_call_msg
 from llm_dataset.v1.validate import validate_row
+
+# v5-native: actions are STRUCTURED tool_calls on the assistant message, built via
+# the same helpers the renderers use. A skill load is the native tool load_skill{name}.
+
+
+def _final(text):
+    return {"role": "assistant", "content": text}
+
+
+def _toolres(text):
+    return {"role": "tool", "content": text}
 
 
 def good_row(**overrides):
     row = {
         "id": "v1_a_001",
-        "slice": "V1_A_skill_index_selection",
-        "kind": "universality",
+        "slice": "A",
+        "kind": "harness_chess",
         "intent": "select chess skill",
         "plugin_context": {"installed": ["chess-official"], "enabled": ["chess-official"]},
         "skills_index": [{"name": "chess-coach", "description": "Analyze chess positions."}],
@@ -18,11 +30,11 @@ def good_row(**overrides):
         "grounding_sources": ["board_state"],
         "messages": [
             {"role": "user", "content": "What is happening on the board?"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "Use board tools before board claims."},
-            {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
-            {"role": "tool", "content": "board_state: turn=white, check=no"},
-            {"role": "assistant", "content": "White to move, and the king is not in check."},
+            skill_call_msg("chess-coach"),
+            _toolres("Use board tools before board claims."),
+            tool_call_msg("board_state", {"fields": "basic"}),
+            _toolres("board_state: turn=white, check=no"),
+            _final("White to move, and the king is not in check."),
         ],
         "acceptance_rules": ["final_no_xml", "known_tool_only", "args_match_schema", "selected_skill_exists", "board_claim_grounded"],
     }
@@ -39,25 +51,25 @@ def test_accepts_valid_grounded_row():
 
 
 def test_rejects_unknown_tool():
-    row = good_row(messages=[{"role": "assistant", "content": "<tool>move san=e4</tool>"}])
+    row = good_row(messages=[tool_call_msg("move", {"san": "e4"})])
     assert "known_tool_only" in rules(row)
 
 
 def test_rejects_duplicate_and_over_budget_calls():
-    calls = [{"role": "assistant", "content": "<tool>board_state fields=basic</tool>"}] * 7
+    calls = [tool_call_msg("board_state", {"fields": "basic"}) for _ in range(7)]
     row = good_row(messages=calls)
     assert {"max_six_tool_calls", "no_exact_duplicate_call"} <= rules(row)
 
 
 def test_rejects_final_xml():
-    row = good_row(messages=good_row()["messages"][:-1] + [{"role": "assistant", "content": "Here: <tool>eval</tool>"}])
+    row = good_row(messages=good_row()["messages"][:-1] + [_final("Here: <tool>eval</tool>")])
     assert "final_no_xml" in rules(row)
 
 
 def test_rejects_overstated_close_eval():
     row = good_row(
         acceptance_rules=["close_eval_equal_language"],
-        messages=[{"role": "assistant", "content": "White is slightly better at +0.12."}],
+        messages=[_final("White is slightly better at +0.12.")],
     )
     assert "close_eval_equal_language" in rules(row)
 
@@ -76,11 +88,11 @@ def test_rejects_review_without_history():
         ],
         messages=[
             {"role": "user", "content": "review my move"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "lesson"},
-            {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
-            {"role": "tool", "content": "review: e4, label=good, delta=+0.05 pawns, best_was=e4"},
-            {"role": "assistant", "content": "Solid."},
+            skill_call_msg("chess-coach"),
+            _toolres("lesson"),
+            tool_call_msg("review_move", {"depth": 12}),
+            _toolres("review: e4, label=good, delta=+0.05 pawns, best_was=e4"),
+            _final("Solid."),
         ],
     )
     assert "applies_when_respected" in rules(row)
@@ -97,13 +109,13 @@ def test_accepts_review_with_move_history():
         grounding_sources=[],
         messages=[
             {"role": "user", "content": "play e4 then review it"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "lesson"},
-            {"role": "assistant", "content": "<tool>move san=e4</tool>"},
-            {"role": "tool", "content": "move: success san=e4"},
-            {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
-            {"role": "tool", "content": "review: e4, label=good, delta=+0.05 pawns, best_was=e4"},
-            {"role": "assistant", "content": "Solid."},
+            skill_call_msg("chess-coach"),
+            _toolres("lesson"),
+            tool_call_msg("move", {"san": "e4"}),
+            _toolres("move: success san=e4"),
+            tool_call_msg("review_move", {"depth": 12}),
+            _toolres("review: e4, label=good, delta=+0.05 pawns, best_was=e4"),
+            _final("Solid."),
         ],
         acceptance_rules=["final_no_xml", "known_tool_only", "args_match_schema", "selected_skill_exists", "applies_when_respected"],
     )
@@ -121,19 +133,19 @@ def test_accepts_review_with_success_colon_move_history():
         grounding_sources=[],
         messages=[
             {"role": "user", "content": "play e4 then review it"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "lesson"},
-            {"role": "assistant", "content": "<tool>move san=e4</tool>"},
-            {"role": "tool", "content": "success: e4"},
-            {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
-            {"role": "tool", "content": "review: e4, label=good, delta=+0.05 pawns, best_was=e4"},
-            {"role": "assistant", "content": "Solid."},
+            skill_call_msg("chess-coach"),
+            _toolres("lesson"),
+            tool_call_msg("move", {"san": "e4"}),
+            _toolres("success: e4"),
+            tool_call_msg("review_move", {"depth": 12}),
+            _toolres("review: e4, label=good, delta=+0.05 pawns, best_was=e4"),
+            _final("Solid."),
         ],
         acceptance_rules=["final_no_xml", "known_tool_only", "args_match_schema", "selected_skill_exists", "applies_when_respected"],
     )
     assert validate_row(row) == []
 
-
+    # review claimed against a lesson that only MENTIONS history (no real prior move) -> rejected
     row = good_row(
         tool_manifest=[
             {"name": "load_skill", "description": "...", "args": {"name": "required"}, "applies_when": "always"},
@@ -141,11 +153,11 @@ def test_accepts_review_with_success_colon_move_history():
         ],
         messages=[
             {"role": "user", "content": "review my move"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "lesson success criteria mention move history"},
-            {"role": "assistant", "content": "<tool>review_move depth=12</tool>"},
-            {"role": "tool", "content": "review: none"},
-            {"role": "assistant", "content": "No prior move."},
+            skill_call_msg("chess-coach"),
+            _toolres("lesson success criteria mention move history"),
+            tool_call_msg("review_move", {"depth": 12}),
+            _toolres("review: none"),
+            _final("No prior move."),
         ],
         acceptance_rules=["final_no_xml", "known_tool_only", "args_match_schema", "selected_skill_exists", "applies_when_respected"],
     )
@@ -158,7 +170,7 @@ def test_rejects_tool_from_disabled_plugin():
         tool_manifest=good_row()["tool_manifest"] + [
             {"name": "market_scan", "description": "Scan tactics.", "args": {}, "applies_when": "always", "plugin": "market-tactics", "source": "marketplace_plugin", "enabled": False}
         ],
-        messages=[{"role": "assistant", "content": "<tool>market_scan</tool>"}],
+        messages=[tool_call_msg("market_scan", {})],
     )
     assert "plugin_only_tools" in rules(row)
 
@@ -170,7 +182,7 @@ def test_rejects_selected_skill_from_uninstalled_plugin():
             {"name": "market-tactics", "description": "Marketplace tactics.", "plugin": "market-tactics", "source": "marketplace_plugin", "enabled": True}
         ],
         selected_skills=["market-tactics"],
-        messages=[{"role": "assistant", "content": "<skill>market-tactics</skill>"}],
+        messages=[skill_call_msg("market-tactics")],
     )
     assert "selected_skill_exists" in rules(row)
 
@@ -187,13 +199,13 @@ def test_rejects_helper_tool_before_skill_loaded():
         ],
         messages=[
             {"role": "user", "content": "yo what's up, am I cooked?"},
-            {"role": "assistant", "content": "<tool>normalize_human_chat text=messy_user_chat</tool>"},
-            {"role": "tool", "content": "normalized: chess help needed"},
-            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
-            {"role": "tool", "content": "normalize first"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "use board tools before claims"},
-            {"role": "assistant", "content": "Need board state first."},
+            tool_call_msg("normalize_human_chat", {"text": "messy_user_chat"}),
+            _toolres("normalized: chess help needed"),
+            skill_call_msg("hood-human-chat"),
+            _toolres("normalize first"),
+            skill_call_msg("chess-coach"),
+            _toolres("use board tools before claims"),
+            _final("Need board state first."),
         ],
         acceptance_rules=good_row()["acceptance_rules"] + ["skill_body_strict", "skill_index_only_before_load"],
     )
@@ -210,13 +222,13 @@ def test_rejects_irrelevant_skill_loaded_before_selected_skills():
         plugin_context={"installed": ["chess-official", "user-skills"], "enabled": ["chess-official", "user-skills"]},
         messages=[
             {"role": "user", "content": "need chess help"},
-            {"role": "assistant", "content": "<skill>cooking-helper</skill>"},
-            {"role": "tool", "content": "recipes only"},
-            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
-            {"role": "tool", "content": "normalize vague chat"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "tool", "content": "use board tools before claims"},
-            {"role": "assistant", "content": "Need board state first."},
+            skill_call_msg("cooking-helper"),
+            _toolres("recipes only"),
+            skill_call_msg("hood-human-chat"),
+            _toolres("normalize vague chat"),
+            skill_call_msg("chess-coach"),
+            _toolres("use board tools before claims"),
+            _final("Need board state first."),
         ],
         acceptance_rules=good_row()["acceptance_rules"] + ["skill_body_strict"],
     )
@@ -231,9 +243,9 @@ def test_rejects_selected_helper_skill_from_disabled_plugin():
         ],
         selected_skills=["hood-human-chat", "chess-coach"],
         messages=[
-            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "assistant", "content": "Need enabled helper first."},
+            skill_call_msg("hood-human-chat"),
+            skill_call_msg("chess-coach"),
+            _final("Need enabled helper first."),
         ],
     )
     assert "selected_skill_exists" in rules(row)
@@ -250,10 +262,10 @@ def test_rejects_helper_tool_from_disabled_plugin():
             {"name": "normalize_human_chat", "description": "Normalize chat.", "args": {"text": "required"}, "applies_when": "always", "plugin": "user-skills", "source": "user_skill", "enabled": True}
         ],
         messages=[
-            {"role": "assistant", "content": "<skill>hood-human-chat</skill>"},
-            {"role": "assistant", "content": "<tool>normalize_human_chat text=messy_user_chat</tool>"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
-            {"role": "assistant", "content": "Need enabled helper first."},
+            skill_call_msg("hood-human-chat"),
+            tool_call_msg("normalize_human_chat", {"text": "messy_user_chat"}),
+            skill_call_msg("chess-coach"),
+            _final("Need enabled helper first."),
         ],
     )
     assert "plugin_only_tools" in rules(row)

@@ -3,6 +3,7 @@ flat catalog, loads exactly that one, calls its tool, and grounds the answer. St
 from collections import Counter
 
 from llm_dataset.v1.renderer.specialist_routing import render_specialist_routing_row
+from llm_dataset.v1.renderer.tags import tool_calls_of
 from llm_dataset.v1.validate import validate_row
 
 
@@ -25,9 +26,9 @@ def test_routes_to_each_specialist_fairly():
 def test_loads_exactly_one_skill_the_selected_one():
     for r in _rows(60):
         skill = r["selected_skills"][0]
-        loaded = [m["content"] for m in r["messages"]
-                  if m["role"] == "assistant" and "<skill>" in m["content"]]
-        assert len(loaded) == 1 and f"<skill>{skill}</skill>" in loaded[0]
+        loaded = [tc["arguments"].get("name") for m in r["messages"] if m["role"] == "assistant"
+                  for tc in tool_calls_of(m) if tc["name"] == "load_skill"]
+        assert loaded == [skill]                                  # exactly one, the selected one
         assert skill in {s["name"] for s in r["skills_index"]}   # catalog lists it
 
 

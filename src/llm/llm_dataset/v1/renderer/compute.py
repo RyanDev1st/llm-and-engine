@@ -23,10 +23,9 @@ from backend.sandbox import run_python
 
 from ..catalog import CALC_TEMPLATE
 from ..sampler import Scenario
-from .leadins import lead
-from .thinking import gated_answer, gated_think, pick_mode, prepend_open_goal
+from .tags import tool_call_msg, tool_result_msg
+from .thinking import pick_mode
 
-_GOAL = "settle this with the real number"
 _VERIFY_SHARE = 0.70
 _ACC_T = (75, 80, 85, 90)
 _PT_T = (12, 15, 18, 22, 26)
@@ -194,16 +193,12 @@ def render_compute_row(scenario: Scenario) -> dict[str, Any]:
     seed = scenario.seed
     mode = pick_mode(seed)
     prompt, code, final = _scene(seed)
-    think = gated_think(seed, "python", 0, mode=mode, kind="decide", goal=_GOAL, have="")
-    call = "\n".join(p for p in (think, lead(seed, "python", 0), f"<tool>python code={code}</tool>") if p)
-    ans = gated_answer(seed, _GOAL, mode=mode)
     messages = [
         {"role": "user", "content": prompt},
-        {"role": "assistant", "content": call},
-        {"role": "tool", "content": _exec(code)},
-        {"role": "assistant", "content": f"{ans}\n{final}" if ans else final},
+        tool_call_msg("python", {"code": code}),
+        tool_result_msg("python", _exec(code)),
+        {"role": "assistant", "content": final},
     ]
-    prepend_open_goal(messages, seed, mode, _GOAL)   # lead with <goal> in thinking modes
     return {
         "id": f"v1_{scenario.slice.lower()}_{seed:09d}",
         "slice": scenario.slice,

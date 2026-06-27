@@ -1,7 +1,8 @@
-"""Conversational shape: an assistant turn may be a short lead-in sentence
-followed by exactly ONE <tool> call. The validator must still extract the call
-(so skill-load / tool-name checks work) and must reject two tools in one turn.
+"""Conversational shape: an assistant turn may carry a short lead-in sentence
+(in `content`) plus exactly ONE structured tool call. The validator extracts the
+call (so skill-load / tool-name checks work) and rejects two calls in one turn.
 The final = last assistant turn with no tool call."""
+from llm_dataset.v1.renderer.tags import skill_call_msg, tool_call_msg
 from llm_dataset.v1.validate import validate_row
 
 WHITE_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -31,28 +32,32 @@ def _row(messages):
     }
 
 
-LEADIN_OK = [
-    {"role": "user", "content": "how's my game?"},
-    {"role": "assistant", "content": "Let me load my coaching skill.\n<skill>chess-coach</skill>"},
-    {"role": "tool", "content": "Ground evaluation in Stockfish output."},
-    {"role": "assistant", "content": "First, the position.\n<tool>board_state fields=basic</tool>"},
-    {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},
-    {"role": "assistant", "content": "Now the move.\n<tool>move san=e4</tool>"},
-    {"role": "tool", "content": "success: e4"},
-    {"role": "assistant", "content": "You're set up well. Want the plan, or Black's threats first?"},
-]
+def _leadin_ok():
+    # native: the lead-in rides `content` on the same assistant turn as the ONE structured call.
+    return [
+        {"role": "user", "content": "how's my game?"},
+        tool_call_msg("load_skill", {"name": "chess-coach"}, content="Let me load my coaching skill."),
+        {"role": "tool", "content": "Ground evaluation in Stockfish output."},
+        tool_call_msg("board_state", {"fields": "basic"}, content="First, the position."),
+        {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},
+        tool_call_msg("move", {"san": "e4"}, content="Now the move."),
+        {"role": "tool", "content": "success: e4"},
+        {"role": "assistant", "content": "You're set up well. Want the plan, or Black's threats first?"},
+    ]
 
 
 def test_leadin_then_tool_turn_validates_clean():
-    v = validate_row(_row(LEADIN_OK))
+    v = validate_row(_row(_leadin_ok()))
     assert v == [], v
 
 
 def test_two_tools_in_one_inference_message_rejected():
-    # One tool per inference step: two <tool> in a SINGLE assistant message is invalid.
-    msgs = [m.copy() for m in LEADIN_OK]
-    msgs[1] = {"role": "assistant",
-               "content": "Two at once.\n<skill>chess-coach</skill>\n<tool>board_state fields=basic</tool>"}
+    # One tool per inference step: two structured calls in a SINGLE assistant message is invalid.
+    msgs = _leadin_ok()
+    msgs[1] = {"role": "assistant", "content": "Two at once.", "tool_calls": [
+        {"type": "function", "function": {"name": "load_skill", "arguments": {"name": "chess-coach"}}},
+        {"type": "function", "function": {"name": "board_state", "arguments": {"fields": "basic"}}},
+    ]}
     v = validate_row(_row(msgs))
     assert any(x.rule == "one_tool_per_message" for x in v), v
 
@@ -61,11 +66,11 @@ def test_multiple_skills_across_messages_allowed():
     # Many calls across the agentic loop is fine — one per step.
     msgs = [
         {"role": "user", "content": "yo idk how's my game"},
-        {"role": "assistant", "content": "Let me clean up the message.\n<skill>hood-human-chat</skill>"},
+        skill_call_msg("hood-human-chat"),
         {"role": "tool", "content": "Normalize messy chat. Ground in Stockfish output."},
-        {"role": "assistant", "content": "Now the coaching skill.\n<skill>chess-coach</skill>"},
+        skill_call_msg("chess-coach"),
         {"role": "tool", "content": "Use board tools before claims."},
-        {"role": "assistant", "content": "The position.\n<tool>board_state fields=basic</tool>"},
+        tool_call_msg("board_state", {"fields": "basic"}),
         {"role": "tool", "content": "board_state: turn=white, last_move=none, check=no, legal_count=20"},
         {"role": "assistant", "content": "You're set. Want the plan or threats first?"},
     ]

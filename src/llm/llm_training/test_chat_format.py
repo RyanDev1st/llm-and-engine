@@ -32,13 +32,16 @@ def test_remap_rewrites_tool_to_user_and_preserves_others():
 def test_tool_result_tokens_survive_real_template():
     from transformers import AutoTokenizer
 
+    from llm_dataset.v1.renderer.tags import tool_call_msg, tool_result_msg
     from llm_training.data_pipeline import IGNORE_INDEX, tokenize_with_assistant_mask
     tok = AutoTokenizer.from_pretrained(str(BASE), local_files_only=True)
+    # v5-native: the role="tool" result survives the template ONLY when the preceding
+    # assistant turn carries a STRUCTURED tool_call (it folds into a <|tool_response> block).
     msgs = [
         {"role": "system", "content": "SYS"},
         {"role": "user", "content": "how am I doing?"},
-        {"role": "assistant", "content": "Let me check.\n<tool>eval depth=12</tool>"},
-        {"role": "tool", "content": "score: -4.24 pawns from white POV"},
+        tool_call_msg("eval", {"depth": 12}, content="Let me check."),
+        tool_result_msg("eval", "score: -4.24 pawns from white POV"),
         {"role": "assistant", "content": "Black is clearly better here."},
     ]
     ids, labels, weights = tokenize_with_assistant_mask(msgs, tok, max_len=512)

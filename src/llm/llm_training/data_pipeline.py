@@ -15,38 +15,17 @@ GROUND_WEIGHT = 5.0  # loss multiplier on "fact" tokens (eval numbers + SAN move
 # a ~30-token narration, so plain mean loss barely penalizes it).
 _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
-FORMAT_WEIGHT = 8.0  # loss multiplier on the harness CONTROL tags AND the skill/tool NAME.
-# Root cause of the attn-only AND all-linear free-gen collapse: the tags trained at weight
-# 1.0 (diluted across ~73k rows of narration), so the SFT never overwrote Gemma's strong
-# pretrained tool-call priors — free-gen reverted to <thinking>, <action input=>, function
-# name=, JSON instead of our <skill>/<tool>/<think>. Weighting the control tokens fixed that.
-# EXTENDED: the name INSIDE the tag (`<skill>chess-coach`, `<tool>move`) also trained at 1.0,
-# so names came out garbled/hallucinated (`<skill>hood-human-chat`). Up-weight the open tag +
-# its name too so the model COPIES the exact catalog name, not a plausible guess. We weight
-# the NAME only (not tool arg VALUES) so long `<tool>python code="..."` blocks aren't
-# over-memorized; SAN/eval facts in args keep their separate GROUND_WEIGHT.
-# NOTE: the name-capturing alternative MUST come first — re alternation is ordered, so if
-# `</?...>` matched `<skill>` first, finditer would advance past it and miss the name.
-_CONTROL = re.compile(r"<(?:skill|tool)>\s*[\w./-]+|</?(?:think|goal|plan|skill|tool)>")
-
-# v4.1 hybrid: the THOUGHT content is MASKED from loss (not trained), so we never
-# overwrite Gemma's native reasoning with shallow templated stubs — v4's mistake,
-# which suppressed the base's real chain-of-thought (see probe_hybrid_thinking).
-# At serve, enable_thinking lets the model's OWN native reasoning fill this slot.
-# Matches both our custom <think>…</think> and the native <|channel>thought…<channel|>.
-_THINK = re.compile(r"<think>.*?</think>|<\|channel>thought.*?<channel\|>", re.DOTALL)
+# v5-native: we train IN Gemma's own native format (single-token <|tool_call> 48/49,
+# <|channel> 100/101, etc.), so there is NO custom prior to fight — FORMAT_WEIGHT and the
+# _CONTROL/_THINK regex machinery are GONE. The environment-injected tool RESPONSE is masked
+# by token id (it lives in a role="tool" turn, but the template leaves a dangling open marker
+# in the preceding assistant delta). The native thinking channel, when present (plan-mode rows
+# carry the <goal>/<plan> there), IS trained — it's the model's own output, not a stub.
+TOOL_RESPONSE_IDS = {50, 51}   # <|tool_response> / <tool_response|> — env data, never trained
 
 
 def _fact_spans(text: str) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in _FACT.finditer(text)]
-
-
-def _control_spans(text: str) -> list[tuple[int, int]]:
-    return [(m.start(), m.end()) for m in _CONTROL.finditer(text)]
-
-
-def _think_spans(text: str) -> list[tuple[int, int]]:
-    return [(m.start(), m.end()) for m in _THINK.finditer(text)]
 
 
 def _overlaps(offset: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
@@ -87,17 +66,12 @@ def tokenize_with_assistant_mask(
     # delta once per turn (O(n) vs the old O(n^2) full re-tokenize). Also emit a
     # per-token loss weight: fact tokens (eval numbers, SAN moves) in assistant
     # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
-    from .chat_format import remap_tool_messages, wants_thinking
-    # Gemma's template drops role="tool"; remap to a rendered user turn so the
-    # model is trained WITH the tool results in context (grounding), not blind.
-    messages = remap_tool_messages(messages)
-    # v4.1: turn on enable_thinking for thinking rows so the <|think|> system signal
-    # matches serve (where native reasoning is generated). We do NOT convert <think>
-    # to the native channel — the template STRIPS native thought from completed
-    # assistant turns, which would delete the reasoning step entirely. The custom
-    # <think> survives, is masked from loss below (never trained), and just positions
-    # the action after a reasoning step; native reasoning fills the slot at serve.
-    think_on = wants_thinking(messages)
+    #
+    # v5-native: NO remap — role="tool" survives the native template (it folds into a
+    # <|tool_response> block after the assistant's structured tool_calls). Train with
+    # enable_thinking=False: we never train the system <|think|> signal or shallow think
+    # stubs; the base's native reasoning is invoked at serve. (Plan-mode rows still carry
+    # a real plan in the reasoning channel — that renders regardless and IS trained.)
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []
@@ -105,7 +79,7 @@ def tokenize_with_assistant_mask(
     for i, msg in enumerate(messages):
         try:
             text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False,
-                                                 add_generation_prompt=False, enable_thinking=think_on)
+                                                 add_generation_prompt=False, enable_thinking=False)
         except TypeError:  # older template without the kwarg
             text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False, add_generation_prompt=False)
         except Exception:
@@ -123,21 +97,13 @@ def tokenize_with_assistant_mask(
             offsets = None
         delta = enc["input_ids"]
         fact_spans = _fact_spans(delta_text) if (assistant and offsets) else []
-        ctrl_spans = _control_spans(delta_text) if (assistant and offsets) else []
-        think_spans = _think_spans(delta_text) if (assistant and offsets) else []
         for j, tid in enumerate(delta):
             input_ids.append(tid)
-            # Mask the thought span from loss (v4.1): keep it in context so the action
-            # is conditioned on a reasoning step, but never train its content — that's
-            # what preserves the base's native reasoning instead of overwriting it.
-            masked_think = bool(offsets) and _overlaps(offsets[j], think_spans)
-            if assistant and not masked_think:
+            # Train assistant-generated tokens (tool calls, native thinking channel, final
+            # answer); mask the env-injected tool-response marker that lands in this delta.
+            if assistant and tid not in TOOL_RESPONSE_IDS:
                 labels.append(tid)
-                w = 1.0
-                if offsets and _overlaps(offsets[j], fact_spans):
-                    w = GROUND_WEIGHT
-                if offsets and _overlaps(offsets[j], ctrl_spans):
-                    w = max(w, FORMAT_WEIGHT)  # action tags must beat the base prior
+                w = GROUND_WEIGHT if (offsets and _overlaps(offsets[j], fact_spans)) else 1.0
                 weights.append(w)
             else:
                 labels.append(IGNORE_INDEX)

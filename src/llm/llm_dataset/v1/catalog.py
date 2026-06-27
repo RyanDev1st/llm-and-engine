@@ -44,6 +44,18 @@ COMPUTE_TOOLS: list[dict[str, Any]] = [
 def compute_tools() -> list[dict[str, Any]]:
     return [dict(tool) for tool in COMPUTE_TOOLS]
 
+
+# v5-native: skill loading is a native TOOL (Gemma has no `<skill>` verb). The
+# skills_index is still listed in the prompt; load_skill pulls one skill's body
+# into context before the model uses it (progressive disclosure).
+HARNESS_TOOLS: list[dict[str, Any]] = [
+    {"name": "load_skill", "description": "Load a listed skill's instructions into context before you use it.", "args": {"name": "required"}, "applies_when": "always"},
+]
+
+
+def harness_tools() -> list[dict[str, Any]]:
+    return [dict(tool) for tool in HARNESS_TOOLS]
+
 OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "move", "description": "Play a SAN move on the live board.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
     {"name": "load_fen", "description": "Set the board to a position from a FEN string (e.g. to set up a puzzle).", "args": {"fen": "required"}, "applies_when": "always"},
@@ -104,7 +116,8 @@ def chess_tools() -> list[dict[str, Any]]:
     """The flat pure-chess tool manifest: core coach tools + opening/analysis specialist
     tools + the human-chat helper tool + python. Flat, parity with the served manifest."""
     return (
-        [dict(t) for t in OFFICIAL_TOOLS]
+        harness_tools()
+        + [dict(t) for t in OFFICIAL_TOOLS]
         + [dict(t) for t in SPECIALIST_TOOLS]
         + [dict(t) for t in USER_SKILL_TOOLS]
         + compute_tools()

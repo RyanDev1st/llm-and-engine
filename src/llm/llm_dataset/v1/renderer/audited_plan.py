@@ -18,7 +18,7 @@ from typing import Any
 from ..catalog import chess_skills, chess_tools
 from .compute import _VERIFY, _exec
 from .planning import goal_block, plan_block
-from .thinking import gated_think
+from .tags import skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
 
 _AUDIT_BODY = (
     "# plan-audit\n"
@@ -41,18 +41,6 @@ _SOFT_VERDICT = (
     "that's a judgment call, not a tool check — to my read it mostly holds, but I won't fake a measured verdict on it",
     "I can't run that one — it's positional, so I'll give my honest read rather than a fake audit number",
 )
-_LEAD_LOAD = ("Loading the audit procedure.", "Pulling up how to audit this.", "First, the audit skill.")
-_LEAD_RUN = ("Running the check.", "Verifying that box now.", "Let me run the numbers, not guess them.")
-
-
-def _pick(seed: int, step: int, pool: tuple[str, ...]) -> str:
-    return random.Random(seed * 31 + step).choice(pool)
-
-
-def _join(*parts: str) -> str:
-    return "\n".join(p for p in parts if p)
-
-
 def _box(seed: int, fam, idx: int) -> tuple[str, str, str]:
     """One tool-checkable box: (user-fragment, python script, grounded verdict). Reuses a
     chess compute verify family — build() turns the real executor output into the verdict,
@@ -63,11 +51,9 @@ def _box(seed: int, fam, idx: int) -> tuple[str, str, str]:
     return prompt, code, build(val)
 
 
-def _run_step(seed: int, code: str, step: int, goal: str, mode: str) -> list[dict]:
+def _run_step(code: str) -> list[dict]:
     """Assistant python-audit step + its real tool result."""
-    think = gated_think(seed, "python", step, mode=mode, kind="execute", goal=goal, have="skill")
-    call = _join(think, _pick(seed, step, _LEAD_RUN), f"<tool>python code={code}</tool>")
-    return [{"role": "assistant", "content": call}, {"role": "tool", "content": _exec(code)}]
+    return [tool_call_msg("python", {"code": code}), tool_result_msg("python", _exec(code))]
 
 
 def render_audited_plan_row(seed: int) -> dict[str, Any]:
@@ -92,32 +78,30 @@ def render_audited_plan_row(seed: int) -> dict[str, Any]:
         goals.append("verify " + p_b.rstrip("?."))
         boxes.append(("verify the second claim", "python"))
     boxes.append(("synthesize one combined answer", "none"))
-    goal_text = "; ".join(goals)
 
-    messages: list[dict[str, str]] = [{"role": "user", "content": prompt}]
-    messages.append({"role": "assistant", "content": goal_block(seed, goals) + "\n" + plan_block(boxes)})
-    messages.append({"role": "assistant", "content": _join(
-        gated_think(seed, "load_skill", 1, mode=mode, kind="select", goal=goal_text),
-        _pick(seed, 1, _LEAD_LOAD), "<skill>plan-audit</skill>")})
-    messages.append({"role": "tool", "content": _AUDIT_BODY})
+    # The plan (goal + checklist) rides the FIRST action's native reasoning channel — here
+    # the load_skill(plan-audit) call — so it's committed before any audit runs.
+    plan_text = goal_block(seed, goals) + "\n" + plan_block(boxes)
+    load = skill_call_msg("plan-audit")
+    load["reasoning"] = plan_text
 
-    messages += _run_step(seed, code_a, 2, goal_text, mode)
+    messages: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
+    messages.append(load)
+    messages.append(tool_result_msg("load_skill", _AUDIT_BODY))
+
+    messages += _run_step(code_a)
     if semantic:
-        final = f"On the first: {verdict_a} On the second: {_pick(seed, 5, _SOFT_VERDICT)}."
+        final = f"On the first: {verdict_a} On the second: {random.Random(seed * 31 + 5).choice(_SOFT_VERDICT)}."
     else:
-        messages += _run_step(seed, code_b, 4, goal_text, mode)
+        messages += _run_step(code_b)
         final = f"On the first: {verdict_a} On the second: {verdict_b}"
     messages.append({"role": "assistant", "content": final})
     return _envelope(seed, messages, ["plan-audit"], mode)
 
 
-import re as _re
-_TOOL = _re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
-
-
 def _envelope(seed: int, messages: list[dict], selected: list[str], mode: str) -> dict[str, Any]:
-    expected = [m for c in (msg["content"] for msg in messages if msg["role"] == "assistant")
-                for m in _TOOL.findall(c)]
+    expected = [tc["name"] for msg in messages if msg["role"] == "assistant"
+                for tc in tool_calls_of(msg) if tc["name"] != "load_skill"]
     return {
         "id": f"v1_t_audited_{seed:09d}",
         "slice": "V1_T_audited_plan",

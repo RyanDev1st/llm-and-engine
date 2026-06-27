@@ -27,7 +27,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path("src/llm").resolve()))
 
 from llm_dataset.v1.validate import validate_row  # noqa: E402
-from llm_training.chat_format import remap_tool_messages  # noqa: E402
 from llm_training.system_prompt import build_system  # noqa: E402
 from transformers import AutoTokenizer  # noqa: E402
 
@@ -53,7 +52,9 @@ def render_messages(row):
         reasoning_mode=row.get("reasoning_mode", ""),
     )
     body = [m for m in row.get("messages", []) if m.get("role") != "system"]
-    return remap_tool_messages([{"role": "system", "content": system}, *body])
+    # v5-native: NO remap — role="tool" survives the native template via the assistant's
+    # structured tool_calls (it folds into a <|tool_response> block).
+    return [{"role": "system", "content": system}, *body]
 
 
 def first_user(row):
@@ -95,7 +96,8 @@ def main(train_path=TRAIN, val_path=VAL):
         for i, row in enumerate(rows):
             msgs = render_messages(row)
             try:
-                text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
+                text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False,
+                                               enable_thinking=False)
             except Exception:
                 fallback.append((split, row.get("id")))
                 text = "\n".join(f"{m['role']}: {m['content']}" for m in msgs)
@@ -105,7 +107,8 @@ def main(train_path=TRAIN, val_path=VAL):
                 over.append((split, row.get("id"), ntok))
                 by_slice_over[row.get("slice")] += 1
             had_tool = any(m.get("role") == "tool" for m in row.get("messages", []))
-            if had_tool and "<tool_result>" not in text:
+            # native: tool results survive as <|tool_response> blocks (was <tool_result>)
+            if had_tool and "<|tool_response>" not in text:
                 tool_missing.append((split, row.get("id")))
             if (i + 1) % 5000 == 0:
                 print(f"  {split} tokenized {i+1}/{len(rows)}", flush=True)
@@ -174,21 +177,25 @@ def main(train_path=TRAIN, val_path=VAL):
     }
 
     # ---- reasoning mode ----
+    # v5-native: thinking is NOT inline text — it's the native channel (rendered from a
+    # message's `reasoning` field) and is invoked at serve via enable_thinking. So the only
+    # integrity that still holds in training data is: a FAST row must carry NO reasoning
+    # channel (fast = answer directly). think/auto rows legitimately carry no inline thinking
+    # (native at serve); plan rows carry the <goal>/<plan> in the reasoning channel.
     mode_counts = Counter()
     bad_fast = []
-    bad_think = []
+    bad_think = []   # not enforced in native (kept for the gate's stable shape)
     for split, rows in (("train", train), ("val", val)):
         for row in rows:
             mode = (row.get("reasoning_mode") or "").strip().lower() or "(unset)"
             mode_counts[mode] += 1
             has_think = any(
-                m.get("role") == "assistant" and "<think>" in m.get("content", "")
+                m.get("role") == "assistant" and (m.get("reasoning")
+                    or "<|channel>thought" in (m.get("content") or "") or "<think>" in (m.get("content") or ""))
                 for m in row.get("messages", [])
             )
             if mode == "fast" and has_think:
                 bad_fast.append(row.get("id"))
-            if mode == "think" and not has_think:
-                bad_think.append(row.get("id"))
     summary["reasoning_mode"] = {
         "distribution": dict(mode_counts),
         "fast_with_think": len(bad_fast),

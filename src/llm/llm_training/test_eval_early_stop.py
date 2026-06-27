@@ -1,5 +1,8 @@
 """Harness logic for the early-stop eval — verified with scripted fake models, so
-classify/rollout/run are correct without needing trained weights."""
+classify/rollout/run are correct without needing trained weights.
+
+v5-native: the scripted models emit Gemma's native tool calls (`call:NAME{…}`); the
+rollout parses those (not the old <skill>/<tool> tags)."""
 import re
 
 from llm_training.eval_early_stop import build_cases, classify, rollout, run
@@ -35,9 +38,9 @@ class ABModel:
             self.skills = _names(system, "AVAILABLE SKILLS")
             self.tools = _names(system, "AVAILABLE TOOLS")
             self.plan = "PLAN" in system
-        seq = [f"<skill>{self.skills[0]}", f"<tool>{self.tools[0]} q=x"]
+        seq = [f"call:load_skill{{name:{self.skills[0]}}}", f"call:{self.tools[0]}{{depth:12}}"]
         if self.plan:
-            seq += [f"<skill>{self.skills[1]}", f"<tool>{self.tools[1]} q=x"]
+            seq += [f"call:load_skill{{name:{self.skills[1]}}}", f"call:{self.tools[1]}{{depth:12}}"]
         seq += ["Here is the combined answer."]
         out = seq[self.step] if self.step < len(seq) else "answer"
         self.step += 1
@@ -55,8 +58,8 @@ def test_classify_complete_honest_partial_and_silent():
 
 def test_rollout_complete_fires_both_tools():
     case = build_cases(1)[0]
-    model = ScriptModel([f"<skill>{case.a.skill}", f"<tool>{case.a.tool} q=x",
-                         f"<skill>{case.b.skill}", f"<tool>{case.b.tool} q=x",
+    model = ScriptModel([f"call:load_skill{{name:{case.a.skill}}}", f"call:{case.a.tool}{{depth:12}}",
+                         f"call:load_skill{{name:{case.b.skill}}}", f"call:{case.b.tool}{{depth:12}}",
                          "Both parts handled."])
     final, fired, steps = rollout(model, "sys", case)
     assert fired == {case.a.tool, case.b.tool}
@@ -66,7 +69,7 @@ def test_rollout_complete_fires_both_tools():
 
 def test_rollout_silent_early_stop_when_second_tool_skipped():
     case = build_cases(1)[0]
-    model = ScriptModel([f"<skill>{case.a.skill}", f"<tool>{case.a.tool} q=x",
+    model = ScriptModel([f"call:load_skill{{name:{case.a.skill}}}", f"call:{case.a.tool}{{depth:12}}",
                          "Here's the first part, hope that helps."])
     final, fired, _ = rollout(model, "sys", case)
     assert fired == {case.a.tool}
@@ -74,14 +77,14 @@ def test_rollout_silent_early_stop_when_second_tool_skipped():
 
 
 def test_rollout_treats_plan_panel_as_continue_not_final():
-    # A plan-mode model emits the <goal>/<plan> panel FIRST. The rollout must not
-    # mistake that for the final answer (which would record an instant early-stop).
+    # A plan-mode model may emit the <goal>/<plan> panel as a standalone thinking turn.
+    # The rollout must not mistake that for the final answer (an instant early-stop).
     case = build_cases(1)[0]
     model = ScriptModel([
         f"<goal>1) {case.a.skill}; 2) {case.b.skill}</goal>\n<plan>\n"
         f"- [ ] a ({case.a.skill})\n- [ ] b ({case.b.skill})\n- [ ] synth (none)\n</plan>",
-        f"<skill>{case.a.skill}", f"<tool>{case.a.tool} q=x",
-        f"<skill>{case.b.skill}", f"<tool>{case.b.tool} q=x",
+        f"call:load_skill{{name:{case.a.skill}}}", f"call:{case.a.tool}{{depth:12}}",
+        f"call:load_skill{{name:{case.b.skill}}}", f"call:{case.b.tool}{{depth:12}}",
         "Combined answer for both parts."])
     final, fired, _ = rollout(model, "sys", case)
     assert fired == {case.a.tool, case.b.tool}

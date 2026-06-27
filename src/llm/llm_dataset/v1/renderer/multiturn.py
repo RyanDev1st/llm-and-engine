@@ -24,7 +24,6 @@ Five archetypes (seed-split ~even):
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from ..annotator import AnnotatedPosition, StockfishAnnotator
@@ -32,11 +31,10 @@ from ..board_facts import board_state_line
 from ..sampler import Scenario
 from . import tone
 from .chess import INTERNAL_LESSON, _style_prompt
-from .leadins import ask, lead
+from .leadins import ask
+from .tags import skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
 from .text import eval_magnitude, score_pawns, score_phrase, score_text
-from .thinking import gated_answer, gated_fix, gated_think, pick_mode
-
-_TOOL = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
+from .thinking import pick_mode
 
 TURN1_QS = ("who's winning?", "how am I doing?", "rate this position", "how's it looking?")
 TURN2_WHY = ("why?", "why do you say that?", "explain that", "what makes you say so?", "how come?")
@@ -49,7 +47,6 @@ TURN2_STUCK = ("I'm stuck", "no idea what to do", "I don't know", "I'm totally l
 BACKREF_A = ("Same read as before —", "Like I said,", "As I noted,")
 BACKREF_B = ("Since you asked,", "Right —", "Building on that,", "Okay —")
 
-GOAL = "follow up on where the game stands"
 # turn-2 tool follow-ups carry the same grounded rule-set the chess slices use.
 _TOOL_RULES = ["final_no_xml", "known_tool_only", "args_match_schema",
                "selected_skill_exists", "engine_grounded", "narration_grounded"]
@@ -58,12 +55,6 @@ _REF_RULES = ["final_no_xml", "known_tool_only", "args_match_schema"]
 
 def _archetype(seed: int) -> int:
     return seed % 5
-
-
-def _act(seed: int, name: str, step: int, call: str, have: str, *, mode: str, kind: str) -> str:
-    """Assistant tool-step in the trained turn: (mode/kind-gated <think>) + lead + call."""
-    th = gated_think(seed, name, step, mode=mode, kind=kind, goal=GOAL, have=have)
-    return "\n".join(p for p in (th, lead(seed, name, step), call) if p)
 
 
 def _side(cp: int) -> str:
@@ -79,10 +70,10 @@ def _final_a(annotated: AnnotatedPosition, seed: int) -> str:
 
 def _reload_and_read(messages: list[dict], seed: int, annotated: AnnotatedPosition, mode: str) -> None:
     """Common turn-2 grounding prefix: reload the skill, then read the board."""
-    messages.append({"role": "assistant", "content": _act(seed, "load_skill", 0, "<skill>chess-coach</skill>", "", mode=mode, kind="routine")})
-    messages.append({"role": "tool", "content": INTERNAL_LESSON})
-    messages.append({"role": "assistant", "content": _act(seed, "board_state", 2, "<tool>board_state fields=basic</tool>", "skill", mode=mode, kind="routine")})
-    messages.append({"role": "tool", "content": board_state_line(annotated.fen)})
+    messages.append(skill_call_msg("chess-coach"))
+    messages.append(tool_result_msg("load_skill", INTERNAL_LESSON))
+    messages.append(tool_call_msg("board_state", {"fields": "basic"}))
+    messages.append(tool_result_msg("board_state", board_state_line(annotated.fen)))
 
 
 def _turn2_tool(messages: list[dict], scenario: Scenario, annotated: AnnotatedPosition, user2: str, mode: str) -> str:
@@ -90,25 +81,20 @@ def _turn2_tool(messages: list[dict], scenario: Scenario, annotated: AnnotatedPo
     backref = tone.pick(seed, BACKREF_B)
     _reload_and_read(messages, seed, annotated, mode)
     if "eval" in user2.lower() or "exact" in user2.lower():
-        messages.append({"role": "assistant", "content": _act(seed, "eval", 3, "<tool>eval depth=15</tool>", "board", mode=mode, kind="routine")})
-        messages.append({"role": "tool", "content": score_text(annotated)})
+        messages.append(tool_call_msg("eval", {"depth": 15}))
+        messages.append(tool_result_msg("eval", score_text(annotated)))
         return ask(f"{backref} {score_phrase(annotated)}", seed, 4)
-    messages.append({"role": "assistant", "content": _act(seed, "best_move", 3, "<tool>best_move depth=15 series=3</tool>", "board", mode=mode, kind="routine")})
+    messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
     line = " ".join(annotated.best_line_sans)
-    messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
+    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
     nxt = " ".join(annotated.best_line_sans[1:3])
     return ask(f"{backref} {annotated.best_san} is the move; the line runs {nxt}.", seed, 4)
-
-
-def _prepend(think: str, body: str) -> str:
-    return f"{think}\n{body}" if think else body
 
 
 def _arch_reference(messages, scenario, annotated, mode):
     seed = scenario.seed
     messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_WHY), scenario)})
-    th = gated_answer(seed, GOAL, mode=mode, enough=False)
-    return _prepend(th, _final_a(annotated, seed)), [], _REF_RULES
+    return _final_a(annotated, seed), [], _REF_RULES
 
 
 # Clarify-branch follow-ups: a fixed base ("do you want the attacking plan…")
@@ -131,8 +117,7 @@ def _arch_clarify(messages, scenario, annotated, mode):
     messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_CLARIFY), scenario)})
     backref = tone.pick(seed, BACKREF_A)
     answer = ask(f"{backref} {tone.pick(seed * 31 + 5, _CLARIFY_OFFERS)}", seed, 4)
-    th = gated_answer(seed, GOAL, mode=mode, enough=False)
-    return _prepend(th, answer), [], _REF_RULES
+    return answer, [], _REF_RULES
 
 
 def _arch_tool(messages, scenario, annotated, mode):
@@ -140,35 +125,33 @@ def _arch_tool(messages, scenario, annotated, mode):
     user2 = _style_prompt(tone.pick(seed, TURN2_TOOL), scenario)
     messages.append({"role": "user", "content": user2})
     answer = _turn2_tool(messages, scenario, annotated, user2, mode)
-    return _prepend(gated_answer(seed, GOAL, mode=mode), answer), ["chess-coach"], list(_TOOL_RULES)
+    return answer, ["chess-coach"], list(_TOOL_RULES)
 
 
 def _arch_stuck(messages, scenario, annotated, mode):
     seed = scenario.seed
     messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_STUCK), scenario)})
     _reload_and_read(messages, seed, annotated, mode)
-    messages.append({"role": "assistant", "content": _act(seed, "best_move", 3, "<tool>best_move depth=15 series=3</tool>", "board", mode=mode, kind="routine")})
+    messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
     line = " ".join(annotated.best_line_sans)
-    messages.append({"role": "tool", "content": f"best_line: {line}, score: {score_pawns(annotated)}"})
+    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
     backref = tone.pick(seed, BACKREF_B)
     answer = ask(f"{backref} no need to restart — a grounded try here is {annotated.best_san}; "
                  f"want me to walk the idea, or see your other options?", seed, 4)
-    return _prepend(gated_answer(seed, GOAL, mode=mode), answer), ["chess-coach"], list(_TOOL_RULES)
+    return answer, ["chess-coach"], list(_TOOL_RULES)
 
 
 def _arch_self_correct(messages, scenario, annotated, mode):
     seed = scenario.seed
     messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_EVAL), scenario)})
     _reload_and_read(messages, seed, annotated, mode)
-    messages.append({"role": "assistant", "content": _act(seed, "eval", 3, "<tool>eval depth=99</tool>", "board", mode=mode, kind="routine")})
-    messages.append({"role": "tool", "content": "error: invalid_syntax"})
-    fix = gated_fix(seed, "eval", mode=mode)
-    retry = "\n".join(p for p in (fix, lead(seed, "eval", 4), "<tool>eval depth=15</tool>") if p)
-    messages.append({"role": "assistant", "content": retry})
-    messages.append({"role": "tool", "content": score_text(annotated)})
+    messages.append(tool_call_msg("eval", {"depth": 99}))
+    messages.append(tool_result_msg("eval", "error: invalid_syntax"))
+    messages.append(tool_call_msg("eval", {"depth": 15}))     # diagnose + retry, don't give up
+    messages.append(tool_result_msg("eval", score_text(annotated)))
     backref = tone.pick(seed, BACKREF_B)
     answer = ask(f"{backref} {score_phrase(annotated)}", seed, 4)
-    return _prepend(gated_answer(seed, GOAL, mode=mode), answer), ["chess-coach"], list(_TOOL_RULES)
+    return answer, ["chess-coach"], list(_TOOL_RULES)
 
 
 _ARCHETYPES = (_arch_tool, _arch_reference, _arch_clarify, _arch_stuck, _arch_self_correct)
@@ -192,8 +175,8 @@ def render_multiturn_row(scenario: Scenario, annotator: StockfishAnnotator) -> d
 
 
 def _envelope(scenario, messages, annotated, selected, rules, mode="think") -> dict[str, Any]:
-    expected = [name for m in messages if m["role"] == "assistant"
-                for name in _TOOL.findall(m["content"])]
+    expected = [tc["name"] for m in messages if m["role"] == "assistant"
+                for tc in tool_calls_of(m) if tc["name"] != "load_skill"]
     return {
         "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",
         "slice": scenario.slice,

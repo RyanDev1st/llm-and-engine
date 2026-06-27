@@ -18,31 +18,22 @@ from typing import Any
 from ..catalog import chess_skills, chess_tools
 from ..specialists import Specialist, pick_two, scene
 from .planning import goal_block, plan_block
-from .thinking import gated_think
+from .tags import scene_args, skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
 
-_LEAD_LOAD = ("Loading the skill for this part.", "Next skill for the next box.",
-              "Pulling the skill this box needs.")
-_LEAD_TOOL = ("Now its data.", "Running its tool.", "Getting the specifics.")
 # A review/opening plan is about a game already played; the coach reads the board first so
 # the has_history specialist tools (accuracy_report, name_opening) are licensed by a real
 # game in progress (validate._has_move_history reads this last_move).
 _LAST_MOVES = ("Nf6", "Bd6", "Qc7", "Rfe8", "Nc6", "Bb4", "exd5", "cxd4")
 
 
-def _ground_board(seed: int, goal: str, mode: str) -> list[dict]:
+def _ground_board(seed: int, plan_text: str) -> list[dict]:
+    """First action = read the board. The PLAN (goal+checklist) rides in this turn's native
+    reasoning channel, so it's committed before any action (probe-verified clean render)."""
     lm = random.Random(seed * 47 + 9).choice(_LAST_MOVES)
-    call = _join(gated_think(seed, "board_state", 0, mode=mode, kind="routine", goal=goal, have=""),
-                 "Reading the game first.", "<tool>board_state fields=all</tool>")
     result = f"board_state: turn=white, last_move={lm}, check=no, legal_count=31"
-    return [{"role": "assistant", "content": call}, {"role": "tool", "content": result}]
-
-
-def _pick(seed: int, step: int, pool: tuple[str, ...]) -> str:
-    return random.Random(seed * 31 + step).choice(pool)
-
-
-def _join(*parts: str) -> str:
-    return "\n".join(p for p in parts if p)
+    call = tool_call_msg("board_state", {"fields": "all"})
+    call["reasoning"] = plan_text
+    return [call, tool_result_msg("board_state", result)]
 
 
 def _compound_prompt(r: random.Random, a: Specialist, b: Specialist) -> str:
@@ -52,19 +43,14 @@ def _compound_prompt(r: random.Random, a: Specialist, b: Specialist) -> str:
                      f"{pa} — and {pb} while you're at it"))
 
 
-def _box_steps(seed: int, spec: Specialist, step0: int, goal: str, mode: str) -> tuple[list[dict], str]:
+def _box_steps(seed: int, spec: Specialist, step0: int) -> tuple[list[dict], str]:
     """One box = load skill -> call its tool. Returns (messages, finding)."""
     call, tool_result, finding = scene(spec, seed + step0)
-    tool_call = f"<tool>{spec.tool}{(' ' + call) if call else ''}</tool>"
     msgs = [
-        {"role": "assistant", "content": _join(
-            gated_think(seed, "load_skill", step0, mode=mode, kind="select", goal=goal),
-            _pick(seed, step0, _LEAD_LOAD), f"<skill>{spec.skill}</skill>")},
-        {"role": "tool", "content": spec.body()},
-        {"role": "assistant", "content": _join(
-            gated_think(seed, spec.tool, step0 + 1, mode=mode, kind="execute", goal=goal, have="skill"),
-            _pick(seed, step0 + 1, _LEAD_TOOL), tool_call)},
-        {"role": "tool", "content": tool_result},
+        skill_call_msg(spec.skill),
+        tool_result_msg("load_skill", spec.body()),
+        tool_call_msg(spec.tool, scene_args(call)),
+        tool_result_msg(spec.tool, tool_result),
     ]
     return msgs, finding
 
@@ -76,31 +62,25 @@ def render_compound_plan_row(seed: int) -> dict[str, Any]:
     # Commit BOTH goals (compound request = two distinct asks), then plan covers each.
     goal_a = f"the {a.skill.replace('-', ' ')} ask"
     goal_b = f"the {b.skill.replace('-', ' ')} ask"
-    goal_text = f"{goal_a} and {goal_b}"
     boxes = [(f"handle the {a.skill.replace('-', ' ')} part", a.skill),
              (f"handle the {b.skill.replace('-', ' ')} part", b.skill),
              ("synthesize one combined answer", "none")]
+    plan_text = goal_block(seed, [goal_a, goal_b]) + "\n" + plan_block(boxes)
 
-    messages: list[dict[str, str]] = [{"role": "user", "content": _compound_prompt(rng, a, b)}]
-    messages.append({"role": "assistant",
-                     "content": goal_block(seed, [goal_a, goal_b]) + "\n" + plan_block(boxes)})
-    messages += _ground_board(seed, goal_text, mode)   # establish the game-in-progress first
-    box_a, finding_a = _box_steps(seed, a, 1, goal_text, mode)
+    messages: list[dict[str, Any]] = [{"role": "user", "content": _compound_prompt(rng, a, b)}]
+    messages += _ground_board(seed, plan_text)         # plan rides the first turn's channel
+    box_a, finding_a = _box_steps(seed, a, 1)
     messages += box_a
-    box_b, finding_b = _box_steps(seed, b, 3, goal_text, mode)
+    box_b, finding_b = _box_steps(seed, b, 3)
     messages += box_b
     messages.append({"role": "assistant",
                      "content": f"On the first: {finding_a}. On the second: {finding_b}."})
     return _envelope(seed, messages, [a.skill, b.skill], mode)
 
 
-import re as _re
-_TOOL = _re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
-
-
 def _envelope(seed: int, messages: list[dict], selected: list[str], mode: str) -> dict[str, Any]:
-    expected = [m for c in (msg["content"] for msg in messages if msg["role"] == "assistant")
-                for m in _TOOL.findall(c)]
+    expected = [tc["name"] for msg in messages if msg["role"] == "assistant"
+                for tc in tool_calls_of(msg) if tc["name"] != "load_skill"]
     return {
         "id": f"v1_s_compound_{seed:09d}",
         "slice": "V1_S_compound_plan",

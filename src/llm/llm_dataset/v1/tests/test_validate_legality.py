@@ -1,5 +1,6 @@
 """Validator must hard-reject a move that is illegal in the row's position_fen,
 and a board_state result whose turn disagrees with the FEN side."""
+from llm_dataset.v1.renderer.tags import skill_call_msg, tool_call_msg
 from llm_dataset.v1.validate import validate_row
 
 WHITE_START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -24,9 +25,9 @@ def _row(fen, san, board_turn="white"):
         "grounding_sources": ["board_state"],
         "messages": [
             {"role": "user", "content": f"play {san}"},
-            {"role": "assistant", "content": "<skill>chess-coach</skill>"},
+            skill_call_msg("chess-coach"),
             {"role": "tool", "content": "Ground in Stockfish output. score: +0.1"},
-            {"role": "assistant", "content": f"<tool>move san={san}</tool>"},
+            tool_call_msg("move", {"san": san}),
             {"role": "tool", "content": f"success: {san}"},
             {"role": "assistant", "content": f"Played {san}."},
         ],

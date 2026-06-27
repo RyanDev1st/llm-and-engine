@@ -3,9 +3,9 @@ half-answer on a MULTI-STEP request?
 
 The Stage-1 failure a small model makes: a request needs several tools, the model
 fires one (or zero), then writes a confident partial answer. This harness rolls
-each COMPOUND case (two domains -> two required tools) forward to the model's
-final reply against a SCRIPTED executor, measures how many required tools fired
-FIRST, and A/Bs the goal anchor ON (plan mode) vs OFF (fast mode).
+each COMPOUND case (two pure-chess specialists -> two required tools) forward to
+the model's final reply against a SCRIPTED executor, measures how many required
+tools fired FIRST, and A/Bs the goal anchor ON (plan mode) vs OFF (fast mode).
 
 Per condition:
 - silent_early_stop_rate : final before both tools, no blocker named (PRIMARY, lower better)
@@ -15,9 +15,14 @@ Per condition:
 
 reduction = silent_early_stop_rate(off) - silent_early_stop_rate(on)   (>0 => goal helps)
 
-Scoring is by OBJECTIVE (both domain tools' findings gathered), not exact action
+Scoring is by OBJECTIVE (both specialist tools' findings gathered), not exact action
 match, so a different-but-valid path is not wrongly flagged. Needs the trained
 model (noisy on a tiny scout — meaningful at the full E4B run).
+
+v5-native: the model emits Gemma's native tool calls (`<|tool_call>call:NAME{…}<tool_call|>`)
+and the plan rides the native thinking channel, so the rollout parses `call:NAME` and
+stops on the native markers. Pure-chess: compound cases pair two chess specialists, no
+external domains module.
 
 Run after training:  python -m llm_training.eval_early_stop runs/gemma4_chess
 """
@@ -25,23 +30,24 @@ from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from llm_dataset.v1.domains import REAL_DOMAINS  # noqa: E402
+from llm_dataset.v1.renderer.tags import skill_call_msg, tool_call_msg, tool_result_msg  # noqa: E402
 from llm_training.system_prompt import build_system  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
 MAX_STEPS = 8           # rollout cap (matches serve MAX_TOOL_CALLS headroom)
-STEP_TOKENS = 96        # enough for a lead-in + one action, or a short final
-PLUGINS = {"installed": ["user-skills"], "enabled": ["user-skills"], "marketplace": []}
+STEP_TOKENS = 96        # enough for one native action, or a short final
+PLUGINS: dict = {}      # flat pure-chess catalog has no plugin context
 
 _BLOCKER = re.compile(r"\b(block|can'?t|cannot|unable|couldn'?t|disabled|stuck)\b", re.I)
-_SKILL_OPEN = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)")
-_TOOL_OPEN = re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
-_PANEL = re.compile(r"</?(?:goal|plan)>")     # plan-mode panel turn (not an action, not a final)
+# native: an action is `…call:NAME{…}…` (load_skill is the skill action).
+_CALL = re.compile(r"call:\s*([A-Za-z0-9_][\w-]*)")
+_PANEL = re.compile(r"</?(?:goal|plan)>")     # plan-mode panel text (rides the thinking channel)
+STOP = ["<tool_call|>", "<turn|>"]            # native end-of-action / end-of-turn markers
 
 
 class ModelBackend(Protocol):
@@ -49,36 +55,70 @@ class ModelBackend(Protocol):
 
 
 @dataclass
-class Case:
-    a: object            # Domain
-    b: object            # Domain
+class _Dom:
+    """A pure-chess specialist: its skill, the tool it owns, and the scripted
+    grounded body/result the executor returns. Mirrors the served specialists."""
+    skill: str
+    description: str
+    tool: str
+    tool_args: dict
     prompt: str
-    skills_index: list
-    tool_manifest: list
+    body: str
+    result: str
 
 
-def _skill_entry(d) -> dict:
-    return {"name": d.skill, "description": d.description, "plugin": "user-skills",
-            "source": "user_skill", "enabled": True}
+# Four chess specialists, drawn from the flat v5 catalog (catalog.SPECIALIST_*). Each
+# owns ONE distinct tool so a compound prompt has two clearly-required tools.
+CHESS_DOMAINS: list[_Dom] = [
+    _Dom("opening-advisor", "What opening this is, or opening plans/theory.",
+         "name_opening", {}, "what opening is this",
+         "# opening-advisor\nCall name_opening, then report the opening and its plan.",
+         "opening: Ruy Lopez, Morphy Defense"),
+    _Dom("game-reviewer", "How the user played overall, accuracy, blunders.",
+         "find_blunders", {"depth": "required"}, "find my blunders in this game",
+         "# game-reviewer\nCall find_blunders, then report the blunders found.",
+         "blunders: move 14 Qh5 (best was Nf3, -2.10 pawns)"),
+    _Dom("tactical-puzzles", "Give a tactical puzzle to practice.",
+         "fetch_puzzle", {}, "give me a tactical puzzle to solve",
+         "# tactical-puzzles\nCall fetch_puzzle, then present the puzzle.",
+         "puzzle: white to move, mate in 2, theme=back-rank"),
+    _Dom("chess-coach", "Analyze the live position and choose moves.",
+         "eval", {"depth": "required"}, "how am I doing right now",
+         "# chess-coach\nUse board/eval tools before any claim.",
+         "eval: +0.80 pawns (White slightly better)"),
+]
 
 
-def _tool_entry(d) -> dict:
-    return {"name": d.tool, "description": f"Domain tool for {d.skill}.", "args": d.tool_args,
-            "applies_when": "always", "plugin": "user-skills", "source": "user_skill", "enabled": True}
+@dataclass
+class Case:
+    a: _Dom
+    b: _Dom
+    prompt: str
+    skills_index: list = field(default_factory=list)
+    tool_manifest: list = field(default_factory=list)
+
+
+def _skill_entry(d: _Dom) -> dict:
+    return {"name": d.skill, "description": d.description}
+
+
+def _tool_entry(d: _Dom) -> dict:
+    return {"name": d.tool, "description": f"Specialist tool for {d.skill}.",
+            "args": d.tool_args, "applies_when": "always"}
 
 
 def build_cases(n: int) -> list[Case]:
-    """n compound cases pairing two distinct real domains; 2 distractor skills each."""
+    """n compound cases pairing two distinct chess specialists; up to 4 listed skills."""
     cases: list[Case] = []
-    m = len(REAL_DOMAINS)
+    m = len(CHESS_DOMAINS)
     for i in range(n):
-        a = REAL_DOMAINS[i % m]
-        b = REAL_DOMAINS[(i * 7 + 3) % m]
+        a = CHESS_DOMAINS[i % m]
+        b = CHESS_DOMAINS[(i * 7 + 3) % m]
         if b.skill == a.skill:
-            b = REAL_DOMAINS[(i + 1) % m]
-        prompt = f"{a.prompts[0]}, and also {b.prompts[0]}"
+            b = CHESS_DOMAINS[(i + 1) % m]
+        prompt = f"{a.prompt}, and also {b.prompt}"
         index = [_skill_entry(a), _skill_entry(b)]
-        for d in REAL_DOMAINS:
+        for d in CHESS_DOMAINS:
             if len(index) >= 4:
                 break
             if d.skill not in (a.skill, b.skill):
@@ -89,21 +129,21 @@ def build_cases(n: int) -> list[Case]:
 
 def _execute(name: str, kind: str, case: Case) -> str:
     """Scripted executor: a skill load returns its terse body; a tool returns its
-    first scene's grounded result. Mirrors the V1_S compound renderer exactly."""
+    grounded result. Mirrors the compound renderer exactly."""
     if kind == "skill":
         d = {case.a.skill: case.a, case.b.skill: case.b}.get(name)
-        return f"# {d.skill}\nUse {d.tool} for this, then report the finding." if d else "error: unknown_skill"
+        return d.body if d else "error: unknown_skill"
     d = {case.a.tool: case.a, case.b.tool: case.b}.get(name)
-    return d.scenes[0][1] if d else "error: unknown_tool"
+    return d.result if d else "error: unknown_tool"
 
 
-def _close(out: str) -> str:
-    out = out.strip()
-    if "<tool>" in out and "</tool>" not in out:
-        return out + "</tool>"
-    if "<skill>" in out and "</skill>" not in out:
-        return out + "</skill>"
-    return out
+def _skill_arg(out: str) -> str:
+    """Pull the skill name from a native load_skill call: `name:<|"|>NAME<|"|>` —
+    strip the quote markers liberally so it survives the exact native render."""
+    m = re.search(r"name:([^,}]+)", out)
+    if not m:
+        return ""
+    return re.sub(r"[^A-Za-z0-9_-]+", "", m.group(1))
 
 
 def rollout(model: ModelBackend, system: str, case: Case) -> tuple[str, set, int]:
@@ -112,23 +152,23 @@ def rollout(model: ModelBackend, system: str, case: Case) -> tuple[str, set, int
     fired: set[str] = set()
     steps = 0
     for _ in range(MAX_STEPS):
-        out = model.generate(convo, STEP_TOKENS, ["</tool>", "</skill>"]).strip()
-        tl, sk = _TOOL_OPEN.search(out), _SKILL_OPEN.search(out)
-        if tl:
-            name = tl.group(1)
-            fired.add(name)
+        out = model.generate(convo, STEP_TOKENS, STOP).strip()
+        call = _CALL.search(out)
+        if call:
+            name = call.group(1)
             steps += 1
-            convo += [{"role": "assistant", "content": _close(out)},
-                      {"role": "tool", "content": _execute(name, "tool", case)}]
-        elif sk:
-            name = sk.group(1)
-            steps += 1
-            convo += [{"role": "assistant", "content": _close(out)},
-                      {"role": "tool", "content": _execute(name, "skill", case)}]
+            if name == "load_skill":
+                skill = _skill_arg(out)
+                convo += [skill_call_msg(skill),
+                          tool_result_msg("load_skill", _execute(skill, "skill", case))]
+            else:
+                fired.add(name)
+                convo += [tool_call_msg(name, {}),
+                          tool_result_msg(name, _execute(name, "tool", case))]
         elif _PANEL.search(out):
-            # plan-mode panel turn (<goal>/<plan>): commit it and KEEP GOING — it is
-            # NOT the final answer (the model proceeds to work each box next). Without
-            # this, the harness would mis-score the panel as an instant early-stop.
+            # a thinking-only panel turn (<goal>/<plan> with no call): commit it and KEEP
+            # GOING — it is NOT the final answer. Native usually folds the panel into the
+            # same turn as the first call (handled above); this is the defensive case.
             convo.append({"role": "assistant", "content": out})
         else:
             return out, fired, steps          # plain final reply
