@@ -41,6 +41,10 @@ DEFAULT_PLAN: dict[str, int] = {
     "J": 90,    # greeting / capabilities
     "K": 90,    # general chess Q&A
     "V1_P_multiturn_followup": 200,   # multi-turn dialogue state (chess)
+    # keystones, refocused to chess: verify-by-running-python, multi-skill plan, audited plan.
+    "V1_R_compute_grounding": 80,     # verify a chess number via the python tool, don't assert
+    "V1_S_compound_plan": 70,         # two-specialist chess plan (review + opening), anti-early-stop
+    "V1_T_audited_plan": 70,          # chess plan with python-audited boxes + split-determinism
 }
 
 

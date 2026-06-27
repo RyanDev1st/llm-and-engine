@@ -1,59 +1,45 @@
 """Stage 2 — V1_T_audited_plan: a self-authored checklist whose CHECKABLE boxes are
 verified by RUNNING the python tool and reading stdout, never by asserting.
 
-This is the Stage-0 verify-then-claim shape (renderer/compute.py) scaled to a
-multi-box plan: the model commits the goal(s), authors a <plan>, loads the
-`plan-audit` skill (the procedure), then for each tool-checkable box runs python
-and grounds the box's verdict in the real output. Three things it teaches that
-Stage 1 doesn't:
-  1. audit-via-tool — a box is closed by a tool result, not a claim (the executor
-     is the source of truth, so a 4B can't fabricate the audit).
-  2. split determinism (handoff §2 call #3) — a SEMANTIC box ("is my essay good?")
-     is left SOFT: stated as a judgment, NOT tool-audited (no audit theater).
-  3. honest-partial loop-cap — when the audit procedure can't run (skill disabled),
-     clear what you can and report the blocker instead of faking a box.
+The Stage-0 verify-then-claim shape (renderer/compute.py) scaled to a multi-box plan, in
+the product's domain: the boxes are CHESS claims (material points, accuracy, score swing —
+the chess compute families), audited via python. The model commits the goal(s), authors a
+<plan>, loads the `plan-audit` skill, then for each tool-checkable box runs python and
+grounds the verdict in the real output. It also teaches split determinism: a SEMANTIC box
+("is my position actually better?") is left SOFT — a judgment, not a faked tool check.
 
-Seq is the go/no-go gate (handoff §2 #6): contract floor + audit-skill body + per-box
-python call + result is heavy, so this slice is deliberately terse — 2 boxes, the ONE
-canonical CALC_TEMPLATE script per box (plug-and-play), one-line audit body. The token
-gate (scripts/final_corpus_audit.py) is the backstop; a realistic chain is measured here.
-"""
+v5 pure-chess + flat catalog. Honest-partial (disabled-skill) is dropped — it has no
+trigger in a flat catalog; the audit-via-tool + split-determinism lessons remain."""
 from __future__ import annotations
 
 import random
 from typing import Any
 
-from ..catalog import compute_tools
+from ..catalog import chess_skills, chess_tools
 from .compute import _VERIFY, _exec
-from .planning import goal_block, partial_report, plan_block
-from .thinking import gated_think, prepend_open_goal
+from .planning import goal_block, plan_block
+from .thinking import gated_think
 
-# The audit PROCEDURE skill (progressive disclosure): load it for a checkable goal.
-AUDIT_SKILL = {
-    "name": "plan-audit",
-    "description": "Verify a goal's checkable claims by running a tool and reading its output, not by asserting.",
-    "plugin": "user-skills", "source": "user_skill", "enabled": True,
-}
 _AUDIT_BODY = (
     "# plan-audit\n"
     "When to use: a goal with checkable claims you must not just assert.\n"
     "Steps:\n"
     "1. For each checkable box, run the python tool and read its output.\n"
     "2. Mark the box from that output — never state a number you didn't run.\n"
-    "3. Leave judgment/semantic boxes soft; say so, don't fake a tool check.\n"
+    "3. Leave judgment/positional boxes soft; say so, don't fake a tool check.\n"
     "Constraint: if a box can't be verified, report it and stop — don't spin."
 )
 
-# Semantic (NOT tool-checkable) box prompts + the soft, non-audited read the model gives.
+# Semantic (NOT tool-checkable) chess box prompts + the soft, non-audited read.
 _SEMANTIC = (
-    ("is my cover letter persuasive enough", "and whether my cover letter reads as persuasive"),
-    ("does my study plan look sensible", "and whether my study plan looks sensible"),
-    ("is my apology email warm enough", "and whether my apology email feels warm"),
-    ("does my bio sound confident", "and whether my bio sounds confident"),
+    ("is my position actually better", "and whether my position is genuinely better"),
+    ("does my attack look sound", "and whether my attack looks sound"),
+    ("is my pawn structure okay", "and whether my pawn structure holds up"),
+    ("does my middlegame plan make sense", "and whether my plan makes sense"),
 )
 _SOFT_VERDICT = (
-    "that's a judgment call, not a tool check — to my read it mostly works, but I won't fake a measured verdict on it",
-    "I can't run that one — it's qualitative, so I'll give my honest read rather than a fake audit number",
+    "that's a judgment call, not a tool check — to my read it mostly holds, but I won't fake a measured verdict on it",
+    "I can't run that one — it's positional, so I'll give my honest read rather than a fake audit number",
 )
 _LEAD_LOAD = ("Loading the audit procedure.", "Pulling up how to audit this.", "First, the audit skill.")
 _LEAD_RUN = ("Running the check.", "Verifying that box now.", "Let me run the numbers, not guess them.")
@@ -68,24 +54,13 @@ def _join(*parts: str) -> str:
 
 
 def _box(seed: int, fam, idx: int) -> tuple[str, str, str]:
-    """One tool-checkable box: (user-fragment, python script, grounded verdict).
-    Reuses a compute.py verify family — its build() turns the real executor output
-    into the box's verdict, so the audit value is grounded, never asserted."""
+    """One tool-checkable box: (user-fragment, python script, grounded verdict). Reuses a
+    chess compute verify family — build() turns the real executor output into the verdict,
+    so the audit value is grounded, never asserted."""
     r = random.Random(seed * 101 + idx * 7)
     prompt, code, build = fam(r)
     val = _exec(code).split("output: ", 1)[1]      # exact executor stdout -> grounded
     return prompt, code, build(val)
-
-
-def _index(rng: random.Random, partial: bool) -> list[dict]:
-    """plan-audit (disabled when honest-partial) + 2 distractor skills."""
-    entries = [{**AUDIT_SKILL, "enabled": not partial}]
-    from ..domains import REAL_DOMAINS
-    for d in rng.sample(REAL_DOMAINS, 2):
-        entries.append({"name": d.skill, "description": d.description,
-                        "plugin": "market-tactics", "source": "marketplace_plugin", "enabled": True})
-    rng.shuffle(entries)
-    return entries
 
 
 def _run_step(seed: int, code: str, step: int, goal: str, mode: str) -> list[dict]:
@@ -98,8 +73,7 @@ def _run_step(seed: int, code: str, step: int, goal: str, mode: str) -> list[dic
 def render_audited_plan_row(seed: int) -> dict[str, Any]:
     rng = random.Random(seed)
     mode = "plan"
-    partial = (seed % 8 == 0)                       # ~12% honest-partial (audit skill disabled)
-    semantic = (not partial) and (seed % 4 == 1)    # ~22% split-determinism (one soft box)
+    semantic = (seed % 4 == 1)                      # ~25% split-determinism (one soft box)
 
     fam_a = rng.choice(_VERIFY)
     p_a, code_a, verdict_a = _box(seed, fam_a, 0)
@@ -127,33 +101,21 @@ def render_audited_plan_row(seed: int) -> dict[str, Any]:
         _pick(seed, 1, _LEAD_LOAD), "<skill>plan-audit</skill>")})
     messages.append({"role": "tool", "content": _AUDIT_BODY})
 
-    if partial:
-        # audit skill disabled -> can't run the procedure; honest-partial, don't fake it.
-        final = partial_report(boxes, 0, "the plan-audit skill is disabled in this manifest")
-        messages[-2]["content"] = _join(                 # no skill body delivered; abort cleanly
-            gated_think(seed, "load_skill", 1, mode=mode, kind="select", goal=goal_text),
-            "I can't load the audit procedure here.")
-        messages.pop()                                   # drop the skill-body tool turn
-        messages.append({"role": "assistant", "content": final})
-        return _envelope(seed, messages, _index(rng, True), [], mode)
-
     messages += _run_step(seed, code_a, 2, goal_text, mode)
     if semantic:
-        soft = _pick(seed, 5, _SOFT_VERDICT)
-        final = f"On the first: {verdict_a} On the second: {soft}."
+        final = f"On the first: {verdict_a} On the second: {_pick(seed, 5, _SOFT_VERDICT)}."
     else:
         messages += _run_step(seed, code_b, 4, goal_text, mode)
         final = f"On the first: {verdict_a} On the second: {verdict_b}"
     messages.append({"role": "assistant", "content": final})
-    return _envelope(seed, messages, _index(rng, False), ["plan-audit"], mode)
+    return _envelope(seed, messages, ["plan-audit"], mode)
 
 
 import re as _re
 _TOOL = _re.compile(r"<tool>\s*([a-z_][a-z0-9_]*)")
 
 
-def _envelope(seed: int, messages: list[dict], skills_index: list[dict],
-              selected: list[str], mode: str) -> dict[str, Any]:
+def _envelope(seed: int, messages: list[dict], selected: list[str], mode: str) -> dict[str, Any]:
     expected = [m for c in (msg["content"] for msg in messages if msg["role"] == "assistant")
                 for m in _TOOL.findall(c)]
     return {
@@ -162,11 +124,10 @@ def _envelope(seed: int, messages: list[dict], skills_index: list[dict],
         "kind": "audited_plan",
         "reasoning_mode": mode,
         "intent": f"v1_t_{seed:06d}",
-        "plugin_context": {"installed": ["user-skills", "market-tactics"],
-                           "enabled": ["user-skills"], "marketplace": []},
-        "skills_index": skills_index,
+        "plugin_context": {},
+        "skills_index": chess_skills(),
         "selected_skills": selected,
-        "tool_manifest": compute_tools(),
+        "tool_manifest": chess_tools(),
         "expected_tool_calls": expected,
         "grounding_sources": [],
         "messages": messages,

@@ -80,6 +80,7 @@ SPECIALIST_SKILLS: list[dict[str, Any]] = [
     {"name": "game-reviewer", "description": "Use when the user asks how they played overall, their accuracy, or to find blunders across the game."},
     {"name": "opening-advisor", "description": "Use when the user asks what opening this is, or for opening plans, theory, or a repertoire."},
     {"name": "tactical-puzzles", "description": "Use when the user wants a tactical puzzle, to practice or hone tactics, or to be coached through a combination."},
+    {"name": "plan-audit", "description": "Verify a plan's checkable claims by running the numbers (the python tool) and reading the output, not by asserting them."},
 ]
 
 SPECIALIST_TOOLS: list[dict[str, Any]] = [

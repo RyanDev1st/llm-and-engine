@@ -1,6 +1,7 @@
-"""Stage 2 — V1_T_audited_plan: the audit slice verifies checkable boxes by RUNNING
-the python tool and reading output (never asserting), splits determinism on semantic
-boxes, and aborts honest-partial when the audit skill is disabled."""
+"""Stage 2 — V1_T_audited_plan (pure-chess v5): the audit slice verifies checkable CHESS
+boxes by RUNNING the python tool and reading output (never asserting) and splits
+determinism on a positional/semantic box. Honest-partial (disabled-skill abort) was
+dropped in v5 — a flat catalog has no disabled-skill trigger."""
 from collections import Counter
 
 from llm_dataset.v1.renderer.audited_plan import render_audited_plan_row
@@ -22,11 +23,11 @@ def test_all_rows_validate_clean():
     assert not fails, fails[:3]
 
 
-def test_three_shapes_present_in_expected_proportions():
+def test_both_shapes_present_in_expected_proportions():
     shapes = Counter(_shape(render_audited_plan_row(s)) for s in range(400))
-    assert shapes["full_audit"] > 200          # the dominant lesson
+    assert shapes["full_audit"] > 250           # the dominant lesson
     assert shapes["semantic_split"] > 50        # split-determinism (soft box)
-    assert shapes["honest_partial"] > 20        # loop-cap abort
+    assert shapes["honest_partial"] == 0        # dropped in v5 (no disabled-skill trigger)
 
 
 def test_full_audit_runs_one_python_per_checkable_box():
@@ -44,16 +45,6 @@ def test_semantic_box_is_not_tool_audited():
     final = row["messages"][-1]["content"].lower()
     assert py_calls == 1                                    # only the checkable box audited
     assert "judgment call" in final or "qualitative" in final  # soft box stated, not faked
-
-
-def test_honest_partial_when_audit_skill_disabled():
-    row = next(render_audited_plan_row(s) for s in range(50) if _shape(render_audited_plan_row(s)) == "honest_partial")
-    assert row["selected_skills"] == []                     # no skill loaded -> abort
-    audit = next(s for s in row["skills_index"] if s["name"] == "plan-audit")
-    assert audit["enabled"] is False
-    assert "couldn't finish" in row["messages"][-1]["content"] or "blocked" in row["messages"][-1]["content"].lower() \
-        or "disabled" in row["messages"][-1]["content"].lower()
-    assert not validate_row(row)                            # honest-partial is exempt from the audit gate
 
 
 def test_audit_gate_rejects_assert_without_running():

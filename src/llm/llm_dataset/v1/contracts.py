@@ -1,24 +1,11 @@
 from __future__ import annotations
 
+# v5 pure-chess slice set: chess coaching core (A-K) + multi-turn + the chess-refocused
+# keystones. The cross-domain universality/marketplace/routing slices (V1_A-O, V1_Q) were
+# dropped with their renderers (archived to legacy [ignore]/).
 SLICES = (
     "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K",
-    "V1_A_skill_index_selection",
-    "V1_B_skill_conflict_and_absence",
-    "V1_C_dynamic_tool_schema",
-    "V1_D_tool_unavailable_and_readonly",
-    "V1_E_board_grounding",
-    "V1_F_special_chess_rules",
-    "V1_G_multi_tool_budget",
-    "V1_H_error_recovery",
-    "V1_I_eval_language",
-    "V1_J_no_tool_and_mixed_intent",
-    "V1_K_adversarial_injection",
-    "V1_L_rejects_and_audit_fixtures",
-    "V1_M_marketplace_navigation",
-    "V1_N_human_chat_skill_bridge",
-    "V1_O_cross_domain_skill_routing",
     "V1_P_multiturn_followup",
-    "V1_Q_no_skill_direct",
     "V1_R_compute_grounding",
     "V1_S_compound_plan",
     "V1_T_audited_plan",

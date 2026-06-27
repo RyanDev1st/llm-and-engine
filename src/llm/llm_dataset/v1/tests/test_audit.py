@@ -31,12 +31,6 @@ def missing_for(accepted, rejected, audit_profile=None):
     )
 
 
-def test_missing_enforces_universality_slice_floor():
-    accepted = [row() for _ in range(59)]
-    rejected = [row() for _ in range(800)]
-    assert "V1_A_skill_index_selection accepted < 60" in missing_for(accepted, rejected)
-
-
 def test_missing_enforces_rule_coverage_floor():
     accepted = [row(rules=["engine_grounded"]) for _ in range(199)]
     rejected = [row() for _ in range(800)]

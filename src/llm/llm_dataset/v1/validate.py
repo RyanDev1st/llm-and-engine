@@ -316,6 +316,10 @@ def _has_move_history(messages: list[dict[str, str]]) -> bool:
         text = message.get("content", "").lower()
         if ("move:" in text and "success" in text) or text.startswith("success:"):
             return True
+        # A board read showing a real last move proves a game is in progress (the
+        # post-game review context that licenses has_history tools).
+        if text.startswith("board_state:") and "last_move=" in text and "last_move=none" not in text:
+            return True
     return False
 
 
