@@ -1,7 +1,24 @@
 from collections import Counter
 
-from llm_dataset.v1.audit import _missing
+from llm_dataset.v1.audit import _grounded_why_fraction, _missing
 from llm_dataset.v1.profiles import profile
+
+
+def _answer(slice_name, final):
+    return {"slice": slice_name, "messages": [{"role": "assistant", "content": final}]}
+
+
+def test_grounded_why_fraction_detects_reason_vs_bare_line():
+    # The 80%-no-why guard: a reason clause scores, a bare move+line+standing does NOT.
+    grounded = _answer("E", "Bb5 is the move — it pins the knight to the king. The line runs Bb5 Nf6.")
+    bare = _answer("E", "Bb5 is the move; the line runs Bb5 Nf6 Bxc6. White is clearly better.")
+    review = _answer("F", "Nf3 was a blunder — Qxh8 was stronger, since it picks off the rook.")
+    assert _grounded_why_fraction([grounded]) == 1.0
+    assert _grounded_why_fraction([bare]) == 0.0
+    assert _grounded_why_fraction([review]) == 1.0
+    assert _grounded_why_fraction([grounded, bare]) == 0.5
+    # only E/F count; other slices are ignored (no why expected there)
+    assert _grounded_why_fraction([_answer("G", "No threat right now.")]) == 1.0
 
 
 def row(slice_name="V1_A_skill_index_selection", rules=None, final="Specific answer.", user="What should I do?"):
