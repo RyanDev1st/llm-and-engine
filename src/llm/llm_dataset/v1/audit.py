@@ -39,7 +39,6 @@ _WHY_VOCAB = (
     "exactly right", "nothing better", "good move", "holds up", "sound choice", "stronger",
     "keeps more", "inaccuracy", "mistake", "blunder",
 )
-_LOAD_SKILL = re.compile(r"<skill>\s*([A-Za-z0-9_][A-Za-z0-9_-]*)\s*</skill>")
 GENERIC_FINAL_PATTERNS = (
     "i read the index",
     "picked the right skill",
@@ -174,13 +173,20 @@ def _synthetic_share(rows: list[dict]) -> float:
 
 
 def _loaded_skill_diversity(rows: list[dict]) -> int:
-    """Distinct skills the agent actually LOADS via load_skill (was 2 before
-    cross-domain routing). Measures whether routing generalizes by description."""
+    """Distinct skills the agent actually LOADS via the native load_skill{name} call
+    (was 2 before cross-domain routing). Measures whether routing generalizes by
+    description."""
     names: set[str] = set()
     for row in rows:
         for message in row.get("messages", []):
-            if message.get("role") == "assistant":
-                names.update(_LOAD_SKILL.findall(message.get("content", "")))
+            if message.get("role") != "assistant":
+                continue
+            for tc in message.get("tool_calls") or []:
+                fn = tc.get("function", tc)
+                if fn.get("name") == "load_skill":
+                    name = (fn.get("arguments") or {}).get("name")
+                    if name:
+                        names.add(name)
     return len(names)
 
 

@@ -16,6 +16,7 @@ from .renderer.compound_plan import render_compound_plan_row
 from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
 from .renderer.specialist_routing import render_specialist_routing_row
+from .renderer.tags import skill_call_msg, tool_call_msg
 from .sampler import (
     AUDIT_SLICES, CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE,
     plan_scenarios,
@@ -167,18 +168,22 @@ def _audit_rejects(rows: list[dict], needed: int) -> list[dict]:
     if needed <= 0:
         return []
     rejects: list[dict] = []
+    # v5-native: each mutation injects a STRUCTURED violation the native validator
+    # actually rejects (text-only <tool>/<skill> tags are ignored now). Every fixture
+    # fires at least one unconditional rule (not gated on optional acceptance_rules or a
+    # plugin_context the flat pure-chess corpus doesn't carry).
     fixtures = (
         ("audit_fixture: undeclared_tool", _bad_undeclared_tool),
-        ("audit_fixture: final_xml", _bad_final_xml),
+        ("audit_fixture: final_markup_leak", _bad_final_markup),
         ("audit_fixture: duplicate_tool", _bad_duplicate_tool),
-        ("audit_fixture: invalid_arg", _bad_invalid_arg),
-        ("audit_fixture: disabled_plugin_tool", _bad_disabled_plugin_tool),
-        ("audit_fixture: uninstalled_market_tool", _bad_uninstalled_market_tool),
+        ("audit_fixture: extra_arg", _bad_extra_arg),
+        ("audit_fixture: two_tools_one_step", _bad_two_tools_one_step),
+        ("audit_fixture: over_budget_calls", _bad_over_budget),
         ("audit_fixture: absent_skill", _bad_absent_skill),
-        ("audit_fixture: false_install_claim", _bad_false_install_claim),
-        ("audit_fixture: skipped_helper_skill", _bad_skipped_helper_skill),
-        ("audit_fixture: helper_tool_before_skill", _bad_helper_tool_before_skill),
-        ("audit_fixture: irrelevant_skill_selected", _bad_irrelevant_skill_selected),
+        ("audit_fixture: undeclared_install", _bad_undeclared_install),
+        ("audit_fixture: bad_skill_arg", _bad_skill_arg),
+        ("audit_fixture: missing_required_arg", _bad_missing_required_arg),
+        ("audit_fixture: irrelevant_skill", _bad_irrelevant_skill),
     )
     for idx, row in enumerate(rows):
         reason, mutate = fixtures[idx % len(fixtures)]
@@ -191,76 +196,69 @@ def _audit_rejects(rows: list[dict], needed: int) -> list[dict]:
 
 
 def _bad_undeclared_tool(messages: list[dict]) -> list[dict]:
+    # a structured call to a tool not in the manifest -> known_tool_only
+    return messages[:-1] + [tool_call_msg("undeclared_probe", {"input": "x"}), messages[-1]]
+
+
+def _bad_final_markup(messages: list[dict]) -> list[dict]:
+    # raw native control markup leaks into the user-facing final -> final_no_xml
     return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>undeclared_probe input=x</tool>"},
-        messages[-1],
+        {"role": "assistant", "content": "Final leaks <|tool_call>call:eval{depth:15}<tool_call|>."}
     ]
-
-
-def _bad_final_xml(messages: list[dict]) -> list[dict]:
-    return messages[:-1] + [{"role": "assistant", "content": "Final leaks <tool>eval depth=15</tool>."}]
 
 
 def _bad_duplicate_tool(messages: list[dict]) -> list[dict]:
-    return [
-        {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
-        {"role": "assistant", "content": "<tool>board_state fields=basic</tool>"},
-    ]
+    # the same structured call twice -> no_exact_duplicate_call
+    call = tool_call_msg("board_state", {"fields": "basic"})
+    return [messages[0], call, dict(call), messages[-1]]
 
 
-def _bad_invalid_arg(messages: list[dict]) -> list[dict]:
-    return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>board_state fields=basic extra=bad</tool>"},
-        messages[-1],
-    ]
+def _bad_extra_arg(messages: list[dict]) -> list[dict]:
+    # an arg not in the tool's schema -> args_match_schema (extras)
+    return messages[:-1] + [tool_call_msg("board_state", {"fields": "basic", "extra": "bad"}), messages[-1]]
 
 
-def _bad_disabled_plugin_tool(messages: list[dict]) -> list[dict]:
-    return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>market_scan input=position</tool>"},
-        messages[-1],
-    ]
+def _bad_two_tools_one_step(messages: list[dict]) -> list[dict]:
+    # two structured calls in ONE inference step -> one_tool_per_message
+    two = {"role": "assistant", "content": "", "tool_calls": [
+        {"type": "function", "function": {"name": "board_state", "arguments": {"fields": "basic"}}},
+        {"type": "function", "function": {"name": "eval", "arguments": {"depth": 15}}},
+    ]}
+    return messages[:-1] + [two, messages[-1]]
 
 
-def _bad_uninstalled_market_tool(messages: list[dict]) -> list[dict]:
-    return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>market_openings_search query=sicilian</tool>"},
-        messages[-1],
-    ]
+def _bad_over_budget(messages: list[dict]) -> list[dict]:
+    # more than MAX_TOOL_CALLS -> max_six_tool_calls (+ duplicate)
+    calls = [tool_call_msg("board_state", {"fields": "basic"}) for _ in range(7)]
+    return [messages[0], *calls, messages[-1]]
 
 
 def _bad_absent_skill(messages: list[dict]) -> list[dict]:
-    return [
-        {"role": "assistant", "content": "<skill>missing-market-skill</skill>"},
-        messages[-1],
-    ]
+    # load a skill that is not in the listed skills_index -> selected_skill_exists
+    return [messages[0], skill_call_msg("missing-skill-zzz"), messages[-1]]
 
 
-def _bad_false_install_claim(messages: list[dict]) -> list[dict]:
+def _bad_undeclared_install(messages: list[dict]) -> list[dict]:
+    # call a tool that doesn't exist + claim success -> known_tool_only
     return messages[:-1] + [
-        {"role": "assistant", "content": "<tool>market_install plugin=market-tactics</tool>"},
-        {"role": "assistant", "content": "Installed market-tactics and used it successfully."},
+        tool_call_msg("market_install", {"plugin": "market-tactics"}),
+        {"role": "assistant", "content": "Installed it and used it successfully."},
     ]
 
 
-def _bad_skipped_helper_skill(messages: list[dict]) -> list[dict]:
-    return messages[:1] + [m for m in messages[3:] if "hood-human-chat" not in m.get("content", "")]
+def _bad_skill_arg(messages: list[dict]) -> list[dict]:
+    # load_skill carrying an undeclared arg -> args_match_schema (extras)
+    return messages[:-1] + [tool_call_msg("load_skill", {"name": "chess-coach", "extra": "x"}), messages[-1]]
 
 
-def _bad_helper_tool_before_skill(messages: list[dict]) -> list[dict]:
-    return [
-        messages[0],
-        {"role": "assistant", "content": "<tool>normalize_human_chat text=messy_user_chat extra=before_skill</tool>"},
-        *messages[1:],
-    ]
+def _bad_missing_required_arg(messages: list[dict]) -> list[dict]:
+    # a call missing its required arg -> args_match_schema (required)
+    return messages[:-1] + [tool_call_msg("eval", {}), messages[-1]]
 
 
-def _bad_irrelevant_skill_selected(messages: list[dict]) -> list[dict]:
-    return [
-        messages[0],
-        {"role": "assistant", "content": "<skill>cooking-helper</skill>"},
-        *messages[1:],
-    ]
+def _bad_irrelevant_skill(messages: list[dict]) -> list[dict]:
+    # load an off-domain skill absent from the index -> selected_skill_exists
+    return [messages[0], skill_call_msg("cooking-helper"), *messages[1:]]
 
 
 def main() -> None:
