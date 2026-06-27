@@ -13,7 +13,11 @@ pytestmark = pytest.mark.skipif(not os.path.exists(DEFAULT_SF), reason="stockfis
 def test_renders_valid_grounded_row_for_slice_d():
     plan = {"D": 1}
     scenario = plan_scenarios(plan, seed=11)[0]
-    row = render_chess_row(scenario, StockfishAnnotator())
+    ann = StockfishAnnotator()
+    try:                                   # quit or the engine subprocess hangs interpreter exit
+        row = render_chess_row(scenario, ann)
+    finally:
+        ann.quit()
     assert row["slice"] == "D"
     assert row["kind"] == "harness_chess"
     assert "score" in row["messages"][-2]["content"]

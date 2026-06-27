@@ -39,9 +39,12 @@ def test_threats_skips_start_position_null_move_warning():
 
 def test_annotator_returns_grounded_truth_for_start_position():
     annotator = StockfishAnnotator()
-    fen = chess.STARTING_FEN
-    annotated = annotator.annotate(fen, depth=12)
-    assert isinstance(annotated, AnnotatedPosition)
-    assert annotated.best_san in {"e4", "d4", "Nf3", "c4", "g3"}
-    assert -60 <= annotated.score_cp <= 60
-    assert annotated.depth == 12
+    try:
+        fen = chess.STARTING_FEN
+        annotated = annotator.annotate(fen, depth=12)
+        assert isinstance(annotated, AnnotatedPosition)
+        assert annotated.best_san in {"e4", "d4", "Nf3", "c4", "g3"}
+        assert -60 <= annotated.score_cp <= 60
+        assert annotated.depth == 12
+    finally:
+        annotator.quit()

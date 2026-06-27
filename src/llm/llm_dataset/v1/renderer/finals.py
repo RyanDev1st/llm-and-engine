@@ -18,8 +18,9 @@ import re
 from ..annotator import AnnotatedPosition
 from ..sampler import Scenario
 from . import tone
+from .grounded import why_best_move
 from .leadins import ask
-from .text import eval_magnitude, pawns_abs, score_pawns, score_phrase
+from .text import eval_magnitude, pawns_abs, score_phrase
 
 # Words that mean "give me the actual number", not just "how am I doing".
 _NUM_ASK = re.compile(
@@ -51,16 +52,10 @@ def _eval_body(annotated: AnnotatedPosition, seed: int, ask_number: bool) -> str
 
 
 def _best_move_body(scenario: Scenario, annotated: AnnotatedPosition, ask_number: bool) -> str:
-    if e_top_form(scenario, annotated):
-        tm = annotated.top_moves
-        rest = ", ".join(san for san, _ in tm[1:3]) or "the alternatives"
-        if ask_number:
-            return f"{tm[0][0]} looks best at {tm[0][1] / 100:+.2f}; {rest} are the backups."
-        return f"{tm[0][0]} looks best here; {rest} are the other tries."
-    line = " ".join(annotated.best_line_sans[1:3])
-    if ask_number:
-        return f"{annotated.best_san} is the move and holds {score_pawns(annotated)}; the line runs {line}."
-    return f"{annotated.best_san} is the move; the line runs {line}."
+    # The grounded composer: move + a REASON drawn from the move's true facts +
+    # evidence (line, or top-N alternatives) + standing. Replaces the old
+    # move-and-line-only body that never said WHY (the 80%-no-why gap).
+    return why_best_move(annotated, ask_number, scenario.seed, top_form=e_top_form(scenario, annotated))
 
 
 # No-threat phrasings — the common case (most positions have no forcing threat),
