@@ -669,7 +669,12 @@ def run_unsloth_training(config: TrainConfig) -> dict:
     device = torch.device("cuda:0")
     try:
         from accelerate import Accelerator
-        acc = Accelerator()
+        from accelerate.utils import DistributedDataParallelKwargs
+        # v4.1: masking the thought from loss makes some LoRA params receive zero grad on certain
+        # batches (data-dependent sparsity). 2-GPU DDP then errors ("parameters that were not used
+        # in producing loss") unless told to expect it. find_unused_parameters=True handles it
+        # (small per-step graph traversal; harmless for the single-process path, which skips DDP).
+        acc = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
         if acc.num_processes > 1:
             train_examples = train_examples[acc.process_index::acc.num_processes]  # disjoint shard
             model, optimizer = acc.prepare(model, optimizer)
