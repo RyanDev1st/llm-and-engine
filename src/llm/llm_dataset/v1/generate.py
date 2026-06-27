@@ -15,6 +15,7 @@ from .renderer.audited_plan import render_audited_plan_row
 from .renderer.compound_plan import render_compound_plan_row
 from .renderer.compute import render_compute_row
 from .renderer.multiturn import render_multiturn_row
+from .renderer.specialist_routing import render_specialist_routing_row
 from .sampler import (
     AUDIT_SLICES, CHESS_SLICES, COMPOUND_SLICES, COMPUTE_SLICES, MULTITURN_SLICE,
     plan_scenarios,
@@ -45,6 +46,7 @@ DEFAULT_PLAN: dict[str, int] = {
     "V1_R_compute_grounding": 80,     # verify a chess number via the python tool, don't assert
     "V1_S_compound_plan": 70,         # two-specialist chess plan (review + opening), anti-early-stop
     "V1_T_audited_plan": 70,          # chess plan with python-audited boxes + split-determinism
+    "V1_U_specialist_routing": 90,    # pick the right specialist by intent (moderate hardening)
 }
 
 
@@ -112,6 +114,8 @@ def run(
                     if progress and _should_report(index, total):
                         progress(index, total, len(accepted), len(rejected))
                     continue
+            elif scenario.slice == "V1_U_specialist_routing":
+                row = render_specialist_routing_row(scenario.seed)
             elif scenario.slice in COMPUTE_SLICES:
                 row = render_compute_row(scenario)
             elif scenario.slice in COMPOUND_SLICES:

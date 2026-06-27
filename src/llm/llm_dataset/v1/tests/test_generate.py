@@ -17,8 +17,8 @@ _needs_sf = pytest.mark.skipif(not os.path.exists(DEFAULT_SF), reason="stockfish
 def test_default_plan_is_pure_chess():
     # chess core (A-K) + multiturn + the chess-refocused keystones; no cross-domain slices.
     assert set(DEFAULT_PLAN) == set("ABCDEFGHIJK") | {
-        "V1_P_multiturn_followup", "V1_R_compute_grounding",
-        "V1_S_compound_plan", "V1_T_audited_plan"}
+        "V1_P_multiturn_followup", "V1_R_compute_grounding", "V1_S_compound_plan",
+        "V1_T_audited_plan", "V1_U_specialist_routing"}
     # grounded-answer slices are up-weighted: concretely ANSWERING is the product.
     assert DEFAULT_PLAN["E"] >= DEFAULT_PLAN["A"]
     assert DEFAULT_PLAN["F"] >= DEFAULT_PLAN["A"]

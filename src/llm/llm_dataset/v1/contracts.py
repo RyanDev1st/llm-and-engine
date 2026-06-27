@@ -9,6 +9,7 @@ SLICES = (
     "V1_R_compute_grounding",
     "V1_S_compound_plan",
     "V1_T_audited_plan",
+    "V1_U_specialist_routing",
 )
 
 FINAL_NO_XML = "final_no_xml"
@@ -33,7 +34,7 @@ HARNESS_RULES = (
     "multi-skill composition accepted coverage",
 )
 
-ROW_KINDS = ("harness_chess", "universality", "skill_routing", "compute", "compound_plan", "audited_plan")
+ROW_KINDS = ("harness_chess", "compute", "compound_plan", "audited_plan", "specialist_routing")
 
 OFFICIAL_PLUGIN = "chess-official"
 USER_SKILLS_PLUGIN = "user-skills"
