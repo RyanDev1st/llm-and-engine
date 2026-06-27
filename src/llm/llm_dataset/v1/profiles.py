@@ -49,6 +49,8 @@ V5 = DatasetProfile(
     min_plugin_sources=0,           # flat catalog: no plugin provenance to diversify
     max_prompt_concentration=0.02,
     pure_chess=True,
+    max_seq=1920,                   # bigger flat catalog + grounded answers + plan-mode
+                                    # keystones (compound/audited ~1870) need >1664
 )
 
 
