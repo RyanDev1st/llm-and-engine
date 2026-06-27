@@ -51,10 +51,17 @@ ROW_KINDS = ("harness_chess", "universality", "skill_routing", "compute", "compo
 OFFICIAL_PLUGIN = "chess-official"
 USER_SKILLS_PLUGIN = "user-skills"
 
+# The full FLAT pure-chess tool name set (no plugin gating — the serve harness
+# aggregates plugins into one flat catalog the model sees, so training mirrors that).
+# Capabilities that were plugin tools (openings/analysis/puzzles) are listed here as
+# plain chess tools; what_if is the one genuinely new coach tool. Kept in sync with
+# catalog.OFFICIAL_TOOLS + the position tools — that catalog is the live source of truth.
 REAL_TOOL_NAMES = (
-    "move", "eval", "best_move", "review_move", "threats",
-    "legal_moves", "undo", "list_pieces", "ask_chessbot",
-    "board_state", "normalize_human_chat", "python",
+    "move", "eval", "best_move", "what_if", "review_move", "threats",
+    "legal_moves", "undo", "list_pieces", "ask_chessbot", "board_state",
+    "new_game", "load_fen", "random_position", "fetch_puzzle",
+    "name_opening", "opening_ideas", "accuracy_report", "find_blunders",
+    "normalize_human_chat", "python",
 )
 # Skills are loaded with the <skill>NAME</skill> verb, NOT a load_skill tool.
 SKILL_VERB_OPEN, SKILL_VERB_CLOSE = "<skill>", "</skill>"

@@ -208,6 +208,9 @@ class ToolExecutor:
             return fmt_white_score(kind, val, depth)
         if name == "best_move":
             return self._best_move(args)
+        if name == "what_if":
+            from .coach_tools import what_if
+            return what_if(self.game, self.engine, args)
         if name == "review_move":
             return self._review(clamp_depth(args, 15))
         if name == "threats":

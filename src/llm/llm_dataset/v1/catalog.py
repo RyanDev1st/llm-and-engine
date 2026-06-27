@@ -52,6 +52,7 @@ OFFICIAL_TOOLS: list[dict[str, Any]] = [
     {"name": "fetch_puzzle", "description": "Fetch a real, rated tactical puzzle from Lichess (online) with verified themes and solution, and set it on the board.", "args": {}, "applies_when": "always"},
     {"name": "eval", "description": "Evaluate the current chess position.", "args": {"depth": "required"}, "applies_when": "game_in_progress"},
     {"name": "best_move", "description": "Find the engine's best move or principal variation.", "args": {"depth": "required", "top": ["1", "2", "3", "4", "5"], "series": ["1", "2", "3", "4", "5"]}, "applies_when": "game_in_progress"},
+    {"name": "what_if", "description": "Weigh a move you're considering: score the position after it and compare to the engine's best — use it for 'should I play X?' or 'is X or Y better?'.", "args": {"san": "required"}, "applies_when": "game_in_progress"},
     {"name": "review_move", "description": "Judge the last move played.", "args": {"depth": "required"}, "applies_when": "has_history"},
     {"name": "threats", "description": "Show opponent's strongest threat.", "args": {"depth": "required"}, "applies_when": "game_in_progress"},
     {"name": "legal_moves", "description": "List legal moves overall or for one square.", "args": {"square": "required"}, "applies_when": "game_in_progress"},

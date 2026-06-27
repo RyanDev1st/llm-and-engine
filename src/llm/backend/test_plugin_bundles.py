@@ -64,8 +64,12 @@ def test_analysis_accuracy_report_runs_on_a_real_game():
     for san in ["e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6", "Qxf7#"]:
         if not g.move(san).startswith("success"):
             break
-    ex = ToolExecutor(g, Engine(), plugin_context=PC)
-    rep = ex.execute("<tool>accuracy_report depth=10</tool>")
-    assert rep.startswith("accuracy:") and "white=" in rep and "black=" in rep
-    bl = ex.execute("<tool>find_blunders depth=10</tool>")
-    assert bl.startswith("blunders:")
+    eng = Engine()
+    try:                                   # quit the engine or its subprocess hangs interpreter exit
+        ex = ToolExecutor(g, eng, plugin_context=PC)
+        rep = ex.execute("<tool>accuracy_report depth=10</tool>")
+        assert rep.startswith("accuracy:") and "white=" in rep and "black=" in rep
+        bl = ex.execute("<tool>find_blunders depth=10</tool>")
+        assert bl.startswith("blunders:")
+    finally:
+        eng.quit()
