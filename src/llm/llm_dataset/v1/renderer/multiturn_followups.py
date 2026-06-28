@@ -26,7 +26,7 @@ from .finals import _threat_body
 from .grounded import move_reason
 from .leadins import ask
 from .tags import skill_call_msg, tool_call_msg, tool_result_msg
-from .text import eval_magnitude, score_pawns, score_phrase, score_text
+from .text import best_move_score, eval_magnitude, score_phrase, score_text
 
 # Turn-2 user asks, grouped by the offer they accept.
 TURN2_WHY = ("why?", "why do you say that?", "explain that", "what makes you say so?",
@@ -79,12 +79,15 @@ def _reload_and_read(messages: list[dict], annotated: AnnotatedPosition) -> None
 def _emit_best_move(messages: list[dict], annotated: AnnotatedPosition, *, series: int = 3) -> None:
     messages.append(tool_call_msg("best_move", {"depth": 15, "series": series}))
     line = " ".join(annotated.best_line_sans)
-    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
+    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {best_move_score(annotated)}"))
 
 
 def _emit_top_moves(messages: list[dict], annotated: AnnotatedPosition, *, top: int = 3) -> None:
     messages.append(tool_call_msg("best_move", {"depth": 15, "top": top}))
-    messages.append(tool_result_msg("best_move", _best_moves_result(annotated.top_moves[:top])))
+    res = _best_moves_result(annotated.top_moves[:top])
+    if annotated.score_kind == "mate":   # ground a 'mate in N' final (top form carries no score field)
+        res += f", score: {best_move_score(annotated)}"
+    messages.append(tool_result_msg("best_move", res))
 
 
 def _emit_eval(messages: list[dict], annotated: AnnotatedPosition) -> None:
@@ -95,8 +98,8 @@ def _emit_eval(messages: list[dict], annotated: AnnotatedPosition) -> None:
 def _emit_threats(messages: list[dict], annotated: AnnotatedPosition) -> None:
     messages.append(tool_call_msg("threats", {"depth": 15}))
     threat = annotated.threats_san
-    body = (f"threat: {threat}, score: {score_pawns(annotated)}" if threat
-            else f"threats: none, score: {score_pawns(annotated)}")
+    body = (f"threat: {threat}, score: {best_move_score(annotated)}" if threat
+            else f"threats: none, score: {best_move_score(annotated)}")
     messages.append(tool_result_msg("threats", body))
 
 

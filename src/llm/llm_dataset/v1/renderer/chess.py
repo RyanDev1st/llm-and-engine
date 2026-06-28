@@ -10,7 +10,7 @@ from .chess_kb import KBItem, pick_answer, pick_kb
 from .finals import e_top_form, final_narration, wants_number
 from .review import ReviewFacts, delta_str, review_for_played
 from .tags import skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
-from .text import score_pawns, score_text
+from .text import best_move_score, score_pawns, score_text
 from .thinking import pick_mode
 
 SLICE_USER_TEMPLATES = {
@@ -130,11 +130,14 @@ def _emit_slice_tool(
     elif scenario.slice == "E" and annotated:
         if e_top_form(scenario, annotated):
             messages.append(tool_call_msg("best_move", {"depth": 15, "top": 3}))
-            messages.append(tool_result_msg("best_move", _best_moves_result(annotated.top_moves)))
+            res = _best_moves_result(annotated.top_moves)
+            if annotated.score_kind == "mate":   # ground the 'mate in N' final (top form carries no score field)
+                res += f", score: {best_move_score(annotated)}"
+            messages.append(tool_result_msg("best_move", res))
         else:
             messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
             line = " ".join(annotated.best_line_sans)
-            messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
+            messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {best_move_score(annotated)}"))
     elif scenario.slice == "F" and annotated and review:
         messages.append(tool_call_msg("review_move", {"depth": 12}))
         # REAL review: measured label + centipawn swing, not a hardcoded "good, +0.05".

@@ -21,7 +21,34 @@ _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](
 # by token id (it lives in a role="tool" turn, but the template leaves a dangling open marker
 # in the preceding assistant delta). The native thinking channel, when present (plan-mode rows
 # carry the <goal>/<plan> there), IS trained — it's the model's own output, not a stub.
-TOOL_RESPONSE_IDS = {50, 51}   # <|tool_response> / <tool_response|> — env data, never trained
+TOOL_RESPONSE_IDS = {50, 51}   # <|tool_response> / <tool_response|> on the E2B tokenizer;
+# DEFAULT/reference only — the actual ids are derived from the live tokenizer at train time
+# (the E4B/unsloth base could number these differently; a wrong hardcoded id silently UN-masks
+# the env-injected tool output and trains the model to FABRICATE tool results). See _tool_response_ids.
+_TOOL_RESPONSE_MARKERS = ("<|tool_response>", "<tool_response|>")
+
+
+def _tool_response_ids(tokenizer: Any) -> set[int]:
+    """Tool-response marker ids FOR THIS tokenizer. Each marker must be a SINGLE special
+    token; if it isn't (unknown base / broken vocab), fall back to the E2B reference ids so
+    masking still fires on the common case rather than silently masking nothing."""
+    cached = getattr(tokenizer, "_chess_tr_ids", None)
+    if cached is not None:
+        return cached
+    ids: set[int] = set()
+    for marker in _TOOL_RESPONSE_MARKERS:
+        try:
+            enc = tokenizer(marker, add_special_tokens=False)["input_ids"]
+        except Exception:
+            continue
+        if len(enc) == 1:
+            ids.add(enc[0])
+    ids = ids or set(TOOL_RESPONSE_IDS)
+    try:
+        tokenizer._chess_tr_ids = ids
+    except Exception:
+        pass
+    return ids
 
 
 def _fact_spans(text: str) -> list[tuple[int, int]]:
@@ -75,6 +102,7 @@ def tokenize_with_assistant_mask(
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []
+    tr_ids = _tool_response_ids(tokenizer)   # derived from THIS tokenizer, not hardcoded
     prev_text = ""
     for i, msg in enumerate(messages):
         try:
@@ -101,7 +129,7 @@ def tokenize_with_assistant_mask(
             input_ids.append(tid)
             # Train assistant-generated tokens (tool calls, native thinking channel, final
             # answer); mask the env-injected tool-response marker that lands in this delta.
-            if assistant and tid not in TOOL_RESPONSE_IDS:
+            if assistant and tid not in tr_ids:
                 labels.append(tid)
                 w = GROUND_WEIGHT if (offsets and _overlaps(offsets[j], fact_spans)) else 1.0
                 weights.append(w)

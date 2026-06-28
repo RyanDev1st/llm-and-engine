@@ -81,6 +81,19 @@ def score_pawns(annotated: AnnotatedPosition) -> str:
     return f"{annotated.score_cp / 100:+.2f} pawns from white POV"
 
 
+def best_move_score(annotated: AnnotatedPosition) -> str:
+    """Score field for a best_move/threats tool RESULT — mirrors the live tool's
+    `fmt_white_score(...).removeprefix('score: ').split(', depth')[0]` (backend/toolfmt.py),
+    so a mate position reads 'mate in N for side' instead of a bogus pawn number
+    (score_cp is the mate distance, not centipawns). Identical to score_pawns for
+    non-mate, so it only changes mate rows — and keeps the 'mate in N' final grounded
+    AND byte-matched to what the served engine returns."""
+    if annotated.score_kind == "mate":
+        side = "white" if annotated.score_cp > 0 else "black"
+        return f"mate in {abs(annotated.score_cp)} for {side}"
+    return score_pawns(annotated)
+
+
 def eval_language(annotated: AnnotatedPosition) -> str:
     if annotated.score_kind == "mate":
         side = "white" if annotated.score_cp > 0 else "black"

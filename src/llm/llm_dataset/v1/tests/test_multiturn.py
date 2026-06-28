@@ -118,3 +118,32 @@ def test_followup_grounded_allows_toolfree_clarify():
     row = next((r for r in _rows(60) if not _tool_names(r)), None)
     assert row is not None
     assert validate_row(row) == []
+
+
+class _MatePos(_FakePos):
+    def __init__(self, fen: str) -> None:
+        super().__init__(fen)
+        self.score_cp = 2          # mate distance, not centipawns
+        self.score_kind = "mate"
+        self.top_moves = (("Nf3", 100000), ("Bc4", 100000), ("d4", 100000))
+
+
+class _MateAnnotator:
+    def annotate(self, fen: str, depth: int = 12) -> _MatePos:
+        return _MatePos(fen)
+
+
+def test_multiturn_mate_final_is_tool_grounded():
+    """Grounded archetypes whose final claims 'mate in N' (why/plan/line/alts use
+    eval_magnitude) must carry 'mate' in a tool result — the [G] preflight hole."""
+    scenarios = plan_scenarios({MULTITURN_SLICE: 60}, seed=7)
+    saw = False
+    for s in scenarios:
+        row = render_multiturn_row(s, _MateAnnotator())
+        assert validate_row(row) == [], (row["id"], validate_row(row))
+        final = row["messages"][-1]["content"].lower()
+        tools = " ".join(m["content"] for m in row["messages"] if m["role"] == "tool").lower()
+        if "mate" in final:
+            saw = True
+            assert "mate" in tools, f"mate claim not grounded in {row['id']}"
+    assert saw, "expected at least one mate final across the grounded archetypes"

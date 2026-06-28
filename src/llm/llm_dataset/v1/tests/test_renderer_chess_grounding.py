@@ -77,6 +77,58 @@ def test_played_moves_are_diverse_not_monoculture():
     assert len(moves) > 1, f"move monoculture: {moves}"
 
 
+class _MatePos:
+    """A forced-mate annotation: score_cp is the MATE DISTANCE (not centipawns),
+    score_kind='mate' — the case where the old renderer emitted a bogus pawn number."""
+    def __init__(self, fen: str) -> None:
+        self.fen = fen
+        b = chess.Board(fen)
+        legal = list(b.legal_moves)
+        self.best_san = b.san(legal[0])
+        self.best_line_sans = [b.san(m) for m in legal[:2]]
+        self.score_cp = 2          # mate in 2 (white to move in our test FENs)
+        self.score_kind = "mate"
+        self.depth = 12
+        self.threats_san = None
+        self.top_moves = tuple((b.san(m), 100000) for m in legal[:3])
+
+
+class _MateAnnotator:
+    def annotate(self, fen: str, depth: int = 12) -> _MatePos:
+        return _MatePos(fen)
+
+
+def test_best_move_score_mate_grounds_and_is_noop_on_cp():
+    from llm_dataset.v1.renderer.text import best_move_score, score_pawns
+
+    class _W:  # mate in 3 for white
+        score_kind, score_cp = "mate", 3
+
+    class _B:  # mate in 2 for black
+        score_kind, score_cp = "mate", -2
+
+    class _Cp:  # non-mate must stay byte-identical to score_pawns (no spurious churn)
+        score_kind, score_cp = "cp", 137
+    assert best_move_score(_W()) == "mate in 3 for white"
+    assert best_move_score(_B()) == "mate in 2 for black"
+    assert best_move_score(_Cp()) == score_pawns(_Cp())
+
+
+def test_e_slice_mate_final_is_tool_grounded():
+    """The 'forced mate in N' final must have 'mate' in a tool result (the [G] preflight
+    hole): both the top-form and series-form best_move results must carry it."""
+    scenarios = plan_scenarios({"E": 24}, seed=2026)
+    saw = False
+    for s in scenarios:
+        row = render_chess_row(s, _MateAnnotator())
+        final = row["messages"][-1]["content"].lower()
+        tools = " ".join(m["content"] for m in row["messages"] if m["role"] == "tool").lower()
+        if "mate" in final:
+            saw = True
+            assert "mate in" in tools, f"mate claim not grounded in {row['id']}: tools={tools!r}"
+    assert saw, "expected at least one mate final"
+
+
 def test_slice_b_legal_moves_call_satisfies_required_square_arg():
     from llm_dataset.v1.validate import validate_row
     scenarios = plan_scenarios({"B": 8}, seed=2026)
