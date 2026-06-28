@@ -49,7 +49,7 @@ REAL_TOOL_NAMES = (
     "legal_moves", "undo", "list_pieces", "ask_chessbot", "board_state",
     "new_game", "load_fen", "random_position", "fetch_puzzle",
     "name_opening", "opening_ideas", "accuracy_report", "find_blunders",
-    "normalize_human_chat", "python",
+    "python",
 )
 # Skills are loaded with the <skill>NAME</skill> verb, NOT a load_skill tool.
 SKILL_VERB_OPEN, SKILL_VERB_CLOSE = "<skill>", "</skill>"

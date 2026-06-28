@@ -11,18 +11,6 @@ OFFICIAL_SKILL = {
     "enabled": True,
 }
 
-HUMAN_CHAT_SKILL = {
-    "name": "hood-human-chat",
-    "description": "Normalize slang, shorthand, typo-heavy, vague, or multilingual-lite user chat like yo, watsup, idk, mb, ic before task routing.",
-    "plugin": "user-skills",
-    "source": "user_skill",
-    "enabled": True,
-}
-
-USER_SKILL_TOOLS: list[dict[str, Any]] = [
-    {"name": "normalize_human_chat", "description": "Translate slang, shorthand, typos, or vague chat into explicit task intent.", "args": {"text": "required"}, "applies_when": "always"},
-]
-
 # Canonical "calculator" template: the model substitutes its expression into this
 # known-good snippet (plug-and-play) instead of composing novel code, so a weak
 # coder still produces a runnable, two-decimal-grounded script. SINGLE SOURCE —
@@ -105,21 +93,22 @@ SPECIALIST_TOOLS: list[dict[str, Any]] = [
 
 def chess_skills() -> list[dict[str, Any]]:
     """The flat pure-chess skill catalog listed in every row: generalist coach + the
-    three specialists + the human-chat normalizer. Flat (no plugin/enabled gating) —
-    the model picks by description/context, exactly as it must at serve."""
+    three specialists + the plan auditor. Flat (no plugin/enabled gating) — the model
+    picks by description/context, exactly as it must at serve. (The slang normalizer
+    hood-human-chat was dropped in v5: messy phrasing is handled DIRECTLY via the
+    slang/typo prompt styles on every slice, so the skill had no positive demonstration.)"""
     coach = {"name": OFFICIAL_SKILL["name"], "description": OFFICIAL_SKILL["description"]}
-    chat = {"name": HUMAN_CHAT_SKILL["name"], "description": HUMAN_CHAT_SKILL["description"]}
-    return [coach, *[dict(s) for s in SPECIALIST_SKILLS], chat]
+    return [coach, *[dict(s) for s in SPECIALIST_SKILLS]]
 
 
 def chess_tools() -> list[dict[str, Any]]:
     """The flat pure-chess tool manifest: core coach tools + opening/analysis specialist
-    tools + the human-chat helper tool + python. Flat, parity with the served manifest."""
+    tools + python. Flat, parity with the served manifest. (normalize_human_chat dropped
+    with its skill — see chess_skills.)"""
     return (
         harness_tools()
         + [dict(t) for t in OFFICIAL_TOOLS]
         + [dict(t) for t in SPECIALIST_TOOLS]
-        + [dict(t) for t in USER_SKILL_TOOLS]
         + compute_tools()
     )
 

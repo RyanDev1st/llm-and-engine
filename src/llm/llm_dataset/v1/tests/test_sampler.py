@@ -21,14 +21,16 @@ def test_plan_scenarios_deterministic_with_seed():
 
 
 def test_scenarios_use_flat_pure_chess_catalog():
-    """v5: every row lists the SAME flat chess catalog (coach + specialists + chat,
+    """v5: every row lists the SAME flat chess catalog (coach + 3 specialists + plan-audit,
     and the core + specialist + python tools) with NO plugin gating or cross-domain
     distractors — the model routes by description/context, matching the served manifest."""
     scenarios = plan_scenarios({"E": 40}, seed=5)
     assert {s.prompt_style for s in scenarios} >= {"casual", "slang", "typo"}
     skill_names = {skill["name"] for s in scenarios for skill in s.skills_index}
     assert {"chess-coach", "game-reviewer", "opening-advisor", "tactical-puzzles",
-            "hood-human-chat"} <= skill_names
+            "plan-audit"} <= skill_names
+    # hood-human-chat dropped from the v5 catalog (slang handled directly via prompt styles)
+    assert "hood-human-chat" not in skill_names
     assert "cooking-helper" not in skill_names and "code-reviewer" not in skill_names
     tool_names = {t["name"] for s in scenarios for t in s.tool_manifest}
     assert {"best_move", "what_if", "name_opening", "accuracy_report", "find_blunders",

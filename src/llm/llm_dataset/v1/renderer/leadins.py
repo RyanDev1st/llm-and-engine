@@ -20,7 +20,6 @@ LEAD = {
     "list_pieces": ("Let me list your pieces from the board.", "Reading the material off the board.",
                     "Checking what's still on."),
     "ask_chessbot": ("Let me look that up.", "Checking the knowledge base.", "Pulling that from the chess KB."),
-    "normalize_human_chat": ("Let me clean up the message first.", "Normalizing what you said before I route it."),
     "python": ("Let me compute that exactly.", "Running a quick script now.", "Let me get the exact figure with Python."),
 }
 
