@@ -20,6 +20,17 @@ LOAD_SKILL = "load_skill"
 # target on the training side).
 _FACT = re.compile(r"[+-]?\d+\.\d{2}|O-O(?:-O)?|[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?")
 
+# Standing/eval vocabulary a final uses to ASSERT a position fact (the text.eval_magnitude
+# / score_phrase registers). A follow-up turn that states one of these must re-ground it
+# with a tool call — never answer "same read as before" from memory (the v1-v4 confab gap).
+_STANDING = re.compile(
+    r"\b(on top|winning|crushing|ahead by|up by|better by|clearly better|clear margin|"
+    r"clear edge|small edge|slight edge|big advantage|commanding|near-decisive|"
+    r"all but decided|dead level|roughly balanced|anyone's game|slightly ahead|"
+    r"a touch better|forced mate|mate in)\b",
+    re.I,
+)
+
 # PLAN-mode structure (still emitted as text in the plan deliverable): <goal>…</goal>,
 # <plan>…</plan>, and checkbox bindings (the trailing "(name)" the serve gate maps to
 # the executed skill/tool).
@@ -109,6 +120,7 @@ def validate_row(row: dict[str, Any]) -> list[Violation]:
     violations.extend(_reasoning_mode(row))
     violations.extend(_plan_structure(row))
     violations.extend(_audit_boxes(row, calls))
+    violations.extend(_followup_grounded(row))
     return violations
 
 
@@ -459,6 +471,33 @@ def _audit_boxes(row: dict[str, Any], calls: list[tuple[str, dict[str, str], str
     py_calls = sum(1 for name, _, _ in calls if name == "python")
     if py_calls < py_boxes:
         return [Violation("audit_boxes_grounded", f"{py_calls} python audits for {py_boxes} checkable boxes")]
+    return []
+
+
+def _followup_grounded(row: dict[str, Any]) -> list[Violation]:
+    """Anti-confabulation across turns: a FOLLOW-UP turn whose final ASSERTS a position
+    fact (a standing word, a pawn number, or a SAN move) must RE-GROUND it with a tool
+    call in that same turn — the model must never answer "same read as before" from
+    memory. The trained turn is everything after the last context-only (`train: False`)
+    assistant message; single-turn rows have no such message and are exempt (their whole
+    turn is grounded by the other rules). Unconditional so a new archetype can't bypass it."""
+    messages = row.get("messages", [])
+    last_ctx = max((i for i, m in enumerate(messages)
+                    if m.get("role") == "assistant" and m.get("train") is False), default=-1)
+    if last_ctx < 0:
+        return []                                   # single-turn row -> exempt
+    segment = messages[last_ctx + 1:]
+    finals = [m.get("content", "") for m in segment
+              if m.get("role") == "assistant" and not _is_action(m)]
+    if not finals:
+        return []
+    final = finals[-1]
+    if not (_STANDING.search(final) or _FACT.search(final)):
+        return []                                   # asserts no fact -> a clarify/ack is fine
+    grounded = any(name != LOAD_SKILL for m in segment for name, _ in _msg_calls(m))
+    if not grounded:
+        return [Violation("followup_grounded",
+                          "follow-up asserts a position fact with no tool call in the turn")]
     return []
 
 

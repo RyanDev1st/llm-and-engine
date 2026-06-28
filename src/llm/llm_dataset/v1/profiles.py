@@ -42,7 +42,9 @@ V5 = DatasetProfile(
     gold_dir=ROOT / "data" / "sft" / "v5",
     train_path=ROOT / "data" / "sft" / "v5_train.jsonl",
     val_path=ROOT / "data" / "sft" / "v5_val.jsonl",
-    accepted_target=12_000,
+    accepted_target=14_000,         # +2k vs the first v5 cut: funds the multi-turn follow-up
+                                    # up-weight (offer->fulfil rebalance) WITHOUT shrinking the
+                                    # grounded single-turn slices (D/E/F/G), the other anti-confab lever
     rejected_target=1_200,
     rejected_min=800,
     rejected_max=2_000,

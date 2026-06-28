@@ -20,7 +20,7 @@ SLICE_USER_TEMPLATES = {
     "D": ("who is winning?", "rate this position", "is this lost for me?", "how is it?",
           "what's the exact eval?", "give me the score in pawns", "how many pawns am I up?",
           "what's the centipawn eval?"),
-    "E": ("what should I play?", "best move?", "give me the line", "show me a plan",
+    "E": ("what should I play?", "best move?", "give me the line", "what's my best option here?",
           "best move and the eval?"),
     "F": ("how was that move?", "did I blunder?", "rate my last move", "was that ok?"),
     "G": ("any threats?", "what is the opponent up to?", "watch out for what?"),

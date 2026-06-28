@@ -1,160 +1,41 @@
 """Multi-turn follow-up rows: teach the model to CONTINUE a conversation rather
-than restart it each turn, and to TRACK dialogue state (follow-up / clarify /
-stuck / recover) instead of re-dumping or fabricating.
+than restart it each turn, and to TRACK dialogue state instead of re-dumping or
+fabricating.
 
 Shape mirrors EPHEMERAL serving exactly: turn 1 is just (user question, coach
 answer) — its tool scratchpad is NOT in the row, and the turn-1 answer is marked
 `train: False` so it is context-only (no loss), matching what the served model
-sees at turn 2. Only turn 2 is trained. Turn 1 carries NO <think> on purpose: it
-mirrors the served VISIBLE reply (think is stripped before display); turn 2 — the
-trained step — carries the inline <think> decision trace.
+sees at turn 2. Only turn 2 is trained. Turn 1 carries NO reasoning channel: it
+mirrors the served VISIBLE reply (thinking is stripped before display).
 
-Five archetypes (seed-split ~even):
-- reference: a "why?"-style follow-up answered from the established context with
-  NO tool and NO invented specifics — references the prior turn. Teaches "don't
-  re-dump / re-call when you already said it".
-- tool: a "what should I play / exact eval" follow-up that DOES re-run the right
-  tool (correct — new info), answer connects back. Teaches "re-ground when needed".
-- clarify: an AMBIGUOUS follow-up — the coach asks ONE clarifying question rather
-  than guessing or calling a tool. Teaches "ask when the ask is unclear".
-- stuck: the user is stuck ("no idea", "I'm lost") — the coach gives a grounded
-  next-step NUDGE (engine's move via the tool), it does NOT restart/re-roll.
-- self_correct: a tool call errors mid-dialogue; the coach diagnoses and retries
-  instead of giving up or fabricating. Teaches recovery inside a conversation.
+The turn-2 archetypes live in `multiturn_followups.py` (renderer/). Core lesson:
+a follow-up that ASSERTS a position fact (a standing, a move, a number) RE-GROUNDS
+it with a fresh tool call — the model never answers "same read as before" from
+memory. Each grounded archetype also FULFILS one of the offer-closers single-turn
+finals dangle (the plan, threats, the line, the alternatives, the best move, the
+exact eval), closing the offer→fulfil gap. Only `clarify` stays tool-free: it ASKS
+rather than asserts, so there is no fact to ground.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from ..annotator import AnnotatedPosition, StockfishAnnotator
-from ..board_facts import board_state_line
 from ..sampler import Scenario
 from . import tone
-from .chess import INTERNAL_LESSON, _style_prompt
+from .chess import _style_prompt
+from .multiturn_followups import ARCHETYPES
+from .tags import tool_calls_of
+from .text import eval_magnitude
 from .leadins import ask
-from .tags import skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
-from .text import eval_magnitude, score_pawns, score_phrase, score_text
 from .thinking import pick_mode
 
-TURN1_QS = ("who's winning?", "how am I doing?", "rate this position", "how's it looking?")
-TURN2_WHY = ("why?", "why do you say that?", "explain that", "what makes you say so?", "how come?")
-TURN2_TOOL = ("what should I play then?", "ok what's the best move?",
-              "so what's the exact eval?", "give me the line then")
-TURN2_EVAL = ("so what's the exact eval?", "give me the precise number", "exact centipawns?")
-TURN2_CLARIFY = ("can you help me here?", "what about the other side?", "what now?",
-                 "not sure what to do", "where do I go from here?")
-TURN2_STUCK = ("I'm stuck", "no idea what to do", "I don't know", "I'm totally lost", "I give up")
-BACKREF_A = ("Same read as before —", "Like I said,", "As I noted,")
-BACKREF_B = ("Since you asked,", "Right —", "Building on that,", "Okay —")
-
-# turn-2 tool follow-ups carry the same grounded rule-set the chess slices use.
-_TOOL_RULES = ["final_no_xml", "known_tool_only", "args_match_schema",
-               "selected_skill_exists", "engine_grounded", "narration_grounded"]
-_REF_RULES = ["final_no_xml", "known_tool_only", "args_match_schema"]
+TURN1_QS = ("who's winning?", "how am I doing?", "rate this position", "how's it looking?",
+            "what's the read here?", "am I better or worse?", "where do I stand?", "how's my position?")
 
 
 def _archetype(seed: int) -> int:
-    return seed % 5
-
-
-def _side(cp: int) -> str:
-    return "White" if cp > 0 else "Black"
-
-
-def _final_a(annotated: AnnotatedPosition, seed: int) -> str:
-    cp = annotated.score_cp
-    standing = "it's still about level" if abs(cp) < 40 else f"{_side(cp)} is still on top"
-    backref = tone.pick(seed, BACKREF_A)
-    return ask(f"{backref} {standing} — that's the read straight off the position, not a guess.", seed, 4)
-
-
-def _reload_and_read(messages: list[dict], seed: int, annotated: AnnotatedPosition, mode: str) -> None:
-    """Common turn-2 grounding prefix: reload the skill, then read the board."""
-    messages.append(skill_call_msg("chess-coach"))
-    messages.append(tool_result_msg("load_skill", INTERNAL_LESSON))
-    messages.append(tool_call_msg("board_state", {"fields": "basic"}))
-    messages.append(tool_result_msg("board_state", board_state_line(annotated.fen)))
-
-
-def _turn2_tool(messages: list[dict], scenario: Scenario, annotated: AnnotatedPosition, user2: str, mode: str) -> str:
-    seed = scenario.seed
-    backref = tone.pick(seed, BACKREF_B)
-    _reload_and_read(messages, seed, annotated, mode)
-    if "eval" in user2.lower() or "exact" in user2.lower():
-        messages.append(tool_call_msg("eval", {"depth": 15}))
-        messages.append(tool_result_msg("eval", score_text(annotated)))
-        return ask(f"{backref} {score_phrase(annotated)}", seed, 4)
-    messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
-    line = " ".join(annotated.best_line_sans)
-    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
-    nxt = " ".join(annotated.best_line_sans[1:3])
-    return ask(f"{backref} {annotated.best_san} is the move; the line runs {nxt}.", seed, 4)
-
-
-def _arch_reference(messages, scenario, annotated, mode):
-    seed = scenario.seed
-    messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_WHY), scenario)})
-    return _final_a(annotated, seed), [], _REF_RULES
-
-
-# Clarify-branch follow-ups: a fixed base ("do you want the attacking plan…")
-# repeated ~270x. Pool of grounded-neutral next-step offers (no facts), seeded;
-# each ends with '?' so ask() leaves it as-is (no double question).
-_CLARIFY_OFFERS = (
-    "happy to take it further — do you want the attacking plan, or to shore up your defense first?",
-    "glad to keep going — should we build the attacking plan, or firm up the defense first?",
-    "we can dig deeper — want to press for the attack, or stabilize the position first?",
-    "plenty more here — go on the offensive, or solidify what you've got first?",
-    "let's keep at it — chase the initiative, or tighten the defense first?",
-    "happy to continue — push for an attack, or settle the position down first?",
-    "we can go either way — map an attacking plan, or patch the weak spots first?",
-    "more to do here — would you rather create threats, or neutralize theirs first?",
-)
-
-
-def _arch_clarify(messages, scenario, annotated, mode):
-    seed = scenario.seed
-    messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_CLARIFY), scenario)})
-    backref = tone.pick(seed, BACKREF_A)
-    answer = ask(f"{backref} {tone.pick(seed * 31 + 5, _CLARIFY_OFFERS)}", seed, 4)
-    return answer, [], _REF_RULES
-
-
-def _arch_tool(messages, scenario, annotated, mode):
-    seed = scenario.seed
-    user2 = _style_prompt(tone.pick(seed, TURN2_TOOL), scenario)
-    messages.append({"role": "user", "content": user2})
-    answer = _turn2_tool(messages, scenario, annotated, user2, mode)
-    return answer, ["chess-coach"], list(_TOOL_RULES)
-
-
-def _arch_stuck(messages, scenario, annotated, mode):
-    seed = scenario.seed
-    messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_STUCK), scenario)})
-    _reload_and_read(messages, seed, annotated, mode)
-    messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
-    line = " ".join(annotated.best_line_sans)
-    messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {score_pawns(annotated)}"))
-    backref = tone.pick(seed, BACKREF_B)
-    answer = ask(f"{backref} no need to restart — a grounded try here is {annotated.best_san}; "
-                 f"want me to walk the idea, or see your other options?", seed, 4)
-    return answer, ["chess-coach"], list(_TOOL_RULES)
-
-
-def _arch_self_correct(messages, scenario, annotated, mode):
-    seed = scenario.seed
-    messages.append({"role": "user", "content": _style_prompt(tone.pick(seed, TURN2_EVAL), scenario)})
-    _reload_and_read(messages, seed, annotated, mode)
-    messages.append(tool_call_msg("eval", {"depth": 99}))
-    messages.append(tool_result_msg("eval", "error: invalid_syntax"))
-    messages.append(tool_call_msg("eval", {"depth": 15}))     # diagnose + retry, don't give up
-    messages.append(tool_result_msg("eval", score_text(annotated)))
-    backref = tone.pick(seed, BACKREF_B)
-    answer = ask(f"{backref} {score_phrase(annotated)}", seed, 4)
-    return answer, ["chess-coach"], list(_TOOL_RULES)
-
-
-_ARCHETYPES = (_arch_tool, _arch_reference, _arch_clarify, _arch_stuck, _arch_self_correct)
+    return seed % len(ARCHETYPES)
 
 
 def render_multiturn_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[str, Any]:
@@ -163,13 +44,13 @@ def render_multiturn_row(scenario: Scenario, annotator: StockfishAnnotator) -> d
     mode = pick_mode(seed)
     user1 = _style_prompt(tone.pick(seed, TURN1_QS), scenario)
     final1 = ask(eval_magnitude(annotated, seed), seed, 1)
-    # turn 1 is context only: tool scratchpad omitted, answer masked from loss,
-    # and NO <think> (it mirrors the served VISIBLE reply, which strips think).
-    messages: list[dict[str, str]] = [
+    # turn 1 is context only: tool scratchpad omitted, answer masked from loss, and
+    # NO reasoning (it mirrors the served VISIBLE reply, which strips thinking).
+    messages: list[dict[str, Any]] = [
         {"role": "user", "content": user1},
         {"role": "assistant", "content": final1, "train": False},
     ]
-    final2, selected, rules = _ARCHETYPES[_archetype(seed)](messages, scenario, annotated, mode)
+    final2, selected, rules = ARCHETYPES[_archetype(seed)](messages, scenario, annotated)
     messages.append({"role": "assistant", "content": final2})
     return _envelope(scenario, messages, annotated, selected, rules, mode)
 

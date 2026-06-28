@@ -42,7 +42,10 @@ DEFAULT_PLAN: dict[str, int] = {
     "I": 130,   # chess knowledge (ask_chessbot)
     "J": 90,    # greeting / capabilities
     "K": 90,    # general chess Q&A
-    "V1_P_multiturn_followup": 200,   # multi-turn dialogue state (chess)
+    "V1_P_multiturn_followup": 500,   # multi-turn dialogue state (chess) — up-weighted in v5
+                                      # so grounded follow-up FULFILMENT is trained near the
+                                      # rate single-turn finals OFFER it (was a ~9:1 gap that
+                                      # fed cross-turn confabulation; see followup_grounded gate)
     # keystones, refocused to chess: verify-by-running-python, multi-skill plan, audited plan.
     "V1_R_compute_grounding": 80,     # verify a chess number via the python tool, don't assert
     "V1_S_compound_plan": 70,         # two-specialist chess plan (review + opening), anti-early-stop
