@@ -712,14 +712,31 @@ def serving_tool_manifest(plugin_context: dict | None = None) -> list[dict]:
     return official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
 
 
+def _flat_catalog(skills_index: list[dict], tool_manifest: list[dict]) -> tuple[list[dict], list[dict]]:
+    """v5-native parity: the v5 corpus trained on a FLAT pure-chess catalog — skills with NO
+    plugin provenance, tools with NO applies_when gating, and an EMPTY plugin_context (so
+    build_system renders no `[chess-official]` / `[game_in_progress]` tags and no PLUGIN CONTEXT
+    line). The live serve manifest carries all that decoration; rendering it to a v5 model is
+    off-distribution and was making the model load the PLUGIN name ('chess-official') instead of
+    the skill ('chess-coach') and loop. Strip the decoration so serve == the v5 training shape."""
+    skills = [{"name": s["name"], "description": s.get("description", "")} for s in skills_index]
+    tools = [{"name": t["name"], "description": t.get("description", ""), "args": t.get("args", {})}
+             for t in tool_manifest]
+    return skills, tools
+
+
 def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None,
                         reasoning_mode: str = "") -> str:
     # reasoning_mode ("think"|"fast"|"auto") must match what the corpus trained on
     # (same build_system signal). Default "" keeps current serve behavior until the
     # toggle is wired to it post-training (reconcile with the StagedLoop then).
     pc = plugin_context or PLUGIN_CONTEXT
-    base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
-                        reasoning_mode=reasoning_mode)
+    if _NATIVE_FMT:
+        skills, tools = _flat_catalog(serving_skills_index(pc), serving_tool_manifest(pc))
+        base = build_system(skills, tools, {}, agent_overlay, reasoning_mode=reasoning_mode)
+    else:
+        base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
+                            reasoning_mode=reasoning_mode)
     from . import plugins  # prompt-start hooks: pre-load always-on plugin context
     # Gated for train/serve parity: training never had a board-state line in the system prompt.
     hook = plugins.prompt_start({"game": game}, pc) if _BOARD_HOOK else ""
