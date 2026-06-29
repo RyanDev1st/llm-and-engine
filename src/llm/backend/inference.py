@@ -635,7 +635,12 @@ _THINK_TAG = _re.compile(r"<think>(.*?)</think>", _re.DOTALL)
 # like our <think>. `<|channel>thought\n…<channel|>` — tolerate a missing close (cut by
 # the action) and stray channel/think markers left when decoding keeps special tokens.
 _NATIVE_THINK = _re.compile(r"<\|channel>thought\n?(.*?)(?:<channel\|>|$)", _re.DOTALL)
-_STRAY_NATIVE = _re.compile(r"<\|?(?:channel|think)\|?>")
+# Strip ANY leftover native single-token marker from the VISIBLE reply: the turn-ender
+# `<turn|>` (kept in the decode for parsing, so it leaks into the bubble), plus stray
+# `<|channel>`/`<channel|>`, `<|tool_call>`/`<tool_call|>`, `<|tool_response>`/…, the quote
+# token `<|"|>`, etc. Matches the native pipe-convention `<|X>` / `<X|>` only — v4 tags
+# (`<tool>`, `</skill>`, `<think>`) have NO pipe, so they're untouched.
+_STRAY_NATIVE = _re.compile(r"<\|[^<>]*>|<[^<>]*\|>")
 # v4.1 auto-router verdict: the isolated classifier pass ends with "reasoning = yes|no".
 _AUTO_VERDICT = _re.compile(r"reasoning\s*=\s*(yes|no)", _re.I)
 _PLAN_BOX = _re.compile(r"-\s*\[[ xX]\]\s*.+?\(([^)]+)\)")
