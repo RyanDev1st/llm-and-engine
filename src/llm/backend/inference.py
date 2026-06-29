@@ -36,6 +36,13 @@ _THIN_HARNESS = _os.environ.get("CHESS_THIN_HARNESS", "0") in ("1", "true", "Tru
 # See docs/findings/2026-06-24-harness-live-vs-benchmark-gap.md + 2026-06-25-train-serve-parity-audit.md.
 _BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "0") not in ("0", "false", "False")
 
+# v5 NATIVE FORMAT (master switch). The v5 corpus trains IN Gemma's native wire format —
+# structured tool_calls + native <|tool_call>call:NAME{args}<tool_call|> + native <|channel>
+# thinking (docs/reference/native-gemma-format.md). When ON: tool calls are parsed by
+# native_fmt.parse_native_call (the v4 <tool>/<skill> XML recovery is bypassed) and history is
+# re-rendered natively in model_hf. Implies native thinking (per-mode). OFF -> v4 serve unchanged.
+_NATIVE_FMT = _os.environ.get("CHESS_NATIVE_FORMAT", "0") not in ("0", "false", "False")
+
 from llm_dataset.v1.catalog import compute_tools, official_tools
 from llm_training.system_prompt import build_system
 
@@ -43,6 +50,7 @@ from .context_window import ContextWindow, WindowConfig, estimate_tokens
 from .manifest_view import generic_result_signal, live_tool_names
 from .skills import load_skills
 from .tool_hints import routing_hints, skill_hints, matched_calls
+from .native_fmt import parse_native_call
 from .toolfmt import parse_call
 from .tools import ToolExecutor
 
@@ -115,8 +123,10 @@ def _build_window(model: "ModelBackend") -> ContextWindow:
 
 
 def contains_tool_call(text: str) -> bool:
-    # Gemma natively emits <tool_code>…</tool_code>; treat it as a tool call too.
-    return any(t in text for t in ("<tool>", "</tool>", "<tool_code>", "</tool_code>"))
+    # Gemma natively emits <tool_code>…</tool_code>; treat it as a tool call too. v5-native
+    # emits <|tool_call>…<tool_call|> — detect it so a leaked native call never reaches the user.
+    return any(t in text for t in ("<tool>", "</tool>", "<tool_code>", "</tool_code>",
+                                   "<|tool_call>", "<tool_call|>"))
 
 
 def narrate_tool_result(tool_result: str) -> str:
@@ -523,6 +533,11 @@ def extract_call(decision: str, allowed: "set[str] | None" = None) -> str | None
     `allowed` (the harness passes live_tool_names(plugin_context)) makes tagless/malformed
     recovery PLUGIN-AWARE: when an enabled plugin contributes new tool names, recover their
     leaked calls too. Default None keeps the chess-only behaviour exactly (no regression)."""
+    # v5 NATIVE: the model emits `<|tool_call>call:NAME{args}<tool_call|>`. Translate it to the
+    # canonical `<tool>NAME k=v</tool>` and return — the v4 <skill>/<tool_code>/strip recovery
+    # below is for the custom-XML corpus and must NOT run on native output (it would delete args).
+    if _NATIVE_FMT:
+        return parse_native_call(decision)
     malformed, echo, bare = _MALFORMED, _ECHO, _BARE
     if allowed:
         names = frozenset(_TOOL_NAMES) | frozenset(allowed)
@@ -896,7 +911,7 @@ class CoachLoop:
         # whether this task needs reasoning, resolving to think (yes) or fast (no) BEFORE we build
         # the prompt. Explicit + parseable beats the model self-gating mid-generation. v4 serve
         # (native off) is unchanged — the router and the per-mode enable_thinking are gated on it.
-        _native = _os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
+        _native = _NATIVE_FMT or _os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
         if _native and (reasoning_mode or "").strip().lower() == "auto":
             reasoning_mode = "think" if self._auto_needs_reasoning(user_message) else "fast"
         system = build_system_prompt(self.agent_overlay, self.plugin_context,

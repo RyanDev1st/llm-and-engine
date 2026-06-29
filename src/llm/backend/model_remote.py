@@ -33,8 +33,13 @@ class RemoteModel:
             return json.loads(r.read())
 
     def generate(self, messages: list[dict], max_new_tokens: int, stop: list[str],
-                 use_adapter: bool = True, on_token=None) -> str:
+                 use_adapter: bool = True, on_token=None, enable_thinking=None) -> str:
+        # enable_thinking is forwarded so the CoachLoop's per-mode native thinking (think/auto on,
+        # fast off) reaches the model service across the process split. The loop only passes it when
+        # the signature advertises it — declaring it here is what flips the loop's can_think check on.
         payload = {"messages": messages, "max_new_tokens": max_new_tokens, "stop": stop}
+        if enable_thinking is not None:
+            payload["enable_thinking"] = bool(enable_thinking)
         if self.has_adapter:
             payload["use_adapter"] = use_adapter
         if on_token is None:

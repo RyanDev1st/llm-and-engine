@@ -20,6 +20,10 @@ BASE = Path(os.environ.get("CHESS_HF_BASE") or (LLM_DIR / "models" / "gemma4_e2b
 # measurable without a profiler. Default ON (one line per call, cheap) — set CHESS_GEN_TRACE=0 to mute.
 _GEN_TRACE = os.environ.get("CHESS_GEN_TRACE", "1") not in ("0", "false", "False")
 _ACTION_STOPS = ("</skill>", "</tool>", "</tool_code>")   # one-action-per-step close tags
+# v5 NATIVE FORMAT (mirror of inference._NATIVE_FMT). When ON: render history in Gemma's native
+# shape (structured tool_calls, no remap), keep special tokens in the decode so the native
+# <|tool_call>/<|channel> markers survive for the parser, and add the <tool_call|> close to eos.
+_NATIVE_FMT = os.environ.get("CHESS_NATIVE_FORMAT", "0") not in ("0", "false", "False")
 
 
 def _build_stopper(tok, stops):
@@ -110,8 +114,14 @@ class HFModel:
         gc_eos = getattr(self.model.generation_config, "eos_token_id", None)
         eos = set(gc_eos) if isinstance(gc_eos, (list, tuple)) else ({gc_eos} if gc_eos is not None else set())
         eos |= set(_stop_token_ids(self.tok))
+        self._native_fmt = _NATIVE_FMT
+        if self._native_fmt:
+            # Stop right after a native tool call (<tool_call|>) so the loop runs one action/step;
+            # a final answer (no call) still runs to the turn-ender. Derived from THIS tokenizer.
+            from .native_fmt import native_stop_ids
+            eos |= native_stop_ids(self.tok)
         self._eos_ids = sorted(int(i) for i in eos if i is not None)
-        print(f"[gen] stop ids = {self._eos_ids} (turn-ender + pad included)", flush=True)
+        print(f"[gen] stop ids = {self._eos_ids} (turn-ender + pad{' + native tool_call close' if self._native_fmt else ''})", flush=True)
         from . import kv_cache
         self._kv = kv_cache.PrefixCache()   # prefix KV reuse across loop steps (self-guarding)
 
@@ -122,21 +132,29 @@ class HFModel:
         # (PEFT disable_adapter) — lets one loaded model serve both the untrained
         # base and our SFT side by side for the comparison demo.
         import os
-        from llm_training.chat_format import remap_tool_messages
-        # Same remap as training: Gemma drops role="tool", so render tool results
-        # as user turns. MUST match data_pipeline or the model sees a new shape.
-        messages = remap_tool_messages(messages)
-        # v4.1: native reasoning. CHESS_NATIVE_THINK=1 turns on the enable_thinking signal
-        # (must match how the served model was trained) AND keeps special tokens in the
-        # decode so the native <|channel>thought block survives for _split_reasoning to
-        # lift to the panel (skip_special_tokens would delete the markers, leaking the
-        # thought into the chat bubble). OFF by default -> v4 serve unchanged.
-        native = (enable_thinking if enable_thinking is not None
-                  else os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False"))
+        if self._native_fmt:
+            # v5-native: NO remap — role="tool" survives the native template iff the preceding
+            # assistant carries structured tool_calls. to_native_messages re-renders the loop's
+            # <tool>/<skill> history into that exact shape, byte-identical to data_pipeline.
+            from .native_fmt import to_native_messages
+            messages = to_native_messages(messages)
+        else:
+            from llm_training.chat_format import remap_tool_messages
+            # Same remap as v4 training: Gemma drops role="tool", so render tool results as user
+            # turns. MUST match data_pipeline or the model sees a new shape.
+            messages = remap_tool_messages(messages)
+        # enable_thinking is per-MODE (fast=off, think/auto=on); the loop passes it. keep_specials
+        # keeps the native <|tool_call>/<|channel> markers in the decode so the parser can read them
+        # — REQUIRED whenever the format is native (even fast mode emits a native tool call), and for
+        # v4.1 native-thinking so the <|channel>thought survives for _split_reasoning. OFF for v4 ->
+        # skip_special_tokens, serve unchanged.
+        think = (enable_thinking if enable_thinking is not None
+                 else os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False"))
+        keep_specials = self._native_fmt or bool(think)
         try:
             enc = self.tok.apply_chat_template(
                 messages, add_generation_prompt=True, return_tensors="pt", return_dict=True,
-                enable_thinking=native)
+                enable_thinking=think)
         except TypeError:  # older template without the kwarg
             enc = self.tok.apply_chat_template(
                 messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)
@@ -149,8 +167,8 @@ class HFModel:
         if on_token is not None:
             if not use_adapter and can_toggle:
                 with self.model.disable_adapter():
-                    return self._gen_stream(enc, max_new_tokens, stop, on_token)
-            return self._gen_stream(enc, max_new_tokens, stop, on_token)
+                    return self._gen_stream(enc, max_new_tokens, stop, on_token, keep_specials)
+            return self._gen_stream(enc, max_new_tokens, stop, on_token, keep_specials)
         # Prefix KV reuse only on the trusted greedy adapter-on path (the base/sampling paths
         # bypass it — different weights / non-deterministic, so the A/B self-check can't hold).
         reuse_ok = use_adapter and self.temperature <= 0
@@ -160,7 +178,7 @@ class HFModel:
         else:
             out_ids = self._gen_cached(enc, max_new_tokens, stop) if reuse_ok \
                 else self._run_plain(enc, max_new_tokens, stop)
-        text = self.tok.decode(out_ids[prompt_len:], skip_special_tokens=not native)
+        text = self.tok.decode(out_ids[prompt_len:], skip_special_tokens=not keep_specials)
         return _truncate(text, stop)
 
     def count_tokens(self, text: str) -> int:
@@ -232,17 +250,20 @@ class HFModel:
                   f"{_dt:.1f}s ({_gen / max(_dt, 1e-3):.1f} tok/s)", flush=True)
         return seq, getattr(go, "past_key_values", None)
 
-    def _gen_stream(self, enc: dict, max_new_tokens: int, stop: list[str], on_token) -> str:
+    def _gen_stream(self, enc: dict, max_new_tokens: int, stop: list[str], on_token,
+                    keep_specials: bool = False) -> str:
         """Stream tokens live via on_token while generating (the UI fills during the long T4 decode).
         Uses the SAME version-robust StoppingCriteria as _run_generate (so streamed steps early-stop
         at </tool>/</skill> too, not run to the cap), with generate() on a worker thread feeding a
-        TextIteratorStreamer. Returns the truncated full text, same contract as the non-stream path."""
+        TextIteratorStreamer. Returns the truncated full text, same contract as the non-stream path.
+        keep_specials=True (v5-native / native-thinking) preserves the <|tool_call>/<|channel> markers
+        in the streamed text so the parser can read them (else the call/thought is silently stripped)."""
         from threading import Thread
         from transformers import TextIteratorStreamer
         import time as _time
         stops = [s for s in (list(stop) + list(_ACTION_STOPS)) if s]
         crit = _build_stopper(self.tok, stops)
-        streamer = TextIteratorStreamer(self.tok, skip_prompt=True, skip_special_tokens=True)
+        streamer = TextIteratorStreamer(self.tok, skip_prompt=True, skip_special_tokens=not keep_specials)
         gkw: dict = {"input_ids": enc["input_ids"], "use_cache": True, "streamer": streamer,
                      **self._gen_kwargs(max_new_tokens)}
         if enc.get("attention_mask") is not None:

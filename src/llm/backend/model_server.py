@@ -56,7 +56,12 @@ class Handler(BaseHTTPRequestHandler):
             kw = {"use_adapter": bool(body.get("use_adapter", True))} if HAS_ADAPTER else {}
             msgs, mx, stop = body["messages"], int(body.get("max_new_tokens", 128)), list(body.get("stop", []))
             import inspect
-            can_stream = "on_token" in inspect.signature(MODEL.generate).parameters
+            _params = inspect.signature(MODEL.generate).parameters
+            # Forward per-mode native thinking when the client sent it and the backend accepts it
+            # (HFModel does; GGUF may not) — so think/auto get the <|think|> signal and fast stays direct.
+            if body.get("enable_thinking") is not None and "enable_thinking" in _params:
+                kw["enable_thinking"] = bool(body["enable_thinking"])
+            can_stream = "on_token" in _params
             if body.get("stream") and can_stream:
                 # SSE: emit each token as it's produced, then a final {text} event.
                 self.send_response(200)
