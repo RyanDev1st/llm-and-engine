@@ -10,6 +10,7 @@ from llm_dataset.v1.board_facts import move_echo
 from llm_dataset.v1.renderer.chess import render_chess_row
 from llm_dataset.v1.renderer.tags import tool_calls_of
 from llm_dataset.v1.sampler import plan_scenarios
+from llm_dataset.v1.validate import validate_row
 
 
 class _FakePos:
@@ -143,3 +144,34 @@ def test_slice_b_legal_moves_call_satisfies_required_square_arg():
         calls = [tc for m in row["messages"] if m["role"] == "assistant"
                  for tc in tool_calls_of(m) if tc["name"] == "legal_moves"]
         assert calls and "square" in calls[0]["arguments"]
+
+
+def _final(row):
+    return row["messages"][-1]["content"].strip()
+
+
+def test_chess_analysis_finals_are_not_question_monoculture():
+    scenarios = plan_scenarios({"D": 12, "E": 12, "G": 12, "H": 12}, seed=2026)
+    finals = [_final(render_chess_row(s, _FakeAnnotator())) for s in scenarios]
+    question_finals = [text for text in finals if text.endswith("?")]
+    assert len(question_finals) <= len(finals) // 2
+
+
+def test_material_board_read_answers_directly_without_offer_closer():
+    scenarios = plan_scenarios({"H": 8}, seed=2026)
+    finals = [_final(render_chess_row(s, _FakeAnnotator())) for s in scenarios]
+    assert finals
+    assert not any(text.endswith("?") for text in finals)
+    assert all("You've still got" in text for text in finals)
+
+
+def test_thanks_and_greetings_are_direct_no_tool_replies():
+    scenarios = plan_scenarios({"J": 24}, seed=2026)
+    for s in scenarios:
+        row = render_chess_row(s, _FakeAnnotator())
+        calls = [tc for m in row["messages"] if m["role"] == "assistant" for tc in tool_calls_of(m)]
+        assert calls == [], (row["id"], calls)
+        assert row["selected_skills"] == []
+        assert row["expected_tool_calls"] == []
+        assert not row["messages"][-1]["content"].rstrip().endswith("?")
+        assert validate_row(row) == []

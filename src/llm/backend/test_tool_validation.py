@@ -46,6 +46,12 @@ def test_move_without_san_names_the_missing_arg():
     assert out.startswith("error: tool 'move'") and "san=Nf3" in out and "san=..." not in out
 
 
+def test_missing_required_arg_error_does_not_teach_legacy_xml():
+    out = _ex().execute("<tool>move</tool>")
+    assert "<tool>" not in out and "</tool>" not in out
+    assert "call:move" in out and "san=Nf3" in out
+
+
 def test_bad_enum_value_is_rejected_with_the_allowed_set():
     # list_pieces silently defaults a bad color to side-to-move -> wrong data; validate it.
     out = _ex().execute("<tool>list_pieces color=blue</tool>")

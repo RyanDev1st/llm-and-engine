@@ -127,7 +127,7 @@ def final_narration(
         return ask(f"{opener}{sep}{_best_move_body(scenario, annotated, ask_number)}", seed, 4)
     if sl == "H" and annotated:
         # H answers "what's left?" with the ACTUAL material read off the board (the list_pieces result).
-        return ask(f"{opener}{sep}You've still got {piece_summary(annotated.fen)}.", seed, 4)
+        return f"{opener}{sep}You've still got {piece_summary(annotated.fen)}."
     if sl == "C" and annotated:
         # C answers the legality question from the king's real legal squares — a STATEMENT (per
         # test_knowledge_and_greeting_finals_stay_statements), not a refusal to guess.

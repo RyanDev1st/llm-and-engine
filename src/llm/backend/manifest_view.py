@@ -19,9 +19,9 @@ def full_manifest(plugin_context: dict | None = None) -> list[dict]:
     """Official catalog tools + the compute tool + enabled plugins' tools — the same set
     serving_tool_manifest advertises in the prompt. Composed from the primitives here (not
     imported from inference) so this module stays import-cycle-free."""
-    from llm_dataset.v1.catalog import compute_tools, official_tools
+    from llm_dataset.v1.catalog import compute_tools, harness_tools, official_tools
     from . import plugins
-    return official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
+    return harness_tools() + official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
 
 
 def live_tool_names(plugin_context: dict | None = None) -> set[str]:

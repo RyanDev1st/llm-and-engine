@@ -1,8 +1,8 @@
 """Conversational shape (Stockfish-free): every assistant action turn carries
 exactly ONE structured tool call (native: the tool-call turn has no prose — the
-grounded narration is the FINAL turn), coaching finals end with a guiding
-question, and expected_tool_calls survives the skill load (load_skill is a native
-tool call, so expected_tool_calls is the TOOLS only)."""
+grounded narration is the FINAL turn), guiding questions are a bounded mix rather
+than a final-answer monoculture, and expected_tool_calls survives the skill load
+(load_skill is a native tool call, so expected_tool_calls is the TOOLS only)."""
 import chess
 
 from llm_dataset.v1.renderer.chess import render_chess_row
@@ -46,12 +46,15 @@ def test_chess_action_turns_have_exactly_one_tool():
                 assert len(tool_calls_of(m)) == 1, (slice_name, m)
 
 
-def test_chess_coaching_finals_end_with_question():
+def test_chess_coaching_finals_mix_direct_answers_and_guiding_questions():
+    finals = []
     for slice_name in ("A", "B", "D", "E", "F", "G", "H"):
-        for row in _chess_rows(slice_name, 3):
+        for row in _chess_rows(slice_name, 12):
             final = row["messages"][-1]
             assert not tool_calls_of(final)          # final is a plain answer
-            assert final["content"].rstrip().endswith("?"), (slice_name, final["content"])
+            finals.append(final["content"].rstrip())
+    question_count = sum(text.endswith("?") for text in finals)
+    assert 0 < question_count <= len(finals) // 2
 
 
 def test_knowledge_and_greeting_finals_stay_statements():

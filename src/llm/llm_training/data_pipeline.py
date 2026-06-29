@@ -10,6 +10,7 @@ import torch
 
 IGNORE_INDEX = -100
 GROUND_WEIGHT = 5.0  # loss multiplier on "fact" tokens (eval numbers + SAN moves)
+FINAL_PROSE_WEIGHT = 0.1  # weak reference only; do not overwrite Gemma's natural voice
 # These are the tokens the model must COPY from the tool result, not invent.
 # Up-weighting them stops fabrication being ~free (a wrong move is 1-2 tokens of
 # a ~30-token narration, so plain mean loss barely penalizes it).
@@ -66,6 +67,7 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
     from llm_dataset.v1.jsonl_io import read_rows  # transparent .jsonl/.jsonl.gz
 
     from .system_prompt import build_system
+    from .native_tools import manifest_to_native_tools
     records: list[list[dict]] = []
     for obj in read_rows(path):
         msgs = obj.get("messages")
@@ -78,9 +80,12 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
             obj.get("tool_manifest", []),
             obj.get("plugin_context", {}),
             reasoning_mode=obj.get("reasoning_mode", ""),
+            include_tools=False,
         )
+        native_tools = manifest_to_native_tools(obj.get("tool_manifest", []), include_descriptions=False)
         body = [m for m in msgs if m.get("role") != "system"]
-        records.append([{"role": "system", "content": system}, *body])
+        records.append([{"role": "system", "content": system, "_native_tools": native_tools,
+                         "_reasoning_mode": obj.get("reasoning_mode", "")}, *body])
         if len(records) >= max_examples:
             break
     return records
@@ -95,23 +100,28 @@ def tokenize_with_assistant_mask(
     # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
     #
     # v5-native: NO remap — role="tool" survives the native template (it folds into a
-    # <|tool_response> block after the assistant's structured tool_calls). Train with
-    # enable_thinking=False: we never train the system <|think|> signal or shallow think
-    # stubs; the base's native reasoning is invoked at serve. (Plan-mode rows still carry
-    # a real plan in the reasoning channel — that renders regardless and IS trained.)
+    # <|tool_response> block after the assistant's structured tool_calls). Train with the
+    # same per-row enable_thinking signal serve uses (fast off, think/auto/plan on), but
+    # do not train custom thought text; native reasoning stays the base model's job.
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []
     tr_ids = _tool_response_ids(tokenizer)   # derived from THIS tokenizer, not hardcoded
+    from .native_tools import template_messages, tools_for_messages
+    native_tools = tools_for_messages(messages)
+    mode = (messages[0].get("_reasoning_mode", "") if messages else "").strip().lower()
+    enable_thinking = mode not in ("", "fast")
     prev_text = ""
     for i, msg in enumerate(messages):
+        prefix = template_messages(messages[: i + 1])
         try:
-            text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False,
-                                                 add_generation_prompt=False, enable_thinking=False)
+            text = tokenizer.apply_chat_template(prefix, tokenize=False,
+                                                 add_generation_prompt=False, enable_thinking=enable_thinking,
+                                                 tools=native_tools or None)
         except TypeError:  # older template without the kwarg
-            text = tokenizer.apply_chat_template(messages[: i + 1], tokenize=False, add_generation_prompt=False)
+            text = tokenizer.apply_chat_template(prefix, tokenize=False, add_generation_prompt=False)
         except Exception:
-            text = _fallback_render(messages[: i + 1])
+            text = _fallback_render(prefix)
         delta_text = text[len(prev_text):]
         prev_text = text
         # A turn marked train:false is CONTEXT only (e.g. a prior conversational
@@ -124,6 +134,7 @@ def tokenize_with_assistant_mask(
             enc = tokenizer(delta_text, add_special_tokens=False)
             offsets = None
         delta = enc["input_ids"]
+        final_turn = assistant and not msg.get("tool_calls") and not msg.get("reasoning")
         fact_spans = _fact_spans(delta_text) if (assistant and offsets) else []
         for j, tid in enumerate(delta):
             input_ids.append(tid)
@@ -131,7 +142,12 @@ def tokenize_with_assistant_mask(
             # answer); mask the env-injected tool-response marker that lands in this delta.
             if assistant and tid not in tr_ids:
                 labels.append(tid)
-                w = GROUND_WEIGHT if (offsets and _overlaps(offsets[j], fact_spans)) else 1.0
+                if offsets and _overlaps(offsets[j], fact_spans):
+                    w = GROUND_WEIGHT
+                elif final_turn and offsets and offsets[j][1] > offsets[j][0]:
+                    w = FINAL_PROSE_WEIGHT
+                else:
+                    w = 1.0
                 weights.append(w)
             else:
                 labels.append(IGNORE_INDEX)

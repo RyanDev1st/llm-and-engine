@@ -44,6 +44,15 @@ class NativeModel:
         return out
 
 
+class AutoRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def generate(self, messages, max_new_tokens, stop, enable_thinking=None):
+        self.calls.append({"messages": [dict(m) for m in messages], "thinking": enable_thinking})
+        return "Direct auto answer."
+
+
 def _names(inf, calls):
     """Action names from the loop's stored (display) calls — load_skill shows as <skill>."""
     out = []
@@ -98,6 +107,31 @@ def test_native_leaked_call_in_final_is_not_shown(native_loop):
     # narrates the real fact instead of surfacing raw markers (the budget-forced fallback path).
     inf, Game, ToolExecutor = native_loop
     assert inf.contains_tool_call(f"<|tool_call>call:eval{{}}<tool_call|>") is True
+
+
+def test_native_python_call_preserves_braces_inside_code():
+    from backend.native_fmt import parse_native_call
+
+    code = "print(f'{2 + 3:.2f}')"
+    raw = f"<|tool_call>call:python{{code:{Q}{code}{Q}}}<tool_call|>"
+
+    assert parse_native_call(raw) == f"<tool>python code={code}</tool>"
+
+
+def test_native_auto_mode_uses_trained_policy_not_classifier(native_loop):
+    inf, Game, ToolExecutor = native_loop
+    model = AutoRecorder()
+    out = inf.CoachLoop(model, ToolExecutor(Game(), None)).respond(
+        [], "hello", reasoning_mode="auto", coverage=False)
+    assert out["reply"] == "Direct auto answer."
+    assert len(model.calls) == 1
+    assert model.calls[0]["thinking"] is True
+    system = model.calls[0]["messages"][0]
+    assert "Reasoning mode: AUTO" in system["content"]
+    assert "AVAILABLE TOOLS" not in system["content"]
+    names = [t["function"]["name"] for t in system["_native_tools"]]
+    assert names[0] == "load_skill"
+    assert "board_state" in names
 
 
 def test_native_history_rerenders_as_structured_tool_calls(native_loop, monkeypatch):

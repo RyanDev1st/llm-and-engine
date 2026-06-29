@@ -72,30 +72,26 @@ def test_turn1_is_masked_context_and_has_no_tools():
         assert not msgs[-1].get("tool_calls")
 
 
-def test_grounded_and_clarify_archetypes_both_appear():
+def test_all_multiturn_followups_take_grounded_action():
     rows = _rows(60)
-    has_tools = [bool(_tool_names(r)) for r in rows]
-    assert any(has_tools), "expected grounded (tool) follow-ups"
-    assert not all(has_tools), "expected at least one tool-free clarify follow-up"
+    assert all(_tool_names(r) for r in rows), "every follow-up should act, not ask back"
 
 
 def test_grounded_followup_reloads_skill_and_grounds():
-    saw_grounded = saw_clarify = False
     for row in _rows(60):
         names = _tool_names(row)
-        if names:  # grounded archetype: reloads skill via load_skill, then grounds on board first
-            saw_grounded = True
-            assert names[0] == "board_state"
-            assert "chess-coach" in _skill_loads(row)
-            assert "chess-coach" in row["selected_skills"]
-            assert "narration_grounded" in row["acceptance_rules"]
-            # the grounded final connects back to the prior turn
-            assert any(c in row["messages"][-1]["content"] for c in BACKREF)
-        else:       # clarify archetype: no tool, no skill reload, ASKS (ends with '?')
-            saw_clarify = True
-            assert row["selected_skills"] == []
-            assert row["messages"][-1]["content"].rstrip().endswith("?")
-    assert saw_grounded and saw_clarify
+        assert names[0] == "board_state"
+        assert "chess-coach" in _skill_loads(row)
+        assert "chess-coach" in row["selected_skills"]
+        assert "narration_grounded" in row["acceptance_rules"]
+        assert any(c in row["messages"][-1]["content"] for c in BACKREF)
+
+
+def test_grounded_followups_are_not_question_monoculture():
+    rows = [r for r in _rows(60) if _tool_names(r)]
+    assert rows
+    question_finals = [r for r in rows if r["messages"][-1]["content"].rstrip().endswith("?")]
+    assert len(question_finals) <= len(rows) // 2
 
 
 def test_followup_grounded_gate_catches_memory_answer():
@@ -113,11 +109,11 @@ def test_followup_grounded_gate_catches_memory_answer():
     assert "followup_grounded" in rules, rules
 
 
-def test_followup_grounded_allows_toolfree_clarify():
-    """A tool-free follow-up that ASKS (asserts no fact) must still pass."""
-    row = next((r for r in _rows(60) if not _tool_names(r)), None)
-    assert row is not None
-    assert validate_row(row) == []
+def test_multiturn_does_not_train_ask_back_finals():
+    ask_back = ("do you want", "would you rather", "want to press", "should we build")
+    for row in _rows(80):
+        final = row["messages"][-1]["content"].lower()
+        assert not any(phrase in final for phrase in ask_back), (row["id"], final)
 
 
 class _MatePos(_FakePos):

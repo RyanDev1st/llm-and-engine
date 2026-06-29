@@ -65,3 +65,9 @@ def test_script_executes_and_matches_stored_result():
         code = _code(row)
         assert run_python(code) == _tool(row)        # deterministic train == serve
         assert _tool(row).startswith("output: "), code
+
+
+def test_compute_finals_are_not_offer_monoculture():
+    rows = _rows(120)
+    question_finals = [row for row in rows if _final(row).rstrip().endswith("?")]
+    assert len(question_finals) <= len(rows) // 10

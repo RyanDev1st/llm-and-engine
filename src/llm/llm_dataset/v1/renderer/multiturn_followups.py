@@ -195,29 +195,19 @@ def _arch_stuck(messages, scenario, annotated):
     messages.append(_user(scenario, tone.pick(seed, TURN2_STUCK)))
     _reload_and_read(messages, annotated)
     _emit_best_move(messages, annotated, series=3)
-    final = ask(f"{tone.pick(seed, BACKREF)} no need to restart — a grounded try here is "
-                f"{annotated.best_san}; want me to walk the idea, or see your other options?", seed, 4)
+    final = f"{tone.pick(seed, BACKREF)} no need to restart — {annotated.best_san} is the move here."
     return final, ["chess-coach"], list(_TOOL_RULES)
-
-
-# Clarify: AMBIGUOUS follow-up answered with ONE clarifying question — asserts no fact,
-# so it stays tool-free (the only archetype that does).
-_CLARIFY_OFFERS = (
-    "happy to take it further — do you want the attacking plan, or to shore up your defense first?",
-    "glad to keep going — should we build the attacking plan, or firm up the defense first?",
-    "we can dig deeper — want to press for the attack, or stabilize the position first?",
-    "plenty more here — go on the offensive, or solidify what you've got first?",
-    "let's keep at it — chase the initiative, or tighten the defense first?",
-    "happy to continue — push for an attack, or settle the position down first?",
-    "we can go either way — map an attacking plan, or patch the weak spots first?",
-    "more to do here — would you rather create threats, or neutralize theirs first?",
-)
 
 
 def _arch_clarify(messages, scenario, annotated):
     seed = scenario.seed
     messages.append(_user(scenario, tone.pick(seed, TURN2_CLARIFY)))
-    return ask(tone.pick(seed * 31 + 5, _CLARIFY_OFFERS), seed, 4), [], list(_REF_RULES)
+    _reload_and_read(messages, annotated)
+    _emit_best_move(messages, annotated, series=3)
+    nxt = " ".join(annotated.best_line_sans[1:3])
+    cont = f"; then {nxt}" if nxt else ""
+    final = f"{tone.pick(seed, BACKREF)} start with {annotated.best_san}{cont}. {_reason(annotated, seed)}."
+    return final, ["chess-coach"], list(_TOOL_RULES)
 
 
 def _arch_self_correct(messages, scenario, annotated):
@@ -232,7 +222,7 @@ def _arch_self_correct(messages, scenario, annotated):
         ["chess-coach"], list(_TOOL_RULES)
 
 
-# Order fixes the seed%N distribution; only _arch_clarify is tool-free (1 of 10).
+# Order fixes the seed%N distribution; every follow-up now acts on the board instead of asking back.
 ARCHETYPES = (
     _arch_why, _arch_tool, _arch_eval, _arch_plan, _arch_threats, _arch_line,
     _arch_alts, _arch_stuck, _arch_self_correct, _arch_clarify,

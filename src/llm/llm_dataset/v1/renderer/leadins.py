@@ -41,8 +41,10 @@ def guiding(seed: int, i: int = 0) -> str:
 
 
 def ask(text: str, seed: int, i: int = 0) -> str:
-    """Append a guiding question to a coaching final (idempotent on '?')."""
+    """Sometimes append a guiding question; direct answers must be the default."""
     text = text.rstrip()
     if text.endswith("?"):
+        return text
+    if random.Random(seed * 17 + i).randrange(20) != 0:
         return text
     return f"{text} {guiding(seed, i)}"

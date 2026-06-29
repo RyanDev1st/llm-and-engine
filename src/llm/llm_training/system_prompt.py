@@ -91,11 +91,11 @@ def _render_plugins(plugin_context: dict) -> str:
     )
 
 
-# v5-native: reasoning is Gemma's NATIVE thinking (enable_thinking), never a custom <think>
-# tag — these lines only set the mode's intent (direct / reason / plan). fast/think/auto add
-# NO structure to the answer (the model reasons in the native channel at serve); only PLAN
-# keeps the visible <goal>/<plan> deliverable that the serve plan-gate maps to executed
-# boxes. Kept terse so the per-row contract leaves room for the conversation within train seq.
+# v5-native: Gemma supplies the NATIVE thinking channel (enable_thinking), but AUTO is OUR
+# trained harness policy. These lines teach the model when to answer fast, when to reason,
+# and when to self-gate under AUTO. fast/think/auto add NO visible answer structure; only
+# PLAN keeps the <goal>/<plan> deliverable that the serve plan-gate maps to executed boxes.
+# Kept terse so the per-row contract leaves room for the conversation within train seq.
 _REASONING_LINE = {
     "fast": "Reasoning mode: FAST — answer directly and concisely.",
     "think": "Reasoning mode: THINK — reason it through, act, then answer; ground every claim in a "
@@ -137,13 +137,14 @@ def build_system(
     plugin_context: dict | None,
     agent_overlay: str = "",
     reasoning_mode: str = "",
+    include_tools: bool = True,
 ) -> str:
     return (
         BASE_HARNESS
         + _render_precedence()
         + _render_reasoning(reasoning_mode)
         + _render_skills(skills_index or [])
-        + _render_tools(tool_manifest or [])
+        + (_render_tools(tool_manifest or []) if include_tools else "")
         + _render_plugins(plugin_context or {})
         + _render_overlay(agent_overlay)
     )

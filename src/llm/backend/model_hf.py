@@ -138,11 +138,15 @@ class HFModel:
             # <tool>/<skill> history into that exact shape, byte-identical to data_pipeline.
             from .native_fmt import to_native_messages
             messages = to_native_messages(messages)
+            from llm_training.native_tools import template_messages, tools_for_messages
+            native_tools = tools_for_messages(messages)
+            messages = template_messages(messages)
         else:
             from llm_training.chat_format import remap_tool_messages
             # Same remap as v4 training: Gemma drops role="tool", so render tool results as user
             # turns. MUST match data_pipeline or the model sees a new shape.
             messages = remap_tool_messages(messages)
+            native_tools = []
         # enable_thinking is per-MODE (fast=off, think/auto=on); the loop passes it. keep_specials
         # keeps the native <|tool_call>/<|channel> markers in the decode so the parser can read them
         # — REQUIRED whenever the format is native (even fast mode emits a native tool call), and for
@@ -154,7 +158,7 @@ class HFModel:
         try:
             enc = self.tok.apply_chat_template(
                 messages, add_generation_prompt=True, return_tensors="pt", return_dict=True,
-                enable_thinking=think)
+                enable_thinking=think, tools=native_tools or None)
         except TypeError:  # older template without the kwarg
             enc = self.tok.apply_chat_template(
                 messages, add_generation_prompt=True, return_tensors="pt", return_dict=True)

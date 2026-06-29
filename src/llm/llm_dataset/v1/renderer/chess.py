@@ -8,9 +8,10 @@ from ..board_facts import (board_state_line, choose_move, king_moves, legal_move
 from ..sampler import Scenario
 from . import tone
 from .chess_kb import KBItem, pick_answer, pick_kb
+from .chess_envelope import build_chess_envelope
 from .finals import e_top_form, final_narration, wants_number
 from .review import ReviewFacts, delta_str, review_for_played
-from .tags import skill_call_msg, tool_call_msg, tool_calls_of, tool_result_msg
+from .tags import skill_call_msg, tool_call_msg, tool_result_msg
 from .text import best_move_score, score_pawns, score_text
 from .thinking import pick_mode
 
@@ -82,7 +83,8 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     user = _style_prompt(tone.pick(seed, kb.prompts), scenario) if kb else _user_message(scenario, move)
     mode = pick_mode(seed)
     messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
-    _emit_skill_load(messages)
+    if scenario.slice != "J":
+        _emit_skill_load(messages)
     if scenario.slice == "F" and annotated:
         messages.append(tool_call_msg("move", {"san": move}))
         messages.append(tool_result_msg("move", move_echo(annotated.fen, move)))
@@ -93,7 +95,7 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     body = final_narration(scenario, annotated, move, wants_number(user),
                            pick_answer(kb, seed) if kb else None, review=review)
     messages.append({"role": "assistant", "content": body})
-    return _envelope(scenario, messages, annotated, mode)
+    return build_chess_envelope(scenario, messages, annotated, mode)
 
 
 def _user_message(scenario: Scenario, move: str | None) -> str:
@@ -172,38 +174,3 @@ def _emit_slice_tool(
         messages.append(tool_call_msg("ask_chessbot", {"query": kb.query}))
         messages.append(tool_result_msg("ask_chessbot", kb.result))
 
-
-def _envelope(
-    scenario: Scenario, messages: list[dict[str, str]], annotated: AnnotatedPosition | None,
-    mode: str = "think"
-) -> dict[str, Any]:
-    expected = [
-        tc["name"]
-        for m in messages
-        if m["role"] == "assistant"
-        for tc in tool_calls_of(m)
-        if tc["name"] != "load_skill"   # the skill-load mechanic, not a routing target
-    ]
-    return {
-        "id": f"v1_{scenario.slice.lower()}_{scenario.seed:09d}",
-        "slice": scenario.slice,
-        "kind": "harness_chess",
-        "reasoning_mode": mode,
-        "intent": scenario.intent,
-        "plugin_context": scenario.plugin_context,
-        "skills_index": [dict(s) for s in scenario.skills_index],
-        "selected_skills": ["chess-coach"],
-        "tool_manifest": list(scenario.tool_manifest),
-        "expected_tool_calls": expected,
-        "grounding_sources": ["board_state"] if scenario.slice in {"A", "B", "C", "D", "E", "F", "G", "H"} else [],
-        "messages": messages,
-        "acceptance_rules": [
-            "final_no_xml", "known_tool_only", "args_match_schema",
-            "selected_skill_exists", "skill_index_only_before_load", "skill_body_strict", "engine_grounded",
-        ] + (["narration_grounded"] if scenario.slice in {"D", "E", "F", "G"} else []),
-        "position_fen": scenario.position.fen if scenario.position else None,
-        "stockfish_truth": (
-            {"score_cp": annotated.score_cp, "best_san": annotated.best_san, "depth": annotated.depth}
-            if annotated else None
-        ),
-    }

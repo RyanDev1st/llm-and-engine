@@ -91,7 +91,8 @@ def validate_call(name: str, args: dict[str, str]) -> str | None:
         arg, example = req
         if not args.get(arg):
             return (f"error: tool '{name}' needs '{arg}' set to a move in standard notation — "
-                    f"e.g. <tool>{name} {arg}={example}</tool>; replace {example} with the move you want.")
+                    f"e.g. call:{name}{{{arg}:{example}}} with {arg}={example}; "
+                    f"replace {example} with the move you want.")
     enum = _ENUM_ARGS.get(name)
     if enum:
         arg, allowed = enum

@@ -43,7 +43,7 @@ _BOARD_HOOK = _os.environ.get("CHESS_BOARD_HOOK", "0") not in ("0", "false", "Fa
 # re-rendered natively in model_hf. Implies native thinking (per-mode). OFF -> v4 serve unchanged.
 _NATIVE_FMT = _os.environ.get("CHESS_NATIVE_FORMAT", "0") not in ("0", "false", "False")
 
-from llm_dataset.v1.catalog import compute_tools, official_tools
+from llm_dataset.v1.catalog import compute_tools, harness_tools, official_tools
 from llm_training.system_prompt import build_system
 
 from .context_window import ContextWindow, WindowConfig, estimate_tokens
@@ -714,7 +714,7 @@ def serving_tool_manifest(plugin_context: dict | None = None) -> list[dict]:
     """The full callable tool manifest: official catalog tools + the domain-neutral
     compute tool (calc) + enabled plugins' tools."""
     from . import plugins
-    return official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
+    return harness_tools() + official_tools() + compute_tools() + plugins.plugin_tools(plugin_context)
 
 
 def _flat_catalog(skills_index: list[dict], tool_manifest: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -730,6 +730,14 @@ def _flat_catalog(skills_index: list[dict], tool_manifest: list[dict]) -> tuple[
     return skills, tools
 
 
+def serving_native_tools(plugin_context: dict | None = None) -> list[dict]:
+    """Native Gemma tool declarations for the same flat catalog used in the v5 prompt."""
+    from llm_training.native_tools import manifest_to_native_tools
+    pc = plugin_context or PLUGIN_CONTEXT
+    _, tools = _flat_catalog(serving_skills_index(pc), serving_tool_manifest(pc))
+    return manifest_to_native_tools(tools, include_descriptions=False)
+
+
 def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = None, game=None,
                         reasoning_mode: str = "") -> str:
     # reasoning_mode ("think"|"fast"|"auto") must match what the corpus trained on
@@ -738,7 +746,8 @@ def build_system_prompt(agent_overlay: str = "", plugin_context: dict | None = N
     pc = plugin_context or PLUGIN_CONTEXT
     if _NATIVE_FMT:
         skills, tools = _flat_catalog(serving_skills_index(pc), serving_tool_manifest(pc))
-        base = build_system(skills, tools, {}, agent_overlay, reasoning_mode=reasoning_mode)
+        base = build_system(skills, tools, {}, agent_overlay, reasoning_mode=reasoning_mode,
+                            include_tools=False)
     else:
         base = build_system(serving_skills_index(pc), serving_tool_manifest(pc), pc, agent_overlay,
                             reasoning_mode=reasoning_mode)
@@ -929,13 +938,10 @@ class CoachLoop:
         # (life-skills) flips it off.
         chess_tools = set(_TOOL_NAMES) | _CHESS_PLUGIN_TOOL_NAMES
         chess_domain = not (live_names - chess_tools)     # any non-chess tool callable -> False
-        # v4.1 auto-router (native only): "auto" runs a cheap ISOLATED classifier pass to decide
-        # whether this task needs reasoning, resolving to think (yes) or fast (no) BEFORE we build
-        # the prompt. Explicit + parseable beats the model self-gating mid-generation. v4 serve
-        # (native off) is unchanged — the router and the per-mode enable_thinking are gated on it.
+        # v5-native: AUTO is OUR trained harness policy, not a Gemma mode. Keep the AUTO
+        # system instruction and enable Gemma's native thinking channel so the model self-gates
+        # inside the main loop; do not rewrite through the old v4.1 classifier shim.
         _native = _NATIVE_FMT or _os.environ.get("CHESS_NATIVE_THINK", "0") not in ("0", "false", "False")
-        if _native and (reasoning_mode or "").strip().lower() == "auto":
-            reasoning_mode = "think" if self._auto_needs_reasoning(user_message) else "fast"
         system = build_system_prompt(self.agent_overlay, self.plugin_context,
                                      self.executor.game, reasoning_mode=reasoning_mode)
         # Off-distribution serve-only nudges — OFF by default so the live prompt matches the bare
@@ -965,8 +971,10 @@ class CoachLoop:
         # anchor + what's already done) rides the system prompt so the model keeps the
         # thread instead of forgetting. Empty string when nothing was evicted.
         sys_content = system + (("\n\n" + ctx_stats.digest) if ctx_stats.digest else "")
-        convo = [{"role": "system", "content": sys_content}, *kept_history,
-                 {"role": "user", "content": user_message}]
+        system_msg = {"role": "system", "content": sys_content}
+        if _NATIVE_FMT:
+            system_msg["_native_tools"] = serving_native_tools(self.plugin_context)
+        convo = [system_msg, *kept_history, {"role": "user", "content": user_message}]
         new_turns = [{"role": "user", "content": user_message}]
         tool_calls: list[str] = []
         tool_results: list[str] = []

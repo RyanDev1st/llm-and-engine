@@ -1,5 +1,6 @@
 import argparse
 import json
+from pathlib import Path
 
 from llm_training.data_pipeline import IGNORE_INDEX, build_examples, load_jsonl_chat
 from llm_training.eval_routing import VAL, first_turn, gold_tool, mode2_messages
@@ -166,6 +167,57 @@ def test_train_false_turn_is_masked_from_loss():
     assert n_context > 0
 
 
+def test_tokenizer_receives_native_tools_without_private_message_keys():
+    from llm_training.data_pipeline import tokenize_with_assistant_mask
+
+    native_tools = [{"type": "function", "function": {"name": "eval", "parameters": {"type": "object", "properties": {}}}}]
+    tok = RecordingTokenizer()
+    tokenize_with_assistant_mask([
+        {"role": "system", "content": "SYS", "_native_tools": native_tools, "_reasoning_mode": "auto"},
+        {"role": "user", "content": "score?"},
+        {"role": "assistant", "content": "Level."},
+    ], tok, 2048)
+    assert tok.seen_tools and all(t == native_tools for t in tok.seen_tools)
+    assert tok.seen_thinking and all(t is True for t in tok.seen_thinking)
+    assert not any("_native_tools" in m for batch in tok.seen_messages for m in batch)
+    assert not any("_reasoning_mode" in m for batch in tok.seen_messages for m in batch)
+
+
+def test_final_nonfact_prose_is_reference_weight_only():
+    from llm_training.data_pipeline import FINAL_PROSE_WEIGHT, GROUND_WEIGHT, tokenize_with_assistant_mask
+
+    tok = OffsetTokenizer()
+    ids, labels, weights = tokenize_with_assistant_mask([
+        {"role": "user", "content": "best move?"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"type": "function", "function": {"name": "best_move", "arguments": {"depth": 15}}}
+        ]},
+        {"role": "tool", "name": "best_move", "content": "best_line: Qh5, score: +1.23"},
+        {"role": "assistant", "content": "Qh5 is best at +1.23."},
+    ], tok, 2048)
+    trained = [(labels[i], weights[i], tok.text_for(ids[i])) for i in range(len(labels)) if labels[i] != IGNORE_INDEX]
+
+    assert any(text == "best_move" and weight == 1.0 for _, weight, text in trained)
+    assert any(text == "Qh5" and weight == GROUND_WEIGHT for _, weight, text in trained)
+    assert any(text == "+1.23" and weight == GROUND_WEIGHT for _, weight, text in trained)
+    assert any(text == "is" and weight == FINAL_PROSE_WEIGHT for _, weight, text in trained)
+
+
+def test_v5_native_sft_targets_fit_profile_sequence_window():
+    from transformers import AutoTokenizer
+    from llm_dataset.v1.profiles import profile
+
+    p = profile("v5")
+    tok = AutoTokenizer.from_pretrained("src/llm/models/gemma4_e2b", trust_remote_code=True)
+    records = load_jsonl_chat(Path(str(p.train_path) + ".gz"), max_examples=16)
+    examples = build_examples(records, tok, p.max_seq)
+
+    assert len(records) == 16
+    assert len(examples) == len(records)
+    trained = [sum(label != IGNORE_INDEX for label in ex["labels"]) for ex in examples]
+    assert min(trained) > 0
+
+
 class WhitespaceTokenizer:
     def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=False):
         # tokenize_with_assistant_mask renders prefixes with tokenize=False and
@@ -179,3 +231,53 @@ class WhitespaceTokenizer:
 
     def _tokens(self, msg):
         return [len(msg["role"]), *[len(part) for part in msg["content"].split()]]
+
+
+class RecordingTokenizer(WhitespaceTokenizer):
+    def __init__(self):
+        self.seen_tools = []
+        self.seen_thinking = []
+        self.seen_messages = []
+
+    def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=False, **kwargs):
+        self.seen_tools.append(kwargs.get("tools"))
+        self.seen_thinking.append(kwargs.get("enable_thinking"))
+        self.seen_messages.append([dict(m) for m in messages])
+        return super().apply_chat_template(messages, tokenize=tokenize,
+                                           add_generation_prompt=add_generation_prompt)
+
+
+class OffsetTokenizer:
+    def __init__(self):
+        self.vocab = {}
+        self.rev = {}
+
+    def apply_chat_template(self, messages, tokenize=True, add_generation_prompt=False, **kwargs):
+        parts = []
+        for m in messages:
+            parts.append(m.get("role", ""))
+            for tc in m.get("tool_calls") or []:
+                fn = tc.get("function", {})
+                parts.append(fn.get("name", ""))
+                parts.extend(str(v) for v in (fn.get("arguments") or {}).values())
+            if m.get("content"):
+                parts.append(m["content"])
+        return " ".join(parts)
+
+    def __call__(self, text, add_special_tokens=False, return_offsets_mapping=False, **kwargs):
+        ids, offsets = [], []
+        for match in __import__("re").finditer(r"\S+", text):
+            token = match.group(0).strip(".,;:!?()[]{}")
+            if token not in self.vocab:
+                idx = len(self.vocab) + 1
+                self.vocab[token] = idx
+                self.rev[idx] = token
+            ids.append(self.vocab[token])
+            offsets.append((match.start(), match.start() + len(token)))
+        out = {"input_ids": ids}
+        if return_offsets_mapping:
+            out["offset_mapping"] = offsets
+        return out
+
+    def text_for(self, token_id):
+        return self.rev[token_id]

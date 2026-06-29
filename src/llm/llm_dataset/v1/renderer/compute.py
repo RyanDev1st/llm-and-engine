@@ -29,8 +29,7 @@ from .thinking import pick_mode
 _VERIFY_SHARE = 0.70
 _ACC_T = (75, 80, 85, 90)
 _PT_T = (12, 15, 18, 22, 26)
-_CLOSERS = ("Want the breakdown?", "Anything else to check?", "Want me to round it?",
-            "Want another run?", "", "", "")
+_CLOSERS = ("Want the breakdown?", "", "", "", "", "", "", "", "", "")
 
 
 def _wrap(expr: str) -> str:

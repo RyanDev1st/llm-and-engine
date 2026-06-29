@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import sys
 from collections import Counter, defaultdict
@@ -34,6 +35,7 @@ from llm_training.system_prompt import build_system  # noqa: E402
 from llm_training.data_pipeline import (  # noqa: E402
     IGNORE_INDEX, TOOL_RESPONSE_IDS, GROUND_WEIGHT, tokenize_with_assistant_mask,
 )
+from llm_training.native_tools import manifest_to_native_tools, template_messages  # noqa: E402
 
 TOK_DIR = Path("src/llm/models/gemma4_e2b")
 MARKERS = {
@@ -48,6 +50,10 @@ _LEGACY = ("<tool>", "</tool>", "<skill>", "</skill>", "<think>", "</think>",
 FAILS: list[str] = []
 
 
+def _resolve_tok_dir(tok_dir: str | None = None) -> Path:
+    return Path(tok_dir or os.environ.get("CHESS_TOK_DIR") or TOK_DIR)
+
+
 def fail(tag: str, msg: str) -> None:
     FAILS.append(f"[{tag}] {msg}")
     print(f"  FAIL [{tag}] {msg}")
@@ -60,20 +66,31 @@ def read_rows(path: Path):
                 yield json.loads(line)
 
 
+def render_text(msgs, tok):
+    mode = (msgs[0].get("_reasoning_mode", "") if msgs else "").strip().lower()
+    return tok.apply_chat_template(
+        template_messages(msgs), tokenize=False, add_generation_prompt=False,
+        enable_thinking=mode not in ("", "fast"), tools=msgs[0].get("_native_tools") or None)
+
+
 def render(row, tok):
     system = build_system(row.get("skills_index", []), row.get("tool_manifest", []),
-                          row.get("plugin_context", {}), reasoning_mode=row.get("reasoning_mode", ""))
+                          row.get("plugin_context", {}), reasoning_mode=row.get("reasoning_mode", ""),
+                          include_tools=False)
+    native_tools = manifest_to_native_tools(row.get("tool_manifest", []), include_descriptions=False)
     body = [m for m in row["messages"] if m.get("role") != "system"]
-    msgs = [{"role": "system", "content": system}, *body]
-    return tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False, enable_thinking=False), msgs
+    msgs = [{"role": "system", "content": system, "_native_tools": native_tools,
+             "_reasoning_mode": row.get("reasoning_mode", "")}, *body]
+    return render_text(msgs, tok), msgs
 
 
-def main(profile_name="v5"):
+def main(profile_name="v5", tok_dir: str | None = None):
     from transformers import AutoTokenizer
     p = profile(profile_name)
-    tok = AutoTokenizer.from_pretrained(str(TOK_DIR), trust_remote_code=True)
+    tok_path = _resolve_tok_dir(tok_dir)
+    tok = AutoTokenizer.from_pretrained(str(tok_path), trust_remote_code=True)
     train = list(read_rows(Path(str(p.train_path) + ".gz")))
-    print(f"profile={profile_name} train={len(train)} max_seq={p.max_seq}")
+    print(f"profile={profile_name} train={len(train)} max_seq={p.max_seq} tok_dir={tok_path}")
 
     # ---- T: tokenizer invariants ----
     print("\n[T] tokenizer invariants")
@@ -123,12 +140,8 @@ def main(profile_name="v5"):
                               if m.get("role") == "assistant" and m.get("train") is False), None)
                 if ctx_i is None:
                     continue
-                lo = len(tok(tok.apply_chat_template(msgs[:ctx_i], tokenize=False,
-                            add_generation_prompt=False, enable_thinking=False),
-                            add_special_tokens=False)["input_ids"])
-                hi = len(tok(tok.apply_chat_template(msgs[:ctx_i + 1], tokenize=False,
-                            add_generation_prompt=False, enable_thinking=False),
-                            add_special_tokens=False)["input_ids"])
+                lo = len(tok(render_text(msgs[:ctx_i], tok), add_special_tokens=False)["input_ids"])
+                hi = len(tok(render_text(msgs[:ctx_i + 1], tok), add_special_tokens=False)["input_ids"])
                 _, labels, _ = tokenize_with_assistant_mask(msgs, tok, p.max_seq)
                 trained = [j for j in range(lo, min(hi, len(labels))) if labels[j] != IGNORE_INDEX]
                 if trained:
@@ -255,4 +268,6 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", default="v5")
-    raise SystemExit(main(ap.parse_args().profile))
+    ap.add_argument("--tok-dir", default=None, help="tokenizer dir to verify; defaults to CHESS_TOK_DIR or local E2B")
+    args = ap.parse_args()
+    raise SystemExit(main(args.profile, args.tok_dir))

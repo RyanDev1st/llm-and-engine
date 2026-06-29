@@ -42,10 +42,10 @@ def test_system_message_is_built_from_envelope(tmp_path):
     assert "PLUGIN CONTEXT" in sys        # plugin_context serialized
 
 
-def test_every_called_tool_is_declared_in_system(tmp_path):
+def test_every_called_tool_is_declared_in_native_tools(tmp_path):
     msgs = load_jsonl_chat(_write(tmp_path, ROW), 10)[0]
-    sys = msgs[0]["content"]
     called = {t for m in msgs if m["role"] == "assistant" for t in TOOL.findall(m["content"])}
+    declared = {t["function"]["name"] for t in msgs[0]["_native_tools"]}
     assert called == {"load_skill", "move"}
     for tool in called:
-        assert tool in sys, f"called tool {tool} not declared in system text"
+        assert tool in declared, f"called tool {tool} not declared in native tools"

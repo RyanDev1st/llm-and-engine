@@ -41,7 +41,7 @@ def pipeline(out: Path) -> Path:
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
     ax.text(0.5, 0.96, "How it was trained — and served", ha="center", fontsize=16,
             fontweight="bold", color=NAVY)
-    stages = [("TRAIN", ["Kaggle 2× T4 (free)", "3 accounts · ~135 GPU-h", "over weeks"], "#dbe7f5", "#2471a3"),
+    stages = [("TRAIN", ["Kaggle 2× T4 (free)", "DDP training", "38h per session"], "#dbe7f5", "#2471a3"),
               ("ADAPTER", ["tiny LoRA on top", "base stays frozen", "→ merge to serve"], "#d5f5e3", "#1e8449"),
               ("SERVE", ["Colab 1× T4 (live site)", "or local GGUF", "on your own GPU"], "#fadbd8", "#a93226")]
     w, gap, y, h = 0.27, 0.065, 0.52, 0.34
@@ -53,7 +53,7 @@ def pipeline(out: Path) -> Path:
                         arrowprops=dict(arrowstyle="-|>", lw=2.4, color="#888"))
     # the knobs + brief why (the "max seq, ranks, explain why" the script asks for)
     knobs = [("QLoRA · 4-bit nf4", "fit a 4B model on a free T4"),
-             ("max seq 1664", "longest example is 1655 tok — don't truncate the reasoning"),
+             ("DDP · 2× GPUs", "1.81x speedup, 38-hour iteration sessions to reach v4"),
              ("rank 16 · all-linear", "enough to learn the format, small enough to fit"),
              ("loss-weight ×8 on tags", "the harness tags must beat the base model's habits")]
     ax.text(0.5, 0.40, "key settings (and why)", ha="center", fontsize=10.5,
@@ -83,72 +83,71 @@ def thinks(out: Path) -> Path:
     ax.axis("off")
 
     # Title
-    ax.text(0.5, 0.94, "The Agent Harness & Thinking Loop", ha="center", va="center",
+    ax.text(0.5, 0.96, "The Agent Harness & Thinking Loop", ha="center", va="center",
             fontsize=18, fontweight="bold", color="#ffffff")
-    ax.add_artist(Line2D([0.38, 0.62], [0.89, 0.89], color="#c8a24a", lw=2.0))
+    ax.add_artist(Line2D([0.38, 0.62], [0.91, 0.91], color="#c8a24a", lw=2.0))
 
-    # Box dimensions & centers
-    cx_L, cx_R = 0.28, 0.78
-    y_top, y_mid, y_bot = 0.80, 0.46, 0.12
-    
-    # 1. User Prompt
-    w1, h1 = 0.36, 0.12
-    card1 = FancyBboxPatch((cx_L - w1/2, y_top - h1/2), w1, h1, boxstyle="round,pad=0.01", fc="#1c202a", ec="#7a8699", lw=1.5)
-    ax.add_patch(card1)
-    ax.text(cx_L, y_top + 0.02, "1. USER PROMPT", ha="center", va="center", fontsize=12, fontweight="bold", color="#ffffff")
-    ax.text(cx_L, y_top - 0.025, "“find a good move”", ha="center", va="center", fontsize=11, color="#dcdde1", fontstyle="italic")
+    # Box dimensions
+    w, h = 0.40, 0.11
+    cx = 0.5
 
-    # 2. Agent Model
-    w2, h2 = 0.36, 0.26
-    card2 = FancyBboxPatch((cx_L - w2/2, y_mid - h2/2), w2, h2, boxstyle="round,pad=0.01", fc="#15221c", ec="#2ecc71", lw=2.0)
-    ax.add_patch(card2)
-    ax.text(cx_L, y_mid + 0.08, "2. AGENT", ha="center", va="center", fontsize=14, fontweight="bold", color="#2ecc71")
-    
-    agent_text = "<goal>\n<think>\n<skill> or <tool>"
-    ax.text(cx_L, y_mid - 0.03, agent_text, ha="center", va="center", fontsize=12, color="#ffffff", fontweight="bold", linespacing=1.8)
+    nodes = [
+        (0.85, "1. USER PROMPT", "“What's the best move?”", "#1c202a", "#7a8699", True),
+        (0.70, "2. AGENT: REASONING", "Sets <goal>, uses <think>", "#15221c", "#2ecc71", False),
+        (0.55, "3. AGENT: XML CALL", "Selects <skill> or <tool>", "#15221c", "#2ecc71", False),
+        (0.40, "4. HARNESS: EXECUTE", "Executes parsed function", "#1a202c", "#3498db", False),
+        (0.25, "5. HARNESS: RESULT", "Returns state to agent", "#1a202c", "#3498db", False),
+        (0.10, "6. GROUNDED REPLY", "“Qxc5 is the move… Should I go deeper?”", "#2c2518", "#c8a24a", True),
+    ]
 
-    # 3. Harness
-    w3, h3 = 0.36, 0.26
-    card3 = FancyBboxPatch((cx_R - w3/2, y_mid - h3/2), w3, h3, boxstyle="round,pad=0.01", fc="#1a202c", ec="#3498db", lw=1.5)
-    ax.add_patch(card3)
-    ax.text(cx_R, y_mid + 0.08, "3. HARNESS", ha="center", va="center", fontsize=14, fontweight="bold", color="#3498db")
-    
-    harness_text = "Injects Skill\nRuns Code\nReturns Data"
-    ax.text(cx_R, y_mid - 0.03, harness_text, ha="center", va="center", fontsize=12, color="#ffffff", fontweight="bold", linespacing=1.8)
+    for y, title, text, fc, ec, is_italic in nodes:
+        card = FancyBboxPatch((cx - w/2, y - h/2), w, h, boxstyle="round,pad=0.01", fc=fc, ec=ec, lw=1.5)
+        ax.add_patch(card)
+        ax.text(cx, y + 0.015, title, ha="center", va="center", fontsize=11, fontweight="bold", color=ec)
+        
+        txt_color = "#ffffff" if is_italic else "#8395a7"
+        txt_size = 10.5 if is_italic else 9
+        
+        ax.text(cx, y - 0.020, text, ha="center", va="center", fontsize=txt_size, color=txt_color, 
+                fontstyle="italic" if is_italic else "normal")
 
-    # 4. Final Reply
-    w4, h4 = 0.36, 0.12
-    card4 = FancyBboxPatch((cx_L - w4/2, y_bot - h4/2), w4, h4, boxstyle="round,pad=0.01", fc="#2c2518", ec="#c8a24a", lw=1.5)
-    ax.add_patch(card4)
-    ax.text(cx_L, y_bot + 0.02, "4. GROUNDED REPLY", ha="center", va="center", fontsize=12, fontweight="bold", color="#c8a24a")
-    ax.text(cx_L, y_bot - 0.025, "“Play Ba6”", ha="center", va="center", fontsize=11, color="#dcdde1", fontstyle="italic")
-
-    # Arrows
-    def _draw_arrow(start, end, color="#7a8699"):
-        arrow = mpatches.FancyArrowPatch(start, end, arrowstyle="-|>", lw=2.0, color=color, mutation_scale=16)
+    def _draw_down_arrow(y_start, y_end, color):
+        arrow = mpatches.FancyArrowPatch((cx, y_start), (cx, y_end), arrowstyle="-|>", lw=2.0, color=color, mutation_scale=16)
         ax.add_patch(arrow)
 
-    # User -> Agent
-    _draw_arrow((cx_L, y_top - h1/2), (cx_L, y_mid + h2/2), "#7a8699")
-    
-    # Agent -> Harness (Top Half)
-    arr_y1 = y_mid + 0.05
-    _draw_arrow((cx_L + w2/2, arr_y1), (cx_R - w3/2, arr_y1), "#2ecc71")
-    ax.text((cx_L + cx_R)/2, arr_y1 + 0.02, "Action", ha="center", va="bottom", fontsize=11, color="#2ecc71", fontweight="bold")
-    
-    # Harness -> Agent (Bottom Half)
-    arr_y2 = y_mid - 0.05
-    _draw_arrow((cx_R - w3/2, arr_y2), (cx_L + w2/2, arr_y2), "#3498db")
-    ax.text((cx_L + cx_R)/2, arr_y2 - 0.02, "Data", ha="center", va="top", fontsize=11, color="#3498db", fontweight="bold")
-    
-    # Agent -> Reply
-    _draw_arrow((cx_L, y_mid - h2/2), (cx_L, y_bot + h4/2), "#c8a24a")
-    
-    # Add a visual "Looping" indicator
-    loop_arc = mpatches.FancyArrowPatch((cx_L - w2/2 - 0.01, y_mid - 0.06), (cx_L - w2/2 - 0.01, y_mid + 0.06), 
-                                         connectionstyle="arc3,rad=-0.8", arrowstyle="-|>", lw=2.0, color="#2ecc71", mutation_scale=16)
-    ax.add_patch(loop_arc)
-    ax.text(cx_L - w2/2 - 0.05, y_mid, "LOOP", ha="right", va="center", fontsize=11, fontweight="bold", color="#2ecc71", rotation=90)
+    # Down arrows
+    _draw_down_arrow(0.85 - h/2, 0.70 + h/2, "#7a8699")
+    _draw_down_arrow(0.70 - h/2, 0.55 + h/2, "#2ecc71")
+    _draw_down_arrow(0.55 - h/2, 0.40 + h/2, "#3498db")
+    _draw_down_arrow(0.40 - h/2, 0.25 + h/2, "#3498db")
+
+    # Minimal Check Node (> 6 turns?)
+    chk_x, chk_y = 0.15, 0.25
+    chk_w, chk_h = 0.12, 0.06
+    chk_box = FancyBboxPatch((chk_x - chk_w/2, chk_y - chk_h/2), chk_w, chk_h, boxstyle="round,pad=0.01", fc="#1a202c", ec="#7a8699", lw=1.5)
+    ax.add_patch(chk_box)
+    ax.text(chk_x, chk_y, "> 6 turns?", ha="center", va="center", fontsize=9.5, fontweight="bold", color="#dcdde1")
+
+    # Path 1: Node 5 -> Check Node
+    left_x = cx - w/2
+    ax.plot([left_x, chk_x + chk_w/2], [0.25, 0.25], color="#3498db", lw=2.0)
+    ax.add_patch(mpatches.FancyArrowPatch((left_x - 0.02, 0.25), (chk_x + chk_w/2, 0.25), arrowstyle="-|>", lw=2.0, color="#3498db", mutation_scale=16))
+
+    # Path 2: Check Node (No) -> Node 2
+    ax.plot([chk_x, chk_x, left_x - 0.02], [chk_y + chk_h/2, 0.70, 0.70], color="#3498db", lw=2.0)
+    ax.add_patch(mpatches.FancyArrowPatch((left_x - 0.02, 0.70), (left_x, 0.70), arrowstyle="-|>", lw=2.0, color="#3498db", mutation_scale=16))
+    ax.text(chk_x - 0.015, 0.50, "No", ha="right", va="center", fontsize=10.5, color="#3498db", fontweight="bold")
+
+    # Path 3: Check Node (Yes) -> Node 6
+    ax.plot([chk_x, chk_x, left_x - 0.02], [chk_y - chk_h/2, 0.10, 0.10], color="#e74c3c", lw=2.0)
+    ax.add_patch(mpatches.FancyArrowPatch((left_x - 0.02, 0.10), (left_x, 0.10), arrowstyle="-|>", lw=2.0, color="#e74c3c", mutation_scale=16))
+    ax.text(chk_x - 0.015, 0.175, "Yes", ha="right", va="center", fontsize=10.5, color="#e74c3c", fontweight="bold")
+
+    # Right Done Arrow (2 -> 6)
+    right_x = cx + w/2
+    ax.plot([right_x, 0.85, 0.85, right_x + 0.02], [0.70, 0.70, 0.10, 0.10], color="#c8a24a", lw=2.0)
+    ax.add_patch(mpatches.FancyArrowPatch((right_x + 0.02, 0.10), (right_x, 0.10), arrowstyle="-|>", lw=2.0, color="#c8a24a", mutation_scale=16))
+    ax.text(0.87, (0.70 + 0.10)/2, "Goal hit, reply", ha="center", va="center", rotation=270, fontsize=10.5, color="#c8a24a", fontweight="bold")
 
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -175,10 +174,10 @@ def modes(out: Path) -> Path:
     ax.add_artist(Line2D([0.38, 0.62], [0.88, 0.88], color="#c8a24a", lw=2.0))
 
     cards = [
-        ("FAST", "#7a8699", "No <goal>\nNo <think>", "“push Ba6”", "Direct action", ["Prompt", "Act"]),
-        ("THINK", "#3498db", "Use <goal>\n<think> every step", "“yo, e6 for me”", "Multi-turn analysis", ["Goal", "Think", "Tag"]),
-        ("AUTO", "#2ecc71", "Use <goal>\n<think> when hard", "“play Qa4+ pls”", "Speed & depth", ["Goal", "Quiet", "Think*"]),
-        ("PLAN", "#c8a24a", "Use <goal>\n<plan> checklist", "“debug + break down”", "Compound tasks", ["Goal", "Plan", "Tick"]),
+        ("FAST", "#7a8699", "No <goal>\nNo <think>", "“play e4”", "Direct move command", ["Prompt", "Act"]),
+        ("THINK", "#3498db", "Use <goal>\n<think> every step", "“explain why my move failed”", "Coaching & analysis", ["Goal", "Think", "Tag"]),
+        ("AUTO", "#2ecc71", "Use <goal>\n<think> when hard", "“make a move, check threats”", "Balanced gameplay", ["Goal", "Quiet", "Think*"]),
+        ("PLAN", "#c8a24a", "Use <goal>\n<plan> checklist", "“audit game + run python sim”", "Multi-step validation", ["Goal", "Plan", "Tick"]),
     ]
 
     w, gap, y0, h = 0.22, 0.02, 0.22, 0.56
@@ -237,6 +236,62 @@ def modes(out: Path) -> Path:
     return out
 
 
+def data_factory(out: Path) -> Path:
+    """THE DATA FACTORY — How we built 73k examples from hand-written parts."""
+    plt = _plt()
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.patches as mpatches
+
+    fig, ax = plt.subplots(figsize=(11.5, 5.8))
+    fig.patch.set_facecolor("#11141a")
+    ax.set_facecolor("#11141a")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+    ax.text(0.5, 0.88, "Where data from?", ha="center", va="center",
+            fontsize=18, fontweight="bold", color="#ffffff")
+    ax.text(0.5, 0.80, "“We didn’t just grab it from nowhere, its ours”", ha="center",
+            fontsize=12, color="#c8a24a", fontstyle="italic")
+
+    # Buckets
+    buckets = [
+        ("Question", "6", "#3498db", "“spot anything wrong”"),
+        ("Style", "6", "#2ecc71", "slang (yo ___)"),
+        ("Scenario", "3", "#9b59b6", "auth hole bug"),
+        ("Mode", "3", "#e67e22", "fast / think"),
+        ("Closer", "10", "#e74c3c", "“jump to fix?”")
+    ]
+    w, h = 0.13, 0.21
+    gap = 0.04
+    start_x = 0.5 - (len(buckets) * w + (len(buckets)-1) * gap) / 2
+    
+    y_buckets = 0.48
+    for i, (name, count, color, example) in enumerate(buckets):
+        x = start_x + i * (w + gap)
+        box = FancyBboxPatch((x, y_buckets), w, h, boxstyle="round,pad=0.01", fc="#1c202a", ec=color, lw=2.0)
+        ax.add_patch(box)
+        ax.text(x + w/2, y_buckets + h - 0.04, name, ha="center", va="top", fontsize=12, fontweight="bold", color="#ffffff")
+        ax.text(x + w/2, y_buckets + h/2 - 0.01, count, ha="center", va="center", fontsize=32, fontweight="bold", color=color)
+
+        # One-liner short examples BELOW the buckets
+        ax.text(x + w/2, y_buckets - 0.05, example, ha="center", va="top", fontsize=10.5, color="#8395a7", fontstyle="italic")
+
+        if i < len(buckets) - 1:
+            ax.text(x + w + gap/2, y_buckets + h/2, "×", ha="center", va="center", fontsize=24, color="#7a8699")
+
+    # Bottom equation and card details
+    ax.text(0.5, 0.22, "6 × 6 × 3 × 3 × 10 = 3,240 for one card (skill)", ha="center", fontsize=14, fontweight="bold", color="#dcdde1")
+
+    ax.text(0.5, 0.11, "20 General Skills   +   5 Chess Skills", ha="center", fontsize=15, fontweight="bold", color="#2ecc71")
+    ax.text(0.5, 0.04, "(Chess uses real Stockfish self-play positions stopped at random depths)", ha="center", fontsize=11, color="#8395a7", fontstyle="italic")
+
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out}", flush=True)
+    return out
+
+
 def main() -> None:
     from llm_training.report import chart_data as D, charts, deck_stats as S, ppt_charts
     ap = argparse.ArgumentParser()
@@ -281,6 +336,8 @@ def main() -> None:
     # BACKUP (not in the main flow): the per-class proof. Same 88.7% as the comparison.
     ppt_charts.confusion_matrix(ADAPTER_CM, ["skill", "tool", "none"], o / "backup-confusion.png",
                                 CM_CAPTION, title="Where it routes right — E4B v4 adapter (val)")
+    # BACKUP: The Data Factory diagram
+    data_factory(o / "backup-data-factory.png")
     print(f"\nStory deck rendered into {o}", flush=True)
 
 
