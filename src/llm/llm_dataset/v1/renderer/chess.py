@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from ..annotator import AnnotatedPosition, StockfishAnnotator
-from ..board_facts import board_state_line, choose_move, legal_moves_for_square, move_echo
+from ..board_facts import (board_state_line, choose_move, king_moves, legal_moves_for_square,
+                           list_pieces_text, move_echo)
 from ..sampler import Scenario
 from . import tone
 from .chess_kb import KBItem, pick_answer, pick_kb
@@ -16,7 +17,8 @@ from .thinking import pick_mode
 SLICE_USER_TEMPLATES = {
     "A": ("play {san}", "let's go {san}", "{san} for me", "push {san}"),
     "B": ("should I move the knight or bishop?", "what plan should I choose?", "which capture is best?", "help me decide"),
-    "C": ("play e5 for me", "can my king move to e2?", "castle through check", "make the illegal capture"),
+    "C": ("can my king move to e2?", "is it legal for my king to step to e2?",
+          "can the king go to e2?", "where can my king move?"),
     "D": ("who is winning?", "rate this position", "is this lost for me?", "how is it?",
           "what's the exact eval?", "give me the score in pawns", "how many pawns am I up?",
           "what's the centipawn eval?"),
@@ -24,7 +26,8 @@ SLICE_USER_TEMPLATES = {
           "best move and the eval?"),
     "F": ("how was that move?", "did I blunder?", "rate my last move", "was that ok?"),
     "G": ("any threats?", "what is the opponent up to?", "watch out for what?"),
-    "H": ("legal moves on {square}?", "undo that", "what pieces are left?"),
+    "H": ("what pieces are left?", "what do I have on the board?", "list my material",
+          "which pieces do I still have?"),
     "I": ("what is the sicilian?", "why castle?", "what is a fork?", "who is capablanca?"),
     "J": ("hey there", "thanks!", "what can you do?", "feeling good"),
     "K": ("how much is a knight worth?", "is the queen the strongest piece?", "checkmate, that's a deal"),
@@ -36,6 +39,21 @@ INTERNAL_LESSON = "Use board tools before claims. Ground evaluation in Stockfish
 def _best_moves_result(top_moves: tuple) -> str:
     # mirrors the live backend best_moves format exactly (tools._best_move)
     return "best_moves: " + "; ".join(f"{i}. {san} ({cp / 100:+.2f})" for i, (san, cp) in enumerate(top_moves, 1))
+
+
+def _emit_best_move(messages: list[dict[str, Any]], scenario: Scenario, annotated: AnnotatedPosition) -> None:
+    """Emit the engine best_move call+result (top-N or best_line form). Shared by slice E and now
+    slice B (survey legal moves -> ask the engine -> grounded recommendation)."""
+    if e_top_form(scenario, annotated):
+        messages.append(tool_call_msg("best_move", {"depth": 15, "top": 3}))
+        res = _best_moves_result(annotated.top_moves)
+        if annotated.score_kind == "mate":   # ground the 'mate in N' final (top form carries no score field)
+            res += f", score: {best_move_score(annotated)}"
+        messages.append(tool_result_msg("best_move", res))
+    else:
+        messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
+        line = " ".join(annotated.best_line_sans)
+        messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {best_move_score(annotated)}"))
 
 
 def _played_move(annotated: AnnotatedPosition | None, slice_name: str, seed: int) -> str | None:
@@ -121,23 +139,24 @@ def _emit_slice_tool(
         messages.append(tool_call_msg("move", {"san": move}))
         messages.append(tool_result_msg("move", move_echo(annotated.fen, move)))
     elif scenario.slice == "B" and annotated:
+        # Survey the legal options FIRST, then ask the engine — so the final is a grounded
+        # recommendation (was: legal_moves only -> the finals just narrated "I checked the moves").
         sq, sans = legal_moves_for_square(annotated.fen, scenario.seed)
         messages.append(tool_call_msg("legal_moves", {"square": sq}))
         messages.append(tool_result_msg("legal_moves", f"legal: [{', '.join(sans)}]"))
+        _emit_best_move(messages, scenario, annotated)
+    elif scenario.slice == "C" and annotated:
+        # Legality check: read the king's actual legal squares, so the final ANSWERS the
+        # "can my king move to X?" question instead of refusing to guess.
+        ksq, ksans = king_moves(annotated.fen)
+        messages.append(tool_call_msg("legal_moves", {"square": ksq}))
+        messages.append(tool_result_msg("legal_moves",
+            f"legal: [{', '.join(ksans)}]" if ksans else "legal: none (the king has no legal moves)"))
     elif scenario.slice == "D" and annotated:
         messages.append(tool_call_msg("eval", {"depth": 15}))
         messages.append(tool_result_msg("eval", score_text(annotated)))
     elif scenario.slice == "E" and annotated:
-        if e_top_form(scenario, annotated):
-            messages.append(tool_call_msg("best_move", {"depth": 15, "top": 3}))
-            res = _best_moves_result(annotated.top_moves)
-            if annotated.score_kind == "mate":   # ground the 'mate in N' final (top form carries no score field)
-                res += f", score: {best_move_score(annotated)}"
-            messages.append(tool_result_msg("best_move", res))
-        else:
-            messages.append(tool_call_msg("best_move", {"depth": 15, "series": 3}))
-            line = " ".join(annotated.best_line_sans)
-            messages.append(tool_result_msg("best_move", f"best_line: {line}, score: {best_move_score(annotated)}"))
+        _emit_best_move(messages, scenario, annotated)
     elif scenario.slice == "F" and annotated and review:
         messages.append(tool_call_msg("review_move", {"depth": 12}))
         # REAL review: measured label + centipawn swing, not a hardcoded "good, +0.05".
@@ -148,27 +167,10 @@ def _emit_slice_tool(
         messages.append(tool_result_msg("threats", f"threats: opponent's best is {threat}, score for them: {score_pawns(annotated)}"))
     elif scenario.slice == "H" and annotated:
         messages.append(tool_call_msg("list_pieces", {"color": "mine"}))
-        messages.append(tool_result_msg("list_pieces", _list_pieces_text(annotated.fen)))
+        messages.append(tool_result_msg("list_pieces", list_pieces_text(annotated.fen)))
     elif scenario.slice == "I" and kb:
         messages.append(tool_call_msg("ask_chessbot", {"query": kb.query}))
         messages.append(tool_result_msg("ask_chessbot", kb.result))
-
-
-def _list_pieces_text(fen: str) -> str:
-    import chess
-    b = chess.Board(fen)
-    col = b.turn
-    majors, pawns = [], []
-    for sq, piece in sorted(b.piece_map().items()):
-        if piece.color != col:
-            continue
-        name = chess.square_name(sq)
-        if piece.piece_type == chess.PAWN:
-            pawns.append(name)
-        else:
-            majors.append(f"{piece.symbol().upper()}={name}")
-    parts = majors + ([f"pawns={','.join(pawns)}"] if pawns else [])
-    return "pieces: " + ", ".join(parts)
 
 
 def _envelope(

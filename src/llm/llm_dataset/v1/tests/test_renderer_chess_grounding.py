@@ -21,6 +21,10 @@ class _FakePos:
         self.best_san = b.san(first_legal)
         self.best_line_sans = [self.best_san]
         self.score_cp = 12
+        self.score_kind = "cp"
+        # top_moves: (san, cp) pairs — slice B/E now emit a best_move result, so the fake
+        # must mirror AnnotatedPosition's field (it predated B calling the engine).
+        self.top_moves = tuple((b.san(m), 12) for m in list(b.legal_moves)[:3])
         self.depth = 12
         self.threats_san = None
         self.mate = None

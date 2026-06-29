@@ -50,6 +50,71 @@ def legal_moves_for_square(fen: str, seed: int) -> tuple[str, list[str]]:
     return sq, by_square[sq]
 
 
+_PIECE_WORD = {chess.QUEEN: "queen", chess.ROOK: "rook", chess.BISHOP: "bishop", chess.KNIGHT: "knight"}
+_COUNT_WORD = {1: "a", 2: "two", 3: "three", 4: "four"}
+
+
+def _side(board: chess.Board, color: str) -> chess.Color:
+    if color == "white":
+        return chess.WHITE
+    if color == "black":
+        return chess.BLACK
+    return board.turn   # "mine"/"" -> side to move
+
+
+def list_pieces_text(fen: str, color: str = "mine") -> str:
+    """The `list_pieces` tool-result string (mirrors backend tools.py / chess.py)."""
+    b = _board(fen)
+    col = _side(b, color)
+    majors, pawns = [], []
+    for sq, piece in sorted(b.piece_map().items()):
+        if piece.color != col:
+            continue
+        name = chess.square_name(sq)
+        (pawns if piece.piece_type == chess.PAWN else majors).append(
+            name if piece.piece_type == chess.PAWN else f"{piece.symbol().upper()}={name}")
+    parts = majors + ([f"pawns={','.join(pawns)}"] if pawns else [])
+    return "pieces: " + ", ".join(parts)
+
+
+def piece_summary(fen: str, color: str = "mine") -> str:
+    """Human prose of the side's material (grounded in the same board as list_pieces) — for a
+    final that ANSWERS 'what pieces are left?' with content, not process narration."""
+    b = _board(fen)
+    col = _side(b, color)
+    by_type: dict[int, list[str]] = {}
+    pawns = 0
+    for sq, piece in b.piece_map().items():
+        if piece.color != col:
+            continue
+        if piece.piece_type == chess.PAWN:
+            pawns += 1
+        elif piece.piece_type != chess.KING:
+            by_type.setdefault(piece.piece_type, []).append(chess.square_name(sq))
+    parts: list[str] = []
+    for pt in (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT):
+        sqs = sorted(by_type.get(pt, []))
+        if not sqs:
+            continue
+        word = _PIECE_WORD[pt]
+        n = len(sqs)
+        parts.append(f"a {word} on {sqs[0]}" if n == 1
+                     else f"{_COUNT_WORD.get(n, str(n))} {word}s on {', '.join(sqs)}")
+    parts.append(f"{pawns} pawn" + ("" if pawns == 1 else "s"))
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + ", and " + parts[-1]
+
+
+def king_moves(fen: str) -> tuple[str, list[str]]:
+    """The side-to-move king's square and its legal destination SANs (for a legality-check row)."""
+    b = _board(fen)
+    ksq = b.king(b.turn)
+    name = chess.square_name(ksq) if ksq is not None else "?"
+    sans = [b.san(m) for m in b.legal_moves if m.from_square == ksq]
+    return name, sans
+
+
 def choose_move(fen: str, seed: int, requested: str | None = None) -> str:
     """Return a legal SAN. Honor `requested` iff legal; else a deterministic legal pick."""
     b = _board(fen)

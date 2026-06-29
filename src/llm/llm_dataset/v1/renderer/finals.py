@@ -16,6 +16,7 @@ import random
 import re
 
 from ..annotator import AnnotatedPosition
+from ..board_facts import king_moves, piece_summary
 from ..sampler import Scenario
 from . import tone
 from .grounded import threat_reason, why_best_move
@@ -86,40 +87,11 @@ def _threat_body(annotated: AnnotatedPosition, ask_number: bool, seed: int = 0) 
     return f"Watch for {threat} — {reason}."
 
 
-# Lesson-type chess finals (B/C/H/J) state a behaviour, not a position fact, so
-# their base sentence was constant — repeated 1-2k times -> memorisation. Each
-# pool carries the SAME lesson in a few phrasings; one is picked per seed and then
-# routed through ask() for a guiding closer, so distinct finals scale into the
-# dozens without changing what the row teaches.
+# Greeting finals (J). B/C/H NO LONGER live here: they were process-narration ("I checked the
+# legal moves, then chose by the plan") with zero position content, which the model learned and
+# reproduced live. They now render GROUNDED content from the position (see final_narration). J is
+# a real greeting (not narration); one phrasing is picked per seed.
 _LESSON_FINALS = {
-    "B": ("I listed the legal moves first, then chose on the plan rather than guessing.",
-          "Rather than guess, I read the legal moves and picked by the plan.",
-          "I checked what was actually legal, then chose the move that fit the plan.",
-          "I let the legal-move list guide the choice instead of trusting my memory.",
-          "I grounded the decision in the legal moves, then went with the plan.",
-          "First the legal options, then the pick — no guessing at the board."),
-    "C": ("I won't play that without a legal-move result; the board snapshot alone isn't enough.",
-          "That move isn't confirmed legal here, so I won't play it on the snapshot alone.",
-          "I can't make that move without checking it's legal first — the board read isn't proof.",
-          "Without a legal-move check I won't commit to that; the position alone doesn't license it.",
-          "I'll hold off on that move until a legal-move result backs it up.",
-          "I won't force an unverified move — it needs to clear the legal-move check first.",
-          "I'd need a legal-move check before playing that; the snapshot doesn't confirm it.",
-          "Not playing that on the board read alone — it has to pass a legal-move check first.",
-          "That move stays on hold until the legal-move list confirms it's allowed.",
-          "I won't commit to that move without verifying it's legal on this board.",
-          "The position alone doesn't prove that's legal, so I'll check before moving.",
-          "Before I play it I need the legal-move result — the board read isn't enough.",
-          "I can't confirm that's legal from the snapshot, so I won't make it yet.",
-          "That needs to clear a legal-move check first; I won't guess it's allowed.",
-          "No move without confirming legality — the board picture isn't proof on its own.",
-          "I'll verify it against the legal moves before committing, not assume it from the position."),
-    "H": ("I listed your pieces from the board rather than guessing.",
-          "I read the material straight off the board instead of recalling it.",
-          "Those pieces come from the board read, not from memory.",
-          "I pulled the piece list from the live position rather than guessing.",
-          "I grounded the material count in the board, not an assumption.",
-          "I checked the board for what's actually on it instead of estimating."),
     "J": ("Hi. Ask me to read the board, suggest a move, or explain a chess idea.",
           "Hey there. I can analyze a position, recommend a move, or talk through a plan.",
           "Happy to help — point me at a board, a move to review, or a concept to explain.",
@@ -149,14 +121,22 @@ def final_narration(
     sl = scenario.slice
     if sl == "A":
         return ask(f"{opener}{sep}Played {move}. The board's updated and it's the opponent's turn now.", seed, 4)
-    if sl in _LESSON_FINALS:  # seeded paraphrase of the lesson
-        base = random.Random(seed * 53 + 11).choice(_LESSON_FINALS[sl])
-        # C (illegal-move refusal) and J (greeting) stay STATEMENTS by contract
-        # (test_knowledge_and_greeting_finals_stay_statements); B and H get a
-        # guiding closer like the other coaching finals.
-        if sl in ("C", "J"):
-            return f"{opener}{sep}{base}"
-        return ask(f"{opener}{sep}{base}", seed, 4)
+    if sl == "B" and annotated:
+        # B surveys the legal moves THEN asks the engine -> a grounded recommendation (the same
+        # composer slice E uses), not the old "I checked the legal moves, then chose by the plan".
+        return ask(f"{opener}{sep}{_best_move_body(scenario, annotated, ask_number)}", seed, 4)
+    if sl == "H" and annotated:
+        # H answers "what's left?" with the ACTUAL material read off the board (the list_pieces result).
+        return ask(f"{opener}{sep}You've still got {piece_summary(annotated.fen)}.", seed, 4)
+    if sl == "C" and annotated:
+        # C answers the legality question from the king's real legal squares — a STATEMENT (per
+        # test_knowledge_and_greeting_finals_stay_statements), not a refusal to guess.
+        ksq, ksans = king_moves(annotated.fen)
+        body = (f"Your king on {ksq} can move to {', '.join(ksans)} — those are its legal squares." if ksans
+                else f"Your king on {ksq} has no legal squares right now; it's boxed in.")
+        return f"{opener}{sep}{body}"
+    if sl in _LESSON_FINALS:  # J greeting (seeded paraphrase; stays a STATEMENT)
+        return f"{opener}{sep}{random.Random(seed * 53 + 11).choice(_LESSON_FINALS[sl])}"
     if sl == "D" and annotated:
         return ask(f"{opener}{sep}{_eval_body(annotated, seed, ask_number)}", seed, 4)
     if sl == "E" and annotated:
