@@ -7,6 +7,7 @@ from collections import Counter
 from llm_dataset.v1.renderer.thinking import (
     MODES, gated_answer, gated_fix, gated_think, pick_mode,
 )
+from llm_dataset.v1.renderer.tags import tool_call_msg
 from llm_dataset.v1.validate import validate_row
 from llm_training.system_prompt import build_system
 
@@ -37,6 +38,19 @@ def test_auto_thinks_only_on_hard_steps():
     assert "<think>" in gated_think(1, "legal_moves", 3, mode="auto", kind="decide")
     assert "<think>" in gated_fix(1, "eval", mode="auto")       # recovery is hard
     assert "<think>" in gated_answer(1, "x", mode="auto")        # goal-met check is hard
+
+
+def test_attach_reasoning_traces_keeps_fast_silent():
+    from llm_dataset.v1.renderer.reasoning_traces import attach_reasoning_traces
+
+    think_msgs = [{"role": "user", "content": "best move?"}, tool_call_msg("best_move", {"depth": 15}),
+                  {"role": "assistant", "content": "Re8 is mate."}]
+    attach_reasoning_traces(think_msgs, mode="think", seed=7, goal="best move?")
+    assert all("<think>" in m.get("reasoning", "") for m in think_msgs if m.get("role") == "assistant")
+
+    fast_msgs = [{"role": "user", "content": "best move?"}, tool_call_msg("best_move", {"depth": 15})]
+    attach_reasoning_traces(fast_msgs, mode="fast", seed=7, goal="best move?")
+    assert all(not m.get("reasoning") for m in fast_msgs)
 
 
 def _fast_row(with_think: bool) -> dict:

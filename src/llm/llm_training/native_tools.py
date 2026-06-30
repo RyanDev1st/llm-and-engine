@@ -65,7 +65,13 @@ def tools_from_system_prompt(system: str) -> list[dict[str, Any]]:
 
 
 def template_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        clean = {k: v for k, v in msg.items() if not k.startswith("_") and k != "reasoning"}
+        if msg.get("reasoning"):
+            clean["reasoning_content"] = msg["reasoning"]
+        out.append(clean)
+    return out
 
 
 def tools_for_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

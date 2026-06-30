@@ -11,6 +11,7 @@ from .chess_kb import KBItem, pick_answer, pick_kb
 from .chess_envelope import build_chess_envelope
 from .finals import e_top_form, final_narration, wants_number
 from .review import ReviewFacts, delta_str, review_for_played
+from .reasoning_traces import attach_reasoning_traces
 from .tags import skill_call_msg, tool_call_msg, tool_result_msg
 from .text import best_move_score, score_pawns, score_text
 from .thinking import pick_mode
@@ -95,6 +96,7 @@ def render_chess_row(scenario: Scenario, annotator: StockfishAnnotator) -> dict[
     body = final_narration(scenario, annotated, move, wants_number(user),
                            pick_answer(kb, seed) if kb else None, review=review)
     messages.append({"role": "assistant", "content": body})
+    attach_reasoning_traces(messages, mode=mode, seed=seed, goal=user)
     return build_chess_envelope(scenario, messages, annotated, mode)
 
 

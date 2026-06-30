@@ -27,6 +27,7 @@ TOOL_RESPONSE_IDS = {50, 51}   # <|tool_response> / <tool_response|> on the E2B 
 # (the E4B/unsloth base could number these differently; a wrong hardcoded id silently UN-masks
 # the env-injected tool output and trains the model to FABRICATE tool results). See _tool_response_ids.
 _TOOL_RESPONSE_MARKERS = ("<|tool_response>", "<tool_response|>")
+_MASKED_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 def _tool_response_ids(tokenizer: Any) -> set[int]:
@@ -63,6 +64,10 @@ def _overlaps(offset: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
     return any(s < se and ss < e for ss, se in spans)
 
 
+def _masked_think_spans(text: str) -> list[tuple[int, int]]:
+    return [(m.start(), m.end()) for m in _MASKED_THINK.finditer(text)]
+
+
 def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
     from llm_dataset.v1.jsonl_io import read_rows  # transparent .jsonl/.jsonl.gz
 
@@ -94,15 +99,9 @@ def load_jsonl_chat(path: Path, max_examples: int) -> list[list[dict]]:
 def tokenize_with_assistant_mask(
     messages: list[dict], tokenizer: Any, max_len: int
 ) -> tuple[list[int], list[int], list[float]]:
-    # Render each cumulative prefix to TEXT (cheap) and tokenize only the new
-    # delta once per turn (O(n) vs the old O(n^2) full re-tokenize). Also emit a
-    # per-token loss weight: fact tokens (eval numbers, SAN moves) in assistant
-    # turns get GROUND_WEIGHT so the model is penalized for fabricating them.
-    #
-    # v5-native: NO remap — role="tool" survives the native template (it folds into a
-    # <|tool_response> block after the assistant's structured tool_calls). Train with the
-    # same per-row enable_thinking signal serve uses (fast off, think/auto/plan on), but
-    # do not train custom thought text; native reasoning stays the base model's job.
+    # Render cumulative prefixes and train only assistant deltas. v5-native keeps
+    # role="tool" and structured tool_calls in the model's native template. Reasoning
+    # traces are input-only context: mask <think> stubs while plan boxes remain trained.
     input_ids: list[int] = []
     labels: list[int] = []
     weights: list[float] = []
@@ -134,13 +133,14 @@ def tokenize_with_assistant_mask(
             enc = tokenizer(delta_text, add_special_tokens=False)
             offsets = None
         delta = enc["input_ids"]
-        final_turn = assistant and not msg.get("tool_calls") and not msg.get("reasoning")
+        final_turn = assistant and not msg.get("tool_calls")
         fact_spans = _fact_spans(delta_text) if (assistant and offsets) else []
+        masked_think_spans = _masked_think_spans(delta_text) if (assistant and offsets) else []
         for j, tid in enumerate(delta):
             input_ids.append(tid)
             # Train assistant-generated tokens (tool calls, native thinking channel, final
             # answer); mask the env-injected tool-response marker that lands in this delta.
-            if assistant and tid not in tr_ids:
+            if assistant and tid not in tr_ids and not (offsets and _overlaps(offsets[j], masked_think_spans)):
                 labels.append(tid)
                 if offsets and _overlaps(offsets[j], fact_spans):
                     w = GROUND_WEIGHT

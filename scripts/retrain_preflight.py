@@ -167,7 +167,9 @@ def main(profile_name="v5", tok_dir: str | None = None):
         for m in r["messages"]:
             if m.get("role") != "assistant" or m.get("train") is False:
                 continue
-            blob = (m.get("content") or "") + " " + (m.get("reasoning") or "")
+            # `<think>...</think>` may live in `reasoning` as input-only context; the loss
+            # mask ignores it. Legacy leak here means trained/user-visible assistant content.
+            blob = m.get("content") or ""
             for tag in _LEGACY:
                 if tag in blob:
                     leak[tag] += 1

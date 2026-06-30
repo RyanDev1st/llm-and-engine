@@ -411,10 +411,9 @@ def _one_tool_per_message(messages: list[dict[str, Any]]) -> list[Violation]:
 
 
 def _reasoning_mode(row: dict[str, Any]) -> list[Violation]:
-    """Dual-mode integrity: a `fast` row must carry NO reasoning channel (native thinking
-    rides the `reasoning` field; fast = answer directly). think/auto carry none in training
-    (native at serve); plan carries <goal>/<plan> there. This keeps fast-vs-think a real
-    toggle rather than an always-on reflex."""
+    """Dual-mode integrity: a `fast` row must carry NO reasoning channel. Non-fast rows
+    may carry native thought-channel context, which the training mask keeps input-only.
+    This keeps fast-vs-think a real toggle rather than an always-on reflex."""
     mode = (row.get("reasoning_mode") or "").strip().lower()
     if mode != "fast":
         return []

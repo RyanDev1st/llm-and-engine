@@ -5,9 +5,8 @@ v5-native: renderers build STRUCTURED messages here instead of writing literal
 to native single-token `<|tool_call>call:NAME{args}<tool_call|>` /
 `<|tool_response>response:NAME{...}<tool_response|>` blocks (see
 docs/reference/native-gemma-format.md). Loading a skill is a native tool call
-(`load_skill{name:NAME}`) — Gemma has no `<skill>` verb. Thinking is NOT emitted
-here: it is omitted from training rows and invoked at serve via enable_thinking,
-so the base model's native reasoning is never overwritten by stubs.
+(`load_skill{name:NAME}`) — Gemma has no `<skill>` verb. Thinking is attached by
+the renderer as native thought-channel context and masked from loss by the trainer.
 """
 from __future__ import annotations
 
